@@ -1,0 +1,39 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+*.xcuserstate
+xcuserdata/
+*.sqlite*
+*.log
+.local/
+__pycache__/
+build-tests/
+.facienda-task-*/
+.agents/
+# Kept on this Mac only: design mocks, internal notes and screenshots.
+/mocks/
+/docs/mocks/
+/docs/iphone/
+/docs/*.md
+/docs/protocol/
+# Brand explorations, kept on this Mac only.
+/Assets/Brand/facienda-fold-exploration.png
+/Assets/Brand/facienda-fold-extraction-prompt.txt
+/Assets/Brand/facienda-fold-generated.png
+/Assets/Brand/facienda-fold-menu-preview.png
+/Assets/Brand/facienda-fold-preview-dark.png
+/Assets/Brand/facienda-ink-transparent.png
+/Assets/Brand/facienda-ink.png
+/Assets/Brand/facienda-porcelain-concept.png
+
+# Local credentials and private signing material.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.p12
+*.pfx
+*.p8
+id_rsa
+id_ed25519

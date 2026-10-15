@@ -1,0 +1,2588 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		01D0E009C1E3B898DC37A465 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D814A742A6D4CEC7066AE122 /* CaptureView.swift */; };
+		037CFCBAE6D30624C5DBCAC1 /* AppModel+Lookups.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6C0A4505ECEFDAE605F890 /* AppModel+Lookups.swift */; };
+		05F64E53CFBEB33C6F60DBE4 /* AppModel+Folders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD1C0FA321D1CE2F0041AAA /* AppModel+Folders.swift */; };
+		0687790436D9ADB6D87F5996 /* GroupSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FDFF9921B5ED944350FF9D /* GroupSourceTests.swift */; };
+		07645D3A51DC8CB14419C6BD /* GroupFolderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB77A353D37635C7FD733F47 /* GroupFolderTests.swift */; };
+		078535696308CA8141E7F6B3 /* AppModel+Groups.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E3C2C4AA68BA49FCE9333E /* AppModel+Groups.swift */; };
+		0A1F7898B413929E98631E03 /* RunnersPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 617617F4C7FB9363420C5CDA /* RunnersPane.swift */; };
+		0EE523B49931EB9F5B185D78 /* LibraryHomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00AD4A82EA79E26822D979B8 /* LibraryHomeTests.swift */; };
+		10537F5739C5DBC72E60597A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19317DC3FBEF055D559C2A3C /* main.swift */; };
+		10CCF25178523563A6FF9ED4 /* ClaudeCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C2ACA3816435C6A09C6600 /* ClaudeCommand.swift */; };
+		1629A0BA21DF632F73026E00 /* OmnibarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0BE3A7864BC92311A8D408 /* OmnibarPanel.swift */; };
+		17F705FD19068F575B9FB232 /* ClaudeRunnerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3EDB06705B227040AEE641 /* ClaudeRunnerSettings.swift */; };
+		184AE2ECA775661B3BC51D46 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 29A3C6E33CBF74F613CA5E50 /* Sparkle */; };
+		185A39DA5CABB85AF3358491 /* ChatHandoverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC14CDD04EFE0D77F347016 /* ChatHandoverTests.swift */; };
+		1B17F1BA96A3842AEC1EA575 /* ChatChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3614954B0610DB9876C279EC /* ChatChoice.swift */; };
+		1B4AA2B2E57324A44083DA74 /* CodexConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0794913F709BC8A86ACB1D /* CodexConnection.swift */; };
+		1CFFFCFAE90A6F073D90F9DE /* FaciendaCompanion in Frameworks */ = {isa = PBXBuildFile; productRef = 84644A104715317601DD9E9A /* FaciendaCompanion */; };
+		1D515AC79E2FC1BF26B356C6 /* ApplicationsMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = C847C5AB9E24DC8BCB1B9933 /* ApplicationsMove.swift */; };
+		1E1951F8C30EADF7A99DC47F /* WorkspaceSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F420127733297C372794BDA7 /* WorkspaceSheets.swift */; };
+		20D9003A5A774846F3D2E04D /* FaciendaCompanion in Frameworks */ = {isa = PBXBuildFile; productRef = CF06D902D6E5F9258BDDCFC9 /* FaciendaCompanion */; };
+		215D625AC8BB1A863E49E4AA /* FaciendaBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 0944317B36B79DC002BB389B /* FaciendaBridge */; };
+		232D6B7548712D15A6ECFB5E /* WorkspaceSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2B3F7FB7BB558255C62EB5 /* WorkspaceSetupTests.swift */; };
+		2378FB2B7811622BAF915DC2 /* OwnStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409F785F3A48DBF1C8EC9F5A /* OwnStepTests.swift */; };
+		2390CFDE5B2FB1F07385B557 /* Textual in Frameworks */ = {isa = PBXBuildFile; productRef = 022B12815EF8AD2E780F58B1 /* Textual */; };
+		242F42559E86D5E4999A3458 /* TaskComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A669668F951662606C39F3 /* TaskComposer.swift */; };
+		24CD197E890C136AA870C7CE /* FaciendaPhoneUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007477ED9BBBBC874C3D1B88 /* FaciendaPhoneUITests.swift */; };
+		24E304CD86E817483E28F810 /* AppModel+Dispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD305FFE3D971F3DAF4293E0 /* AppModel+Dispatch.swift */; };
+		252461DDC4F15F6214A7FEF0 /* DispatcherHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31EA852BF9735C12487648E /* DispatcherHost.swift */; };
+		25AE549A57667A3CB8668D4C /* AppModel+Claude.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190932C138DA7920C967E9D9 /* AppModel+Claude.swift */; };
+		278C2D168989AA154F3B65D3 /* ChoiceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5FC8020D0CB2DEF8109031 /* ChoiceRow.swift */; };
+		284013593BD7A3F98C71F9D9 /* AppModel+Writers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D666659FA64942A38396871 /* AppModel+Writers.swift */; };
+		286210FF7E338D9045D60F46 /* AppModel+Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FBD2BD5830F7FF53E31C82 /* AppModel+Services.swift */; };
+		288E698155FCBFF96DB1933E /* BoardHover.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC6C02AE0A0F4781863EBC2 /* BoardHover.swift */; };
+		29B80336CCFC116ECFA71C75 /* AppModel+Dispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD305FFE3D971F3DAF4293E0 /* AppModel+Dispatch.swift */; };
+		2AB8BC438BE24932D5902550 /* OmnibarField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA05C9AC724DD87E5D4BE9F5 /* OmnibarField.swift */; };
+		2C9B16088360C4FF4DAD85E0 /* FaciendaPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21AE3BE147E06A5DE338F48A /* FaciendaPhoneApp.swift */; };
+		2DED16EF1FBDB213385D1E7E /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CD998B1C7AD7E98FAD8F44 /* StoreTests.swift */; };
+		2E48FDBF9A7C915D31EF1F44 /* AppModel+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5DA6B5D6714EBE79FE615DE /* AppModel+Setup.swift */; };
+		2ECCE41B18A5D4EF159BCFDE /* WorkspaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24444E9EA1B191490CA96C92 /* WorkspaceController.swift */; };
+		2F37ADE45BE0B02B092BB183 /* FaciendaBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 1121F78FDB50B9CF5FCF88AB /* FaciendaBridge */; };
+		2F6022D786B242E259708DEF /* CheckPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCD283C017E48ACC1D1B6430 /* CheckPlanTests.swift */; };
+		340F38DF486428FF42705432 /* WrapLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E003C3365E608CC59D61D7 /* WrapLayout.swift */; };
+		37AD9D65752D3BEE5C62E960 /* OmnibarItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6A9FBF5577F1A490F2FCAE /* OmnibarItem.swift */; };
+		3BE92A1CD21FF329EE998BE1 /* BlockerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841F29C0D3DB3D364FD3FEDE /* BlockerViews.swift */; };
+		3C50C013DF2404AF38A107D4 /* FaciendaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0676C8438E1BD9C0810361B0 /* FaciendaApp.swift */; };
+		3C8AF44D56F4E923FF3B5B18 /* GroupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FE890AE7A5FC63753D88869 /* GroupSheet.swift */; };
+		3E3DBA078E521B9E89CD12A6 /* UndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24846E67682F541571867EE4 /* UndoTests.swift */; };
+		4025E533DF920EDFEAADAD49 /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = DD8B970EF9A05B7BF48B3D39 /* FaciendaCore */; };
+		40723B8F3AA84A3A03146C89 /* TaskPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85106158AFB626C55BAED0D5 /* TaskPresentationTests.swift */; };
+		414BD5E535CC253E5B62D0E9 /* AppModel+ChatSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A414122DBA2EF08BB5AF618 /* AppModel+ChatSearch.swift */; };
+		4233FFB675806EF5A986915C /* StorageSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89BEC6B30A82542A182A3CA9 /* StorageSettings.swift */; };
+		423D17B42A5CF62E21AD8B83 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = 27B3401D79EF88E4018754CF /* MCP */; };
+		427A35E3A417507C694D61C8 /* MCPHelper in Resources */ = {isa = PBXBuildFile; fileRef = 2D65B1C6F1EDE0DB0D8A58F1 /* MCPHelper */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		428756E64562675E7217944E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A912E9774D4EF1C64B2489B /* OnboardingView.swift */; };
+		4367CE19E9BD6175B5B55A4B /* RunnerCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B634040C58923726A811382 /* RunnerCommand.swift */; };
+		46BC3A65DCED23EDCC42D982 /* BoardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB824D5E3384E2E507180DE /* BoardLayout.swift */; };
+		486272069577740D0BFF41C5 /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4369C9359925CE878FE9D4D0 /* FaciendaCore */; };
+		4A863529A68E0AB48DCA1CD1 /* DispatcherHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31EA852BF9735C12487648E /* DispatcherHost.swift */; };
+		4A9E6D36B5E749FC91938C37 /* TaskEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9EF934DA7586E74C68DE96 /* TaskEditor.swift */; };
+		4B9C025FE9148A37AB359E53 /* FaciendaMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0782FEEC1919312E579FD6E4 /* FaciendaMemory.swift */; };
+		4C0ECCF96ED889A1CF73CA15 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E77EC21E4C1124414051FD /* Theme.swift */; };
+		4C41FDA122B16D1F4FF5A69C /* AppModel+Folders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD1C0FA321D1CE2F0041AAA /* AppModel+Folders.swift */; };
+		4C64BF5297B0B22F790BBCC3 /* AppModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15CB56AEAC2F58FA9213E19B /* AppModelTests.swift */; };
+		4C8BB8252413A9E52408B3BF /* ChatIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9FFC79CF905F974842E12A /* ChatIndexTests.swift */; };
+		4D4B41025646AD5082DF45B2 /* WorkspaceSetupViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB0E8892C29EADDEFDB0104 /* WorkspaceSetupViews.swift */; };
+		4E08E24B107B8CD9CB809C8C /* DashboardModes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C602F89136EE6019AC3F773 /* DashboardModes.swift */; };
+		4E2AF7C835D05961B90317B9 /* ThreadBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DB4289B116A1DF15E561CAC /* ThreadBrowser.swift */; };
+		4E61D176CEE781055EB65DA1 /* VoiceShaperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CBD5AB6847A80A8940CC87 /* VoiceShaperTests.swift */; };
+		4F250F841613AC3710C23E96 /* TaskRecapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8AA8DDB15A6A4DE5CF834BB /* TaskRecapTests.swift */; };
+		4F89324C12E3E2EC5E6EECDB /* ClaudeUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796C9144B2C10B64EA56A0F /* ClaudeUsage.swift */; };
+		4F93CF4B1BEE255079CA5FB0 /* MemoryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2017DB64B26801778B8EF26C /* MemoryModelTests.swift */; };
+		513160CA2037CA632C20EE69 /* MobileCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07C9BFED5E1CDB6B22C169B /* MobileCompanion.swift */; };
+		519A037FDB3ADFAF52462302 /* FaciendaBridge in Frameworks */ = {isa = PBXBuildFile; productRef = D1EEE0DD3D59910A5DC217FF /* FaciendaBridge */; };
+		51F1D04867FD508CBB7EDD48 /* AppModel+ServiceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5881E8070B4ABC82A7D2AF5C /* AppModel+ServiceModel.swift */; };
+		54BC6F4E533D5125F411197C /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 39BCA4BF657C2777F67B3DA6 /* FaciendaCore */; };
+		556108DD7D919573EA3BDE98 /* PlanLineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 088B00BA6E858913FDA67DE1 /* PlanLineTests.swift */; };
+		568D2B30980AF83B0A2F7E0F /* CompatibleStdioTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2E33C5F89DD3EA194C4EA8 /* CompatibleStdioTransport.swift */; };
+		586AD24FCEBFA23C54EC4382 /* VoiceShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783F36D19966D031ECBF8B91 /* VoiceShapes.swift */; };
+		5B6390CE71BF20CC180392DF /* HookHelper in Resources */ = {isa = PBXBuildFile; fileRef = 22663E51AAA7C8470FF5B32E /* HookHelper */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5C401DDADBAC1CBC9AE9B40B /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 721D990621E445090019FBBB /* FaciendaCore */; };
+		5D1D7BD86B625CF2B5011A2C /* AppModel+Plan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A356C68870A65FA6D024DD49 /* AppModel+Plan.swift */; };
+		5F64DF7FAD7C2BB217383D09 /* FaciendaDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37745CFB807454933D742C0 /* FaciendaDispatch.swift */; };
+		5FE1A0C9E71934254237B7E1 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6714A6FA2D80D65DF489007E /* UpdatePill.swift */; };
+		6009936292B39ADB5386316B /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC10123635567DAC3F3AAFD /* VoiceCapture.swift */; };
+		61C2CD1DDD8D4CDD6892E43B /* MobileIntakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96E313A0F1F297533077B45 /* MobileIntakeTests.swift */; };
+		62B5F721D171D47EE96B0349 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60E2405A4D2C079A0D09CE8 /* DashboardView.swift */; };
+		62B9B150A87EB6BDF81FED9E /* ModelChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430B22267357B1C6EEE3E36D /* ModelChoice.swift */; };
+		6498A0FAD7A503EFF6850E51 /* AppModel+Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FBD2BD5830F7FF53E31C82 /* AppModel+Services.swift */; };
+		650FB80693F3DF14348B2C98 /* FaciendaMCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13845FB6B4EDDC5828B34C5D /* FaciendaMCP.swift */; };
+		685F4D5EF08D02C680915CD8 /* WaitAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE1B336E55EEAF74B04E29 /* WaitAssistant.swift */; };
+		68D2EE4BC9DF3749737B94BA /* CodexDispatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44087A49CAE5E45F6B01238A /* CodexDispatchTests.swift */; };
+		68EDA74D3C9C735A557DE0F0 /* UndoToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75EEA177E85C2D2D77FCE69E /* UndoToast.swift */; };
+		69C8949E495EC3E19FAF2FF6 /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8725CE3E611B0EFAF2ABBDB0 /* FaciendaCore */; };
+		69E2D02EFFA1819F762B0B99 /* WorkspaceMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E28EA88FBA44F643C5D886 /* WorkspaceMemoryTests.swift */; };
+		6C574955971DFAA5F4226BD6 /* DispatchHelper in Resources */ = {isa = PBXBuildFile; fileRef = 8BD21AFC0ED36052C10949CF /* DispatchHelper */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6DB002D95ADA973D7E1A221C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D985B26E54678198488896D8 /* SettingsView.swift */; };
+		7103A9999F11E54D90DC4CF9 /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 853F7FE71E88E1F7A0F0C411 /* ThirdPartyNotices.txt */; };
+		71B107050C059A829D825220 /* TaskDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20508A1634F11B30031E40B8 /* TaskDot.swift */; };
+		78DCFD72B657678170A9A7BB /* PlanBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14C82EB3F46EF2B6273FBF2F /* PlanBoard.swift */; };
+		796685EDD6205E2A1FB692FF /* UsageMeters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43833CF70F7E44285AFDA876 /* UsageMeters.swift */; };
+		7B33121885659EFF023922DC /* MoodSpotlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF708C82E60EFFE08E9D1D96 /* MoodSpotlight.swift */; };
+		7B344854B3974943095B453D /* SettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD50285F87B71CD67F516150 /* SettingsPane.swift */; };
+		7C516D92EF7CF0CC4B3BA10C /* AppModel+Groups.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E3C2C4AA68BA49FCE9333E /* AppModel+Groups.swift */; };
+		7DC823E9018B65A28DAB5E48 /* WhisperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90D8ECCA92827B823A970500 /* WhisperEngine.swift */; };
+		7E9B79CC6AED18B822DBFAAE /* TaskActionsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6836428D49996645D9AF24C4 /* TaskActionsPopover.swift */; };
+		7F6DFA80D943F26FAF79B35D /* AppModel+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5DA6B5D6714EBE79FE615DE /* AppModel+Setup.swift */; };
+		7FC13CF7991434C85BC26D23 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC989DEF49F1A4AE40BE8CD3 /* AppModel.swift */; };
+		80BB6240BFD5B4313C0A8596 /* MobileCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07C9BFED5E1CDB6B22C169B /* MobileCompanion.swift */; };
+		8113A3D2C1225C90BE1AAB13 /* ClaudeUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796C9144B2C10B64EA56A0F /* ClaudeUsage.swift */; };
+		81CB82741BEE0D0F4C214F6E /* LibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861E120A918CDAA9BED43F93 /* LibraryTests.swift */; };
+		854FC3F34699D664ED6A711A /* SourcesButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB876B49F54DD1D8749DBBD /* SourcesButton.swift */; };
+		86AB6A090C4311AF0C6C561B /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 853F7FE71E88E1F7A0F0C411 /* ThirdPartyNotices.txt */; };
+		87223502C7CF8B51301F5360 /* OnboardingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A441BE96BD3C40AC4BFF450 /* OnboardingModel.swift */; };
+		883A3EC181AF6EC8127B2470 /* WorkspaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24444E9EA1B191490CA96C92 /* WorkspaceController.swift */; };
+		887A2D169A7430B7B427216C /* AppModel+Claude.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190932C138DA7920C967E9D9 /* AppModel+Claude.swift */; };
+		894CB16F67E7302FC7C834FF /* memory-models.json in Resources */ = {isa = PBXBuildFile; fileRef = 9006F734793994BAB35ECE0A /* memory-models.json */; };
+		8BDD1938EAFEC9F6F5AAE1F3 /* PresentingBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60310A20186F8DA5637A63C /* PresentingBinding.swift */; };
+		8C0449DBC0770DD96FD793E6 /* DispatchContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A01DFCA6FF5FE2BE0AE10AE /* DispatchContextTests.swift */; };
+		8E55DEBC0A01A9916EAD39B8 /* SetupVisuals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27919841D64152C85DCA2664 /* SetupVisuals.swift */; };
+		90B8B506144B12B1FA735DDA /* MobileCompanionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3CB66435896201158F3E415 /* MobileCompanionTests.swift */; };
+		923BD4EAED899116F0DA4F1D /* StateLegend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90760038D05C16943F3BD621 /* StateLegend.swift */; };
+		95FFC3BF0A2BB7A434CE78F0 /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D528CE09ACC3804163733B /* MicButton.swift */; };
+		9927810F47F21C14C015E169 /* WorkspaceMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD4AC5CD72402B8F81AEDE /* WorkspaceMenuItems.swift */; };
+		9B0EF21953A72970A265319D /* OmnibarAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 506B3118D93CC1EE39020456 /* OmnibarAttachments.swift */; };
+		9B6B2460D7E9798320048D6C /* CoverWishPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE783F065D7E26132BF04077 /* CoverWishPopover.swift */; };
+		9BA99074E8D4E6538EC15156 /* DemoSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D14CAC4BD7AF2061C0757C9 /* DemoSnapshot.swift */; };
+		9F7E9FB893E31ADB923BECA7 /* TaskDetailParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C83615B336D577A24A0DF1 /* TaskDetailParts.swift */; };
+		A3094DFB1A4A20BEB71E70FC /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83E486219C36302B14A54ED /* CaptureView.swift */; };
+		A364C80A7886801C09C891C9 /* TaskChoicesPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0735AD162FA5B8E1816070 /* TaskChoicesPopover.swift */; };
+		A56B9F12AB0429E0FA6A347F /* PhoneAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9D8269233E528F5CDC464DC /* PhoneAssets.xcassets */; };
+		A6B65C071CAF0C82A85A27D9 /* SettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD50285F87B71CD67F516150 /* SettingsPane.swift */; };
+		A982C212884A91FF6F5C8745 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B95B6F1C110E71950021019B /* WhisperKit */; };
+		AE855D980873EA80CCABE66C /* SafeUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533F83F57E1F28325AFB90FD /* SafeUndoTests.swift */; };
+		B1A479430CA384C6961B3332 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC989DEF49F1A4AE40BE8CD3 /* AppModel.swift */; };
+		B1C4B9E90EA224787E2F399C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 93C420BD925230223E380E60 /* Assets.xcassets */; };
+		B25F103BC00151281309D328 /* WaitChoices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811C72F5BAD53F329B95B2E3 /* WaitChoices.swift */; };
+		B481F3A846E3B63CB135F224 /* CodexConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0794913F709BC8A86ACB1D /* CodexConnection.swift */; };
+		B6EBE43050702EBEF631FCCC /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7C776025E128001D5ACD4C /* Shortcuts.swift */; };
+		B7C01718351C967553ED793D /* FaciendaCompanion in Frameworks */ = {isa = PBXBuildFile; productRef = 16CC2563F5A3194796A207D0 /* FaciendaCompanion */; };
+		BA103C8B87DD1C310F21BAEE /* TaskRecapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5FD223D99A20D842BD994D0 /* TaskRecapView.swift */; };
+		BB7FD537D6D8C72D9EB7990A /* ResultText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 389C8E8D7F7353425AE8FF19 /* ResultText.swift */; };
+		BBFACA8A02DA25978D186E72 /* AppModel+Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2875CEB0D5F858214E0623 /* AppModel+Status.swift */; };
+		BF009027385040D7C2E90088 /* GroupBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E837F6632A7A2586DAB806A /* GroupBoard.swift */; };
+		C04C0996EE3BE7EDCDCA53D4 /* AppModel+Conversations.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */; };
+		C2EC309023A803669FD2E10C /* AppModel+Demo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C474E07460193F6C6384F74 /* AppModel+Demo.swift */; };
+		C2FE2D6D9838BB87D35FFBC2 /* AppModel+Covers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3E916559095537871F5E8E /* AppModel+Covers.swift */; };
+		C3C7FAE0CB9D8C7A4FE37821 /* AppModel+Tasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68BC8D3798B55E3C5CB34C /* AppModel+Tasks.swift */; };
+		C63C105F933C64DADD65E0C5 /* OmnibarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 493AA7FB9777575D9806A27F /* OmnibarModel.swift */; };
+		C9086249852BC898651F4848 /* AppUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61483856A37211D363775183 /* AppUpdater.swift */; };
+		C9B7F74B568EAD043BB6DF21 /* VoiceShaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */; };
+		CAC3BFDB7136E5AC5757E57D /* AppModel+Undo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7600524553604245E519EEA9 /* AppModel+Undo.swift */; };
+		CAE11581465900574555DDD0 /* AppModel+Conversations.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */; };
+		CB00E1DEC17FDA65EEE05F2C /* NativeRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2026E99B11DCDB25CB2D222 /* NativeRunnerTests.swift */; };
+		CC476D2BB504F08E01C638A5 /* NativeMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853091A6BB8331C3058735C8 /* NativeMemoryTests.swift */; };
+		CD3D3B66322CFFFCE4D2847A /* ConnectionReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE02D2457A576229EBF7DBD3 /* ConnectionReviewView.swift */; };
+		CE6DE75C4622AF8866E79DD2 /* FaciendaBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 09116695E8B4A1799C670E74 /* FaciendaBridge */; };
+		D0CBE7E7A48A85DFB603F3ED /* AppModel+Demo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C474E07460193F6C6384F74 /* AppModel+Demo.swift */; };
+		D0D25E6A2784DE1342147535 /* AgentBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35E5910155D666ECC7EB472A /* AgentBoundaryTests.swift */; };
+		D431801391E26AECC2B7E10B /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27116406F4DFB9C0E4477EA0 /* AppDelegate.swift */; };
+		D54236E4CEC4AFA4F5AA3BC9 /* AppModel+Writers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D666659FA64942A38396871 /* AppModel+Writers.swift */; };
+		D998BD40947B89BC8481C497 /* ClaudePermissionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F6FB80AC1D1E114DE6690D /* ClaudePermissionsTests.swift */; };
+		DB34140E2BD3A80F5383E41B /* ModelsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80AE29F920EEA6125FB5801 /* ModelsSettings.swift */; };
+		DBA39A1C097BED22C4B3A839 /* ClaudeRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F174DAA1F0B3AE78817AA5 /* ClaudeRunnerTests.swift */; };
+		DC54464C6E26ACEA45CD2D22 /* WorkspaceControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A2D96410ADB2512F7CDE08 /* WorkspaceControllerTests.swift */; };
+		DEDA61DC31BFDEA8F5A07D7F /* WatchComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A97D09D140FCE61930490B /* WatchComposer.swift */; };
+		E2844A4A0C12F5359130A39D /* AppModel+Plan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A356C68870A65FA6D024DD49 /* AppModel+Plan.swift */; };
+		E6FF475EEA0B218C14B7F2ED /* AppModel+Lookups.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6C0A4505ECEFDAE605F890 /* AppModel+Lookups.swift */; };
+		E88A96743F3939CEE9B12B8C /* TaskWaitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60B53725793937CFF3D94B2 /* TaskWaitTests.swift */; };
+		E91ED013E468820243E33392 /* TaskDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC031A2CE37F0436345B51F0 /* TaskDetail.swift */; };
+		E9E651884A8CE3BF0E9573DC /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B2AACEFF48D3FC2DD60402 /* TaskListView.swift */; };
+		EA4C8BD04CAEEF7504E65E1C /* MemoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF9F6570A419D3AA905A092 /* MemoryView.swift */; };
+		EB6F71A704C0966FC3252835 /* CardEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4697F9577AFE1941D414BDB /* CardEffects.swift */; };
+		EC707B6DC75CEA9376D06A3F /* TaskGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618F70BB20BEBE5B8D2AEA66 /* TaskGroupTests.swift */; };
+		ECA5A4B92879E4F849C2C07D /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = ADF081A3FBB1736BF34C6E8F /* FaciendaCore */; };
+		EE206C6BDB7EAFD563ECF0D2 /* CodexConversationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257CD86069261B0A09B141B5 /* CodexConversationTests.swift */; };
+		EE8F3578B51E80F89FEF1B45 /* Dictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC94363662E22FF8DE8C64B /* Dictation.swift */; };
+		EF63E7AB2A4F650A18159281 /* AppModel+ChatSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A414122DBA2EF08BB5AF618 /* AppModel+ChatSearch.swift */; };
+		F0D94181C63AE4F0E2F2067C /* PhoneRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF99E2A124F6543ED81F5DBB /* PhoneRootView.swift */; };
+		F248A823B9F8A2DB1871DEB7 /* PhoneWorkspacesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F9CD3960A821481269F0967 /* PhoneWorkspacesView.swift */; };
+		F2C42F1287C90C795A0A0F97 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A3A8D75DD0279F420EA62B /* WorkspaceSidebar.swift */; };
+		F346651F67FA6396571BBC36 /* AppModel+Covers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3E916559095537871F5E8E /* AppModel+Covers.swift */; };
+		F5C7B04A3602C0DD53071CC3 /* AppModel+Tasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A68BC8D3798B55E3C5CB34C /* AppModel+Tasks.swift */; };
+		F7FAAC4F117BBF9D736B39B2 /* CheckEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 441C0219D6C2F1166D05EA5C /* CheckEditor.swift */; };
+		FA77A2746392E12B68525668 /* TaskBlockerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D97818AE96A416F5C849131 /* TaskBlockerTests.swift */; };
+		FB93FB5EBE44BD8BD3CE46DA /* MemoryHelper in Resources */ = {isa = PBXBuildFile; fileRef = 81192C6AE411AC05947DA152 /* MemoryHelper */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FC0E35FDB493E6D468EC860F /* AppModel+Undo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7600524553604245E519EEA9 /* AppModel+Undo.swift */; };
+		FC1BC47624B5F2D9A191D0E2 /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F276644ECC45F4EC31219A33 /* FaciendaCore */; };
+		FD23F51E39468A2BBDAABD4A /* AppModel+ServiceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5881E8070B4ABC82A7D2AF5C /* AppModel+ServiceModel.swift */; };
+		FEAD4780515E0F294D3D21D2 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E77EC21E4C1124414051FD /* Theme.swift */; };
+		FEB9AC7B03C65C08872BD466 /* VoiceShaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */; };
+		FF7E1619C1786426BBBD618B /* AppModel+Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2875CEB0D5F858214E0623 /* AppModel+Status.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5B60E8B4F37953CD6AF27831 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E89EA3FEA67269540CD8039C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 96438C266DB895E687DD0431;
+			remoteInfo = MemoryHelper;
+		};
+		67EDB3FDC3AD33CEE4821842 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E89EA3FEA67269540CD8039C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BA7E384C2C51A1AD27E4F109;
+			remoteInfo = DispatchHelper;
+		};
+		73BA696B3B9E811293A48016 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E89EA3FEA67269540CD8039C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E83DA75243BD747FE1452663;
+			remoteInfo = FaciendaPhone;
+		};
+		9C3B72A4E45AFD8109D08C36 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E89EA3FEA67269540CD8039C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BC43453024323BBF77B8FD5F;
+			remoteInfo = HookHelper;
+		};
+		F77E8E566E98AF4D3683AD71 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E89EA3FEA67269540CD8039C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 87C0765E7F721ECEBEC420A6;
+			remoteInfo = MCPHelper;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		007477ED9BBBBC874C3D1B88 /* FaciendaPhoneUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaPhoneUITests.swift; sourceTree = "<group>"; };
+		00AD4A82EA79E26822D979B8 /* LibraryHomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryHomeTests.swift; sourceTree = "<group>"; };
+		0676C8438E1BD9C0810361B0 /* FaciendaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaApp.swift; sourceTree = "<group>"; };
+		06A669668F951662606C39F3 /* TaskComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskComposer.swift; sourceTree = "<group>"; };
+		0782FEEC1919312E579FD6E4 /* FaciendaMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaMemory.swift; sourceTree = "<group>"; };
+		088B00BA6E858913FDA67DE1 /* PlanLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanLineTests.swift; sourceTree = "<group>"; };
+		0A0735AD162FA5B8E1816070 /* TaskChoicesPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskChoicesPopover.swift; sourceTree = "<group>"; };
+		0A9FFC79CF905F974842E12A /* ChatIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIndexTests.swift; sourceTree = "<group>"; };
+		0B5FC8020D0CB2DEF8109031 /* ChoiceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoiceRow.swift; sourceTree = "<group>"; };
+		0DB4289B116A1DF15E561CAC /* ThreadBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadBrowser.swift; sourceTree = "<group>"; };
+		13845FB6B4EDDC5828B34C5D /* FaciendaMCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaMCP.swift; sourceTree = "<group>"; };
+		14C82EB3F46EF2B6273FBF2F /* PlanBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanBoard.swift; sourceTree = "<group>"; };
+		15CB56AEAC2F58FA9213E19B /* AppModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTests.swift; sourceTree = "<group>"; };
+		18E003C3365E608CC59D61D7 /* WrapLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrapLayout.swift; sourceTree = "<group>"; };
+		190932C138DA7920C967E9D9 /* AppModel+Claude.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Claude.swift"; sourceTree = "<group>"; };
+		19317DC3FBEF055D559C2A3C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		1AB7860D71D638B58900D4CF /* FaciendaPhoneUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FaciendaPhoneUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E2875CEB0D5F858214E0623 /* AppModel+Status.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Status.swift"; sourceTree = "<group>"; };
+		2017DB64B26801778B8EF26C /* MemoryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryModelTests.swift; sourceTree = "<group>"; };
+		20508A1634F11B30031E40B8 /* TaskDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDot.swift; sourceTree = "<group>"; };
+		21AE3BE147E06A5DE338F48A /* FaciendaPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaPhoneApp.swift; sourceTree = "<group>"; };
+		21B9BF2BDA1C291044B0792D /* facienda */ = {isa = PBXFileReference; lastKnownFileType = folder; name = facienda; path = .; sourceTree = SOURCE_ROOT; };
+		21C2ACA3816435C6A09C6600 /* ClaudeCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCommand.swift; sourceTree = "<group>"; };
+		22663E51AAA7C8470FF5B32E /* HookHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = HookHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		24444E9EA1B191490CA96C92 /* WorkspaceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceController.swift; sourceTree = "<group>"; };
+		24846E67682F541571867EE4 /* UndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoTests.swift; sourceTree = "<group>"; };
+		257CD86069261B0A09B141B5 /* CodexConversationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexConversationTests.swift; sourceTree = "<group>"; };
+		27116406F4DFB9C0E4477EA0 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		27919841D64152C85DCA2664 /* SetupVisuals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupVisuals.swift; sourceTree = "<group>"; };
+		28CBD5AB6847A80A8940CC87 /* VoiceShaperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShaperTests.swift; sourceTree = "<group>"; };
+		2A01DFCA6FF5FE2BE0AE10AE /* DispatchContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchContextTests.swift; sourceTree = "<group>"; };
+		2A414122DBA2EF08BB5AF618 /* AppModel+ChatSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+ChatSearch.swift"; sourceTree = "<group>"; };
+		2D65B1C6F1EDE0DB0D8A58F1 /* MCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = MCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		32CD998B1C7AD7E98FAD8F44 /* StoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreTests.swift; sourceTree = "<group>"; };
+		33C83615B336D577A24A0DF1 /* TaskDetailParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailParts.swift; sourceTree = "<group>"; };
+		35E5910155D666ECC7EB472A /* AgentBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBoundaryTests.swift; sourceTree = "<group>"; };
+		3614954B0610DB9876C279EC /* ChatChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatChoice.swift; sourceTree = "<group>"; };
+		389C8E8D7F7353425AE8FF19 /* ResultText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultText.swift; sourceTree = "<group>"; };
+		39D528CE09ACC3804163733B /* MicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicButton.swift; sourceTree = "<group>"; };
+		39FBD2BD5830F7FF53E31C82 /* AppModel+Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Services.swift"; sourceTree = "<group>"; };
+		409F785F3A48DBF1C8EC9F5A /* OwnStepTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnStepTests.swift; sourceTree = "<group>"; };
+		430B22267357B1C6EEE3E36D /* ModelChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelChoice.swift; sourceTree = "<group>"; };
+		43833CF70F7E44285AFDA876 /* UsageMeters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageMeters.swift; sourceTree = "<group>"; };
+		44087A49CAE5E45F6B01238A /* CodexDispatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexDispatchTests.swift; sourceTree = "<group>"; };
+		441C0219D6C2F1166D05EA5C /* CheckEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckEditor.swift; sourceTree = "<group>"; };
+		493AA7FB9777575D9806A27F /* OmnibarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarModel.swift; sourceTree = "<group>"; };
+		4AB876B49F54DD1D8749DBBD /* SourcesButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesButton.swift; sourceTree = "<group>"; };
+		4B6C0A4505ECEFDAE605F890 /* AppModel+Lookups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Lookups.swift"; sourceTree = "<group>"; };
+		4C2E33C5F89DD3EA194C4EA8 /* CompatibleStdioTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibleStdioTransport.swift; sourceTree = "<group>"; };
+		4E837F6632A7A2586DAB806A /* GroupBoard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupBoard.swift; sourceTree = "<group>"; };
+		4FB824D5E3384E2E507180DE /* BoardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardLayout.swift; sourceTree = "<group>"; };
+		506B3118D93CC1EE39020456 /* OmnibarAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAttachments.swift; sourceTree = "<group>"; };
+		52E3C2C4AA68BA49FCE9333E /* AppModel+Groups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Groups.swift"; sourceTree = "<group>"; };
+		533F83F57E1F28325AFB90FD /* SafeUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafeUndoTests.swift; sourceTree = "<group>"; };
+		54F6FB80AC1D1E114DE6690D /* ClaudePermissionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePermissionsTests.swift; sourceTree = "<group>"; };
+		552E89CB0B9D30FE13C5AA9C /* Facienda.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Facienda.entitlements; sourceTree = "<group>"; };
+		5881E8070B4ABC82A7D2AF5C /* AppModel+ServiceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+ServiceModel.swift"; sourceTree = "<group>"; };
+		5A2B3F7FB7BB558255C62EB5 /* WorkspaceSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSetupTests.swift; sourceTree = "<group>"; };
+		5AFE1B336E55EEAF74B04E29 /* WaitAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaitAssistant.swift; sourceTree = "<group>"; };
+		5BC10123635567DAC3F3AAFD /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
+		5D97818AE96A416F5C849131 /* TaskBlockerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBlockerTests.swift; sourceTree = "<group>"; };
+		5F1880931BC39ADEB5A68963 /* Facienda.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Facienda.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5F9CD3960A821481269F0967 /* PhoneWorkspacesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWorkspacesView.swift; sourceTree = "<group>"; };
+		5FE890AE7A5FC63753D88869 /* GroupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSheet.swift; sourceTree = "<group>"; };
+		60A2D96410ADB2512F7CDE08 /* WorkspaceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceControllerTests.swift; sourceTree = "<group>"; };
+		61483856A37211D363775183 /* AppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
+		617617F4C7FB9363420C5CDA /* RunnersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnersPane.swift; sourceTree = "<group>"; };
+		618F70BB20BEBE5B8D2AEA66 /* TaskGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskGroupTests.swift; sourceTree = "<group>"; };
+		6714A6FA2D80D65DF489007E /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePill.swift; sourceTree = "<group>"; };
+		6836428D49996645D9AF24C4 /* TaskActionsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskActionsPopover.swift; sourceTree = "<group>"; };
+		6A441BE96BD3C40AC4BFF450 /* OnboardingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingModel.swift; sourceTree = "<group>"; };
+		6B634040C58923726A811382 /* RunnerCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerCommand.swift; sourceTree = "<group>"; };
+		6C0794913F709BC8A86ACB1D /* CodexConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexConnection.swift; sourceTree = "<group>"; };
+		6D3E916559095537871F5E8E /* AppModel+Covers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Covers.swift"; sourceTree = "<group>"; };
+		6DDDADF6D127DACB8BFD04ED /* FaciendaCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FaciendaCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E2237F8D6AE082AC8F0F258 /* FaciendaPhone.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FaciendaPhone.entitlements; sourceTree = "<group>"; };
+		7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShaper.swift; sourceTree = "<group>"; };
+		75EEA177E85C2D2D77FCE69E /* UndoToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoToast.swift; sourceTree = "<group>"; };
+		7600524553604245E519EEA9 /* AppModel+Undo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Undo.swift"; sourceTree = "<group>"; };
+		783F36D19966D031ECBF8B91 /* VoiceShapes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShapes.swift; sourceTree = "<group>"; };
+		79A3A8D75DD0279F420EA62B /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
+		7C474E07460193F6C6384F74 /* AppModel+Demo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Demo.swift"; sourceTree = "<group>"; };
+		81192C6AE411AC05947DA152 /* MemoryHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = MemoryHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		811C72F5BAD53F329B95B2E3 /* WaitChoices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaitChoices.swift; sourceTree = "<group>"; };
+		841F29C0D3DB3D364FD3FEDE /* BlockerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockerViews.swift; sourceTree = "<group>"; };
+		84E77EC21E4C1124414051FD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		85106158AFB626C55BAED0D5 /* TaskPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskPresentationTests.swift; sourceTree = "<group>"; };
+		853091A6BB8331C3058735C8 /* NativeMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMemoryTests.swift; sourceTree = "<group>"; };
+		853F7FE71E88E1F7A0F0C411 /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
+		861E120A918CDAA9BED43F93 /* LibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryTests.swift; sourceTree = "<group>"; };
+		86399F9A1052B2CE43AF76CF /* FaciendaCloud.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FaciendaCloud.entitlements; sourceTree = "<group>"; };
+		89BEC6B30A82542A182A3CA9 /* StorageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSettings.swift; sourceTree = "<group>"; };
+		8A68BC8D3798B55E3C5CB34C /* AppModel+Tasks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Tasks.swift"; sourceTree = "<group>"; };
+		8A912E9774D4EF1C64B2489B /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		8BD21AFC0ED36052C10949CF /* DispatchHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = DispatchHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C602F89136EE6019AC3F773 /* DashboardModes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardModes.swift; sourceTree = "<group>"; };
+		8E0BE3A7864BC92311A8D408 /* OmnibarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarPanel.swift; sourceTree = "<group>"; };
+		8E6A9FBF5577F1A490F2FCAE /* OmnibarItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarItem.swift; sourceTree = "<group>"; };
+		9006F734793994BAB35ECE0A /* memory-models.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "memory-models.json"; sourceTree = "<group>"; };
+		90760038D05C16943F3BD621 /* StateLegend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateLegend.swift; sourceTree = "<group>"; };
+		90D8ECCA92827B823A970500 /* WhisperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperEngine.swift; sourceTree = "<group>"; };
+		93C420BD925230223E380E60 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		95E28EA88FBA44F643C5D886 /* WorkspaceMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMemoryTests.swift; sourceTree = "<group>"; };
+		9BD7B404AB8FCB58AD752303 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9D14CAC4BD7AF2061C0757C9 /* DemoSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSnapshot.swift; sourceTree = "<group>"; };
+		9D666659FA64942A38396871 /* AppModel+Writers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Writers.swift"; sourceTree = "<group>"; };
+		A07C9BFED5E1CDB6B22C169B /* MobileCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCompanion.swift; sourceTree = "<group>"; };
+		A2A97D09D140FCE61930490B /* WatchComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComposer.swift; sourceTree = "<group>"; };
+		A356C68870A65FA6D024DD49 /* AppModel+Plan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Plan.swift"; sourceTree = "<group>"; };
+		A4697F9577AFE1941D414BDB /* CardEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardEffects.swift; sourceTree = "<group>"; };
+		A796C9144B2C10B64EA56A0F /* ClaudeUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsage.swift; sourceTree = "<group>"; };
+		A80AE29F920EEA6125FB5801 /* ModelsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsSettings.swift; sourceTree = "<group>"; };
+		A8AA8DDB15A6A4DE5CF834BB /* TaskRecapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRecapTests.swift; sourceTree = "<group>"; };
+		A96E313A0F1F297533077B45 /* MobileIntakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileIntakeTests.swift; sourceTree = "<group>"; };
+		A9D8269233E528F5CDC464DC /* PhoneAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = PhoneAssets.xcassets; sourceTree = "<group>"; };
+		AA05C9AC724DD87E5D4BE9F5 /* OmnibarField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarField.swift; sourceTree = "<group>"; };
+		AAC94363662E22FF8DE8C64B /* Dictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dictation.swift; sourceTree = "<group>"; };
+		AC989DEF49F1A4AE40BE8CD3 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		AD50285F87B71CD67F516150 /* SettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPane.swift; sourceTree = "<group>"; };
+		AE02D2457A576229EBF7DBD3 /* ConnectionReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionReviewView.swift; sourceTree = "<group>"; };
+		B37745CFB807454933D742C0 /* FaciendaDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaciendaDispatch.swift; sourceTree = "<group>"; };
+		BB77A353D37635C7FD733F47 /* GroupFolderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupFolderTests.swift; sourceTree = "<group>"; };
+		BBF9F6570A419D3AA905A092 /* MemoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryView.swift; sourceTree = "<group>"; };
+		BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Conversations.swift"; sourceTree = "<group>"; };
+		C3CB66435896201158F3E415 /* MobileCompanionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCompanionTests.swift; sourceTree = "<group>"; };
+		C60310A20186F8DA5637A63C /* PresentingBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentingBinding.swift; sourceTree = "<group>"; };
+		C847C5AB9E24DC8BCB1B9933 /* ApplicationsMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsMove.swift; sourceTree = "<group>"; };
+		CAC6C02AE0A0F4781863EBC2 /* BoardHover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardHover.swift; sourceTree = "<group>"; };
+		CAD1C0FA321D1CE2F0041AAA /* AppModel+Folders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Folders.swift"; sourceTree = "<group>"; };
+		CC031A2CE37F0436345B51F0 /* TaskDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetail.swift; sourceTree = "<group>"; };
+		CCB0E8892C29EADDEFDB0104 /* WorkspaceSetupViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSetupViews.swift; sourceTree = "<group>"; };
+		D364C46FC280C11973A5D4E9 /* FaciendaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FaciendaAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D6FDFF9921B5ED944350FF9D /* GroupSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSourceTests.swift; sourceTree = "<group>"; };
+		D732A37409CB5F5004C134EA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D814A742A6D4CEC7066AE122 /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		D83E486219C36302B14A54ED /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		D985B26E54678198488896D8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		DD9EF934DA7586E74C68DE96 /* TaskEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEditor.swift; sourceTree = "<group>"; };
+		DE783F065D7E26132BF04077 /* CoverWishPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWishPopover.swift; sourceTree = "<group>"; };
+		DE9785093A50952CC314226D /* FaciendaPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FaciendaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF708C82E60EFFE08E9D1D96 /* MoodSpotlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoodSpotlight.swift; sourceTree = "<group>"; };
+		DF99E2A124F6543ED81F5DBB /* PhoneRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneRootView.swift; sourceTree = "<group>"; };
+		E31EA852BF9735C12487648E /* DispatcherHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatcherHost.swift; sourceTree = "<group>"; };
+		E3B2AACEFF48D3FC2DD60402 /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListView.swift; sourceTree = "<group>"; };
+		E3F174DAA1F0B3AE78817AA5 /* ClaudeRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRunnerTests.swift; sourceTree = "<group>"; };
+		E5DA6B5D6714EBE79FE615DE /* AppModel+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Setup.swift"; sourceTree = "<group>"; };
+		E5FD223D99A20D842BD994D0 /* TaskRecapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRecapView.swift; sourceTree = "<group>"; };
+		E60B53725793937CFF3D94B2 /* TaskWaitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskWaitTests.swift; sourceTree = "<group>"; };
+		ED3EDB06705B227040AEE641 /* ClaudeRunnerSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRunnerSettings.swift; sourceTree = "<group>"; };
+		F2026E99B11DCDB25CB2D222 /* NativeRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRunnerTests.swift; sourceTree = "<group>"; };
+		F420127733297C372794BDA7 /* WorkspaceSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSheets.swift; sourceTree = "<group>"; };
+		F60E2405A4D2C079A0D09CE8 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		FA7C776025E128001D5ACD4C /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
+		FCD283C017E48ACC1D1B6430 /* CheckPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckPlanTests.swift; sourceTree = "<group>"; };
+		FD305FFE3D971F3DAF4293E0 /* AppModel+Dispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Dispatch.swift"; sourceTree = "<group>"; };
+		FEAD4AC5CD72402B8F81AEDE /* WorkspaceMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMenuItems.swift; sourceTree = "<group>"; };
+		FEC14CDD04EFE0D77F347016 /* ChatHandoverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHandoverTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		00F118FDA9CFEC368D6E8B20 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54BC6F4E533D5125F411197C /* FaciendaCore in Frameworks */,
+				519A037FDB3ADFAF52462302 /* FaciendaBridge in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		030533D67900863961833A82 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ECA5A4B92879E4F849C2C07D /* FaciendaCore in Frameworks */,
+				2F37ADE45BE0B02B092BB183 /* FaciendaBridge in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41BFD24918768AD5C25867BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FC1BC47624B5F2D9A191D0E2 /* FaciendaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4E9B0D634852570CCA57CC83 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				69C8949E495EC3E19FAF2FF6 /* FaciendaCore in Frameworks */,
+				423D17B42A5CF62E21AD8B83 /* MCP in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		66BB2AFEF138081B3262C9B1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7C01718351C967553ED793D /* FaciendaCompanion in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		741C5A560397204DB145E6F5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5C401DDADBAC1CBC9AE9B40B /* FaciendaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A8D64E58BF01B8A7535F91AE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				486272069577740D0BFF41C5 /* FaciendaCore in Frameworks */,
+				215D625AC8BB1A863E49E4AA /* FaciendaBridge in Frameworks */,
+				20D9003A5A774846F3D2E04D /* FaciendaCompanion in Frameworks */,
+				2390CFDE5B2FB1F07385B557 /* Textual in Frameworks */,
+				A982C212884A91FF6F5C8745 /* WhisperKit in Frameworks */,
+				184AE2ECA775661B3BC51D46 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD95888C1773AAA5F7B4B595 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4025E533DF920EDFEAADAD49 /* FaciendaCore in Frameworks */,
+				CE6DE75C4622AF8866E79DD2 /* FaciendaBridge in Frameworks */,
+				1CFFFCFAE90A6F073D90F9DE /* FaciendaCompanion in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00CD0530D51B3EA939C50A24 /* Board */ = {
+			isa = PBXGroup;
+			children = (
+				CAC6C02AE0A0F4781863EBC2 /* BoardHover.swift */,
+				4FB824D5E3384E2E507180DE /* BoardLayout.swift */,
+				A4697F9577AFE1941D414BDB /* CardEffects.swift */,
+				8C602F89136EE6019AC3F773 /* DashboardModes.swift */,
+				4E837F6632A7A2586DAB806A /* GroupBoard.swift */,
+				5FE890AE7A5FC63753D88869 /* GroupSheet.swift */,
+				DF708C82E60EFFE08E9D1D96 /* MoodSpotlight.swift */,
+				4AB876B49F54DD1D8749DBBD /* SourcesButton.swift */,
+				90760038D05C16943F3BD621 /* StateLegend.swift */,
+				20508A1634F11B30031E40B8 /* TaskDot.swift */,
+				E5FD223D99A20D842BD994D0 /* TaskRecapView.swift */,
+			);
+			path = Board;
+			sourceTree = "<group>";
+		};
+		0B681E1463F26BCE1E675FFE /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				6A441BE96BD3C40AC4BFF450 /* OnboardingModel.swift */,
+				8A912E9774D4EF1C64B2489B /* OnboardingView.swift */,
+				27919841D64152C85DCA2664 /* SetupVisuals.swift */,
+				CCB0E8892C29EADDEFDB0104 /* WorkspaceSetupViews.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		0FB24E48CC055AC66447311B /* FaciendaDispatch */ = {
+			isa = PBXGroup;
+			children = (
+				B37745CFB807454933D742C0 /* FaciendaDispatch.swift */,
+			);
+			path = FaciendaDispatch;
+			sourceTree = "<group>";
+		};
+		1A3A419F24F404D72C924778 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B84BCB0B0837364927563C61 /* FaciendaApp */,
+				0FB24E48CC055AC66447311B /* FaciendaDispatch */,
+				FB11E2A041A625509F2500A0 /* FaciendaHook */,
+				B2F6C725F3159049F7F55644 /* FaciendaMCP */,
+				CCF7A21C9A8E74A87BFBD255 /* FaciendaMemory */,
+				DBA667EFE71CC3D27EF479D7 /* FaciendaPhone */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		223F0CDAEE1B551CB6B78A37 = {
+			isa = PBXGroup;
+			children = (
+				A8A46FA69E6103C8CFD5AC9A /* Assets */,
+				E6D2831F9BFB33633D1022D5 /* Packages */,
+				1A3A419F24F404D72C924778 /* Sources */,
+				5D1F8D4DCD965302826E0A6C /* Support */,
+				898B7FC1AD12EFEE0F880B02 /* Tests */,
+				84C71FAB1272AD17D60BF6B8 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		2C2337C1F02571978A99AAD7 /* Pages */ = {
+			isa = PBXGroup;
+			children = (
+				BBF9F6570A419D3AA905A092 /* MemoryView.swift */,
+				0DB4289B116A1DF15E561CAC /* ThreadBrowser.swift */,
+			);
+			path = Pages;
+			sourceTree = "<group>";
+		};
+		2F713F6EF82AC0F86AB4B6F2 /* FaciendaPhoneUITests */ = {
+			isa = PBXGroup;
+			children = (
+				007477ED9BBBBC874C3D1B88 /* FaciendaPhoneUITests.swift */,
+			);
+			path = FaciendaPhoneUITests;
+			sourceTree = "<group>";
+		};
+		3324752B00EB917183FDCDAA /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				39D528CE09ACC3804163733B /* MicButton.swift */,
+				C60310A20186F8DA5637A63C /* PresentingBinding.swift */,
+				389C8E8D7F7353425AE8FF19 /* ResultText.swift */,
+				FA7C776025E128001D5ACD4C /* Shortcuts.swift */,
+				75EEA177E85C2D2D77FCE69E /* UndoToast.swift */,
+				18E003C3365E608CC59D61D7 /* WrapLayout.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		367952675652BA027519FC2D /* Omnibar */ = {
+			isa = PBXGroup;
+			children = (
+				3614954B0610DB9876C279EC /* ChatChoice.swift */,
+				AAC94363662E22FF8DE8C64B /* Dictation.swift */,
+				506B3118D93CC1EE39020456 /* OmnibarAttachments.swift */,
+				AA05C9AC724DD87E5D4BE9F5 /* OmnibarField.swift */,
+				8E6A9FBF5577F1A490F2FCAE /* OmnibarItem.swift */,
+				493AA7FB9777575D9806A27F /* OmnibarModel.swift */,
+				8E0BE3A7864BC92311A8D408 /* OmnibarPanel.swift */,
+				783F36D19966D031ECBF8B91 /* VoiceShapes.swift */,
+				90D8ECCA92827B823A970500 /* WhisperEngine.swift */,
+			);
+			path = Omnibar;
+			sourceTree = "<group>";
+		};
+		3D44A03D85B77D49EF360476 /* Updates */ = {
+			isa = PBXGroup;
+			children = (
+				C847C5AB9E24DC8BCB1B9933 /* ApplicationsMove.swift */,
+				61483856A37211D363775183 /* AppUpdater.swift */,
+				6714A6FA2D80D65DF489007E /* UpdatePill.swift */,
+			);
+			path = Updates;
+			sourceTree = "<group>";
+		};
+		562B9AE4419ED256F32F1D6F /* Plan */ = {
+			isa = PBXGroup;
+			children = (
+				14C82EB3F46EF2B6273FBF2F /* PlanBoard.swift */,
+			);
+			path = Plan;
+			sourceTree = "<group>";
+		};
+		5D1F8D4DCD965302826E0A6C /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				853F7FE71E88E1F7A0F0C411 /* ThirdPartyNotices.txt */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		74618F181DE9A118F5CAC75F /* FaciendaAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				15CB56AEAC2F58FA9213E19B /* AppModelTests.swift */,
+				C3CB66435896201158F3E415 /* MobileCompanionTests.swift */,
+				28CBD5AB6847A80A8940CC87 /* VoiceShaperTests.swift */,
+				60A2D96410ADB2512F7CDE08 /* WorkspaceControllerTests.swift */,
+			);
+			path = FaciendaAppTests;
+			sourceTree = "<group>";
+		};
+		84C71FAB1272AD17D60BF6B8 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8BD21AFC0ED36052C10949CF /* DispatchHelper */,
+				5F1880931BC39ADEB5A68963 /* Facienda.app */,
+				D364C46FC280C11973A5D4E9 /* FaciendaAppTests.xctest */,
+				6DDDADF6D127DACB8BFD04ED /* FaciendaCoreTests.xctest */,
+				DE9785093A50952CC314226D /* FaciendaPhone.app */,
+				1AB7860D71D638B58900D4CF /* FaciendaPhoneUITests.xctest */,
+				22663E51AAA7C8470FF5B32E /* HookHelper */,
+				2D65B1C6F1EDE0DB0D8A58F1 /* MCPHelper */,
+				81192C6AE411AC05947DA152 /* MemoryHelper */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		898B7FC1AD12EFEE0F880B02 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				74618F181DE9A118F5CAC75F /* FaciendaAppTests */,
+				B557BBE93487C0EB6B09B098 /* FaciendaCoreTests */,
+				2F713F6EF82AC0F86AB4B6F2 /* FaciendaPhoneUITests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		99BC7C332F89C7DDAB68C6E1 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				ED3EDB06705B227040AEE641 /* ClaudeRunnerSettings.swift */,
+				AE02D2457A576229EBF7DBD3 /* ConnectionReviewView.swift */,
+				A80AE29F920EEA6125FB5801 /* ModelsSettings.swift */,
+				617617F4C7FB9363420C5CDA /* RunnersPane.swift */,
+				D985B26E54678198488896D8 /* SettingsView.swift */,
+				89BEC6B30A82542A182A3CA9 /* StorageSettings.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		9A41A8ADBFF2E762AFCC283E /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				9006F734793994BAB35ECE0A /* memory-models.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		9EDCA52F4FAFCF264327941C /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				AC989DEF49F1A4AE40BE8CD3 /* AppModel.swift */,
+				2A414122DBA2EF08BB5AF618 /* AppModel+ChatSearch.swift */,
+				190932C138DA7920C967E9D9 /* AppModel+Claude.swift */,
+				BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */,
+				6D3E916559095537871F5E8E /* AppModel+Covers.swift */,
+				7C474E07460193F6C6384F74 /* AppModel+Demo.swift */,
+				FD305FFE3D971F3DAF4293E0 /* AppModel+Dispatch.swift */,
+				CAD1C0FA321D1CE2F0041AAA /* AppModel+Folders.swift */,
+				52E3C2C4AA68BA49FCE9333E /* AppModel+Groups.swift */,
+				4B6C0A4505ECEFDAE605F890 /* AppModel+Lookups.swift */,
+				A356C68870A65FA6D024DD49 /* AppModel+Plan.swift */,
+				5881E8070B4ABC82A7D2AF5C /* AppModel+ServiceModel.swift */,
+				39FBD2BD5830F7FF53E31C82 /* AppModel+Services.swift */,
+				E5DA6B5D6714EBE79FE615DE /* AppModel+Setup.swift */,
+				1E2875CEB0D5F858214E0623 /* AppModel+Status.swift */,
+				8A68BC8D3798B55E3C5CB34C /* AppModel+Tasks.swift */,
+				7600524553604245E519EEA9 /* AppModel+Undo.swift */,
+				9D666659FA64942A38396871 /* AppModel+Writers.swift */,
+				A796C9144B2C10B64EA56A0F /* ClaudeUsage.swift */,
+				6C0794913F709BC8A86ACB1D /* CodexConnection.swift */,
+				E31EA852BF9735C12487648E /* DispatcherHost.swift */,
+				A07C9BFED5E1CDB6B22C169B /* MobileCompanion.swift */,
+				AD50285F87B71CD67F516150 /* SettingsPane.swift */,
+				7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */,
+				24444E9EA1B191490CA96C92 /* WorkspaceController.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		A8A46FA69E6103C8CFD5AC9A /* Assets */ = {
+			isa = PBXGroup;
+			children = (
+				93C420BD925230223E380E60 /* Assets.xcassets */,
+				A9D8269233E528F5CDC464DC /* PhoneAssets.xcassets */,
+			);
+			path = Assets;
+			sourceTree = "<group>";
+		};
+		AD9A65804DC7D318E52CE92C /* Workspaces */ = {
+			isa = PBXGroup;
+			children = (
+				DE783F065D7E26132BF04077 /* CoverWishPopover.swift */,
+				43833CF70F7E44285AFDA876 /* UsageMeters.swift */,
+				FEAD4AC5CD72402B8F81AEDE /* WorkspaceMenuItems.swift */,
+				F420127733297C372794BDA7 /* WorkspaceSheets.swift */,
+				79A3A8D75DD0279F420EA62B /* WorkspaceSidebar.swift */,
+			);
+			path = Workspaces;
+			sourceTree = "<group>";
+		};
+		B2F6C725F3159049F7F55644 /* FaciendaMCP */ = {
+			isa = PBXGroup;
+			children = (
+				21C2ACA3816435C6A09C6600 /* ClaudeCommand.swift */,
+				4C2E33C5F89DD3EA194C4EA8 /* CompatibleStdioTransport.swift */,
+				13845FB6B4EDDC5828B34C5D /* FaciendaMCP.swift */,
+				6B634040C58923726A811382 /* RunnerCommand.swift */,
+			);
+			path = FaciendaMCP;
+			sourceTree = "<group>";
+		};
+		B557BBE93487C0EB6B09B098 /* FaciendaCoreTests */ = {
+			isa = PBXGroup;
+			children = (
+				35E5910155D666ECC7EB472A /* AgentBoundaryTests.swift */,
+				FEC14CDD04EFE0D77F347016 /* ChatHandoverTests.swift */,
+				0A9FFC79CF905F974842E12A /* ChatIndexTests.swift */,
+				FCD283C017E48ACC1D1B6430 /* CheckPlanTests.swift */,
+				54F6FB80AC1D1E114DE6690D /* ClaudePermissionsTests.swift */,
+				E3F174DAA1F0B3AE78817AA5 /* ClaudeRunnerTests.swift */,
+				257CD86069261B0A09B141B5 /* CodexConversationTests.swift */,
+				44087A49CAE5E45F6B01238A /* CodexDispatchTests.swift */,
+				2A01DFCA6FF5FE2BE0AE10AE /* DispatchContextTests.swift */,
+				BB77A353D37635C7FD733F47 /* GroupFolderTests.swift */,
+				D6FDFF9921B5ED944350FF9D /* GroupSourceTests.swift */,
+				00AD4A82EA79E26822D979B8 /* LibraryHomeTests.swift */,
+				861E120A918CDAA9BED43F93 /* LibraryTests.swift */,
+				2017DB64B26801778B8EF26C /* MemoryModelTests.swift */,
+				A96E313A0F1F297533077B45 /* MobileIntakeTests.swift */,
+				853091A6BB8331C3058735C8 /* NativeMemoryTests.swift */,
+				F2026E99B11DCDB25CB2D222 /* NativeRunnerTests.swift */,
+				409F785F3A48DBF1C8EC9F5A /* OwnStepTests.swift */,
+				088B00BA6E858913FDA67DE1 /* PlanLineTests.swift */,
+				533F83F57E1F28325AFB90FD /* SafeUndoTests.swift */,
+				32CD998B1C7AD7E98FAD8F44 /* StoreTests.swift */,
+				5D97818AE96A416F5C849131 /* TaskBlockerTests.swift */,
+				618F70BB20BEBE5B8D2AEA66 /* TaskGroupTests.swift */,
+				85106158AFB626C55BAED0D5 /* TaskPresentationTests.swift */,
+				A8AA8DDB15A6A4DE5CF834BB /* TaskRecapTests.swift */,
+				E60B53725793937CFF3D94B2 /* TaskWaitTests.swift */,
+				24846E67682F541571867EE4 /* UndoTests.swift */,
+				95E28EA88FBA44F643C5D886 /* WorkspaceMemoryTests.swift */,
+				5A2B3F7FB7BB558255C62EB5 /* WorkspaceSetupTests.swift */,
+				9A41A8ADBFF2E762AFCC283E /* Fixtures */,
+			);
+			path = FaciendaCoreTests;
+			sourceTree = "<group>";
+		};
+		B84BCB0B0837364927563C61 /* FaciendaApp */ = {
+			isa = PBXGroup;
+			children = (
+				27116406F4DFB9C0E4477EA0 /* AppDelegate.swift */,
+				F60E2405A4D2C079A0D09CE8 /* DashboardView.swift */,
+				9D14CAC4BD7AF2061C0757C9 /* DemoSnapshot.swift */,
+				552E89CB0B9D30FE13C5AA9C /* Facienda.entitlements */,
+				0676C8438E1BD9C0810361B0 /* FaciendaApp.swift */,
+				86399F9A1052B2CE43AF76CF /* FaciendaCloud.entitlements */,
+				9BD7B404AB8FCB58AD752303 /* Info.plist */,
+				84E77EC21E4C1124414051FD /* Theme.swift */,
+				00CD0530D51B3EA939C50A24 /* Board */,
+				F5EFE3F6FD3CF573E71BA6B4 /* Choices */,
+				3324752B00EB917183FDCDAA /* Components */,
+				BDFB109AF8EF98226CA83F08 /* Composer */,
+				9EDCA52F4FAFCF264327941C /* Model */,
+				367952675652BA027519FC2D /* Omnibar */,
+				0B681E1463F26BCE1E675FFE /* Onboarding */,
+				2C2337C1F02571978A99AAD7 /* Pages */,
+				562B9AE4419ED256F32F1D6F /* Plan */,
+				99BC7C332F89C7DDAB68C6E1 /* Settings */,
+				B8BA1674DA816CDE80D0325D /* Tasks */,
+				3D44A03D85B77D49EF360476 /* Updates */,
+				AD9A65804DC7D318E52CE92C /* Workspaces */,
+			);
+			path = FaciendaApp;
+			sourceTree = "<group>";
+		};
+		B8BA1674DA816CDE80D0325D /* Tasks */ = {
+			isa = PBXGroup;
+			children = (
+				841F29C0D3DB3D364FD3FEDE /* BlockerViews.swift */,
+				D814A742A6D4CEC7066AE122 /* CaptureView.swift */,
+				441C0219D6C2F1166D05EA5C /* CheckEditor.swift */,
+				CC031A2CE37F0436345B51F0 /* TaskDetail.swift */,
+				33C83615B336D577A24A0DF1 /* TaskDetailParts.swift */,
+				DD9EF934DA7586E74C68DE96 /* TaskEditor.swift */,
+			);
+			path = Tasks;
+			sourceTree = "<group>";
+		};
+		BDFB109AF8EF98226CA83F08 /* Composer */ = {
+			isa = PBXGroup;
+			children = (
+				430B22267357B1C6EEE3E36D /* ModelChoice.swift */,
+				06A669668F951662606C39F3 /* TaskComposer.swift */,
+			);
+			path = Composer;
+			sourceTree = "<group>";
+		};
+		CCF7A21C9A8E74A87BFBD255 /* FaciendaMemory */ = {
+			isa = PBXGroup;
+			children = (
+				0782FEEC1919312E579FD6E4 /* FaciendaMemory.swift */,
+			);
+			path = FaciendaMemory;
+			sourceTree = "<group>";
+		};
+		DBA667EFE71CC3D27EF479D7 /* FaciendaPhone */ = {
+			isa = PBXGroup;
+			children = (
+				D83E486219C36302B14A54ED /* CaptureView.swift */,
+				6E2237F8D6AE082AC8F0F258 /* FaciendaPhone.entitlements */,
+				21AE3BE147E06A5DE338F48A /* FaciendaPhoneApp.swift */,
+				D732A37409CB5F5004C134EA /* Info.plist */,
+				DF99E2A124F6543ED81F5DBB /* PhoneRootView.swift */,
+				5F9CD3960A821481269F0967 /* PhoneWorkspacesView.swift */,
+				E3B2AACEFF48D3FC2DD60402 /* TaskListView.swift */,
+				5BC10123635567DAC3F3AAFD /* VoiceCapture.swift */,
+			);
+			path = FaciendaPhone;
+			sourceTree = "<group>";
+		};
+		E6D2831F9BFB33633D1022D5 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				21B9BF2BDA1C291044B0792D /* facienda */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		F5EFE3F6FD3CF573E71BA6B4 /* Choices */ = {
+			isa = PBXGroup;
+			children = (
+				0B5FC8020D0CB2DEF8109031 /* ChoiceRow.swift */,
+				6836428D49996645D9AF24C4 /* TaskActionsPopover.swift */,
+				0A0735AD162FA5B8E1816070 /* TaskChoicesPopover.swift */,
+				5AFE1B336E55EEAF74B04E29 /* WaitAssistant.swift */,
+				811C72F5BAD53F329B95B2E3 /* WaitChoices.swift */,
+				A2A97D09D140FCE61930490B /* WatchComposer.swift */,
+			);
+			path = Choices;
+			sourceTree = "<group>";
+		};
+		FB11E2A041A625509F2500A0 /* FaciendaHook */ = {
+			isa = PBXGroup;
+			children = (
+				19317DC3FBEF055D559C2A3C /* main.swift */,
+			);
+			path = FaciendaHook;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		29E0B82A85D61281FAF03DF4 /* FaciendaCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 39D71C5D82E00CDABC0449F9 /* Build configuration list for PBXNativeTarget "FaciendaCoreTests" */;
+			buildPhases = (
+				E8C625B6A0973402819FDBCF /* Sources */,
+				6E327555CD8FD0514ABA3283 /* Resources */,
+				741C5A560397204DB145E6F5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FaciendaCoreTests;
+			packageProductDependencies = (
+				721D990621E445090019FBBB /* FaciendaCore */,
+			);
+			productName = FaciendaCoreTests;
+			productReference = 6DDDADF6D127DACB8BFD04ED /* FaciendaCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		87C0765E7F721ECEBEC420A6 /* MCPHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 16C982376515860EC8C9D8E3 /* Build configuration list for PBXNativeTarget "MCPHelper" */;
+			buildPhases = (
+				26570BF460BBECB9C7CD85B7 /* Sources */,
+				4E9B0D634852570CCA57CC83 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MCPHelper;
+			packageProductDependencies = (
+				8725CE3E611B0EFAF2ABBDB0 /* FaciendaCore */,
+				27B3401D79EF88E4018754CF /* MCP */,
+			);
+			productName = MCPHelper;
+			productReference = 2D65B1C6F1EDE0DB0D8A58F1 /* MCPHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+		96438C266DB895E687DD0431 /* MemoryHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0B621A69C419742C609B25FA /* Build configuration list for PBXNativeTarget "MemoryHelper" */;
+			buildPhases = (
+				0C92D7B3560033ADC43CAC69 /* Sources */,
+				00F118FDA9CFEC368D6E8B20 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MemoryHelper;
+			packageProductDependencies = (
+				39BCA4BF657C2777F67B3DA6 /* FaciendaCore */,
+				D1EEE0DD3D59910A5DC217FF /* FaciendaBridge */,
+			);
+			productName = MemoryHelper;
+			productReference = 81192C6AE411AC05947DA152 /* MemoryHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+		B406EA2D9BEB314FF5A8891C /* FaciendaPhoneUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D2BFEE3AEC10A43BECFB9C81 /* Build configuration list for PBXNativeTarget "FaciendaPhoneUITests" */;
+			buildPhases = (
+				3C36EDD390307305D271933B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3C2A8328C088D2F7F8AA6794 /* PBXTargetDependency */,
+			);
+			name = FaciendaPhoneUITests;
+			packageProductDependencies = (
+			);
+			productName = FaciendaPhoneUITests;
+			productReference = 1AB7860D71D638B58900D4CF /* FaciendaPhoneUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		BA7E384C2C51A1AD27E4F109 /* DispatchHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 75BD600B4C96E6485AF15DF4 /* Build configuration list for PBXNativeTarget "DispatchHelper" */;
+			buildPhases = (
+				57890F52D491433948AA7D99 /* Sources */,
+				030533D67900863961833A82 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DispatchHelper;
+			packageProductDependencies = (
+				ADF081A3FBB1736BF34C6E8F /* FaciendaCore */,
+				1121F78FDB50B9CF5FCF88AB /* FaciendaBridge */,
+			);
+			productName = DispatchHelper;
+			productReference = 8BD21AFC0ED36052C10949CF /* DispatchHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+		BC43453024323BBF77B8FD5F /* HookHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 02E410416264B0C7192F28BA /* Build configuration list for PBXNativeTarget "HookHelper" */;
+			buildPhases = (
+				80C397BDD7CAD7E6A3E4E095 /* Sources */,
+				41BFD24918768AD5C25867BA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HookHelper;
+			packageProductDependencies = (
+				F276644ECC45F4EC31219A33 /* FaciendaCore */,
+			);
+			productName = HookHelper;
+			productReference = 22663E51AAA7C8470FF5B32E /* HookHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+		C05986AD323F7B0F65591288 /* Facienda */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB28D41C9C005C80287602EB /* Build configuration list for PBXNativeTarget "Facienda" */;
+			buildPhases = (
+				48855160A6C56EF0BFD294D6 /* Sources */,
+				7632E7CD44DF91F90EB63452 /* Resources */,
+				A8D64E58BF01B8A7535F91AE /* Frameworks */,
+				6E8A9FC68DE3F8918F6013C3 /* Bundle command-line helpers */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				65DD7380025405F06F0ABF5D /* PBXTargetDependency */,
+				3C5C4E02B3C5425C5AE96CB8 /* PBXTargetDependency */,
+				06009AF4AD3125871A91122D /* PBXTargetDependency */,
+				8C7EB02A50E8AFA6F316A65A /* PBXTargetDependency */,
+			);
+			name = Facienda;
+			packageProductDependencies = (
+				4369C9359925CE878FE9D4D0 /* FaciendaCore */,
+				0944317B36B79DC002BB389B /* FaciendaBridge */,
+				CF06D902D6E5F9258BDDCFC9 /* FaciendaCompanion */,
+				022B12815EF8AD2E780F58B1 /* Textual */,
+				B95B6F1C110E71950021019B /* WhisperKit */,
+				29A3C6E33CBF74F613CA5E50 /* Sparkle */,
+			);
+			productName = Facienda;
+			productReference = 5F1880931BC39ADEB5A68963 /* Facienda.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E83DA75243BD747FE1452663 /* FaciendaPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1FAB0B260A8AB463AB06CEA0 /* Build configuration list for PBXNativeTarget "FaciendaPhone" */;
+			buildPhases = (
+				E76E13A8ED2EB50A420E3B41 /* Sources */,
+				36C74FE1EA09A9F916D69EED /* Resources */,
+				66BB2AFEF138081B3262C9B1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FaciendaPhone;
+			packageProductDependencies = (
+				16CC2563F5A3194796A207D0 /* FaciendaCompanion */,
+			);
+			productName = FaciendaPhone;
+			productReference = DE9785093A50952CC314226D /* FaciendaPhone.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F56DE6A2630B164C8F16A19E /* FaciendaAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2CF9DDB0648C6B337114F55D /* Build configuration list for PBXNativeTarget "FaciendaAppTests" */;
+			buildPhases = (
+				0627EA686D3E10E9B79DE77B /* Sources */,
+				DD95888C1773AAA5F7B4B595 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FaciendaAppTests;
+			packageProductDependencies = (
+				DD8B970EF9A05B7BF48B3D39 /* FaciendaCore */,
+				09116695E8B4A1799C670E74 /* FaciendaBridge */,
+				84644A104715317601DD9E9A /* FaciendaCompanion */,
+			);
+			productName = FaciendaAppTests;
+			productReference = D364C46FC280C11973A5D4E9 /* FaciendaAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E89EA3FEA67269540CD8039C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					29E0B82A85D61281FAF03DF4 = {
+						ProvisioningStyle = Manual;
+					};
+					87C0765E7F721ECEBEC420A6 = {
+						ProvisioningStyle = Manual;
+					};
+					96438C266DB895E687DD0431 = {
+						ProvisioningStyle = Manual;
+					};
+					B406EA2D9BEB314FF5A8891C = {
+						DevelopmentTeam = 6558TXKC42;
+						ProvisioningStyle = Automatic;
+						TestTargetID = E83DA75243BD747FE1452663;
+					};
+					BA7E384C2C51A1AD27E4F109 = {
+						ProvisioningStyle = Manual;
+					};
+					BC43453024323BBF77B8FD5F = {
+						ProvisioningStyle = Manual;
+					};
+					E83DA75243BD747FE1452663 = {
+						DevelopmentTeam = 6558TXKC42;
+						ProvisioningStyle = Automatic;
+					};
+					F56DE6A2630B164C8F16A19E = {
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 57FB08AD65CD47CBF55DAFF0 /* Build configuration list for PBXProject "Facienda" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 223F0CDAEE1B551CB6B78A37;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				10A9C5D7F1133842133F51FD /* XCRemoteSwiftPackageReference "swift-sdk" */,
+				D170D978273066828D2D766A /* XCRemoteSwiftPackageReference "Sparkle" */,
+				69F992F4082BB360EE7730BF /* XCRemoteSwiftPackageReference "textual" */,
+				19DE8791E3237F232FF1C38A /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				BFA5E716D578BFA12844D1C3 /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 84C71FAB1272AD17D60BF6B8 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BA7E384C2C51A1AD27E4F109 /* DispatchHelper */,
+				C05986AD323F7B0F65591288 /* Facienda */,
+				F56DE6A2630B164C8F16A19E /* FaciendaAppTests */,
+				29E0B82A85D61281FAF03DF4 /* FaciendaCoreTests */,
+				E83DA75243BD747FE1452663 /* FaciendaPhone */,
+				B406EA2D9BEB314FF5A8891C /* FaciendaPhoneUITests */,
+				BC43453024323BBF77B8FD5F /* HookHelper */,
+				87C0765E7F721ECEBEC420A6 /* MCPHelper */,
+				96438C266DB895E687DD0431 /* MemoryHelper */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		36C74FE1EA09A9F916D69EED /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A56B9F12AB0429E0FA6A347F /* PhoneAssets.xcassets in Resources */,
+				86AB6A090C4311AF0C6C561B /* ThirdPartyNotices.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6E327555CD8FD0514ABA3283 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				894CB16F67E7302FC7C834FF /* memory-models.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7632E7CD44DF91F90EB63452 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1C4B9E90EA224787E2F399C /* Assets.xcassets in Resources */,
+				7103A9999F11E54D90DC4CF9 /* ThirdPartyNotices.txt in Resources */,
+				427A35E3A417507C694D61C8 /* MCPHelper in Resources */,
+				5B6390CE71BF20CC180392DF /* HookHelper in Resources */,
+				FB93FB5EBE44BD8BD3CE46DA /* MemoryHelper in Resources */,
+				6C574955971DFAA5F4226BD6 /* DispatchHelper in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6E8A9FC68DE3F8918F6013C3 /* Bundle command-line helpers */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/facienda-mcp",
+				"$(BUILT_PRODUCTS_DIR)/facienda-hook",
+				"$(BUILT_PRODUCTS_DIR)/facienda-memory",
+				"$(BUILT_PRODUCTS_DIR)/facienda-dispatch",
+				"$(SRCROOT)/Support/LaunchAgents/org.facienda.dispatch.plist",
+			);
+			name = "Bundle command-line helpers";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/facienda-mcp",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/facienda-hook",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/facienda-memory",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/facienda-dispatch",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/org.facienda.dispatch.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "mkdir -p \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"\n# install replaces executables through temporary files/new inodes.\n# In-place cp can invalidate macOS's cached code-signature state.\n/usr/bin/install -m 755 \"$BUILT_PRODUCTS_DIR/facienda-mcp\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/facienda-mcp\"\n/usr/bin/install -m 755 \"$BUILT_PRODUCTS_DIR/facienda-memory\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/facienda-memory\"\n/usr/bin/install -m 755 \"$BUILT_PRODUCTS_DIR/facienda-hook\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/facienda-hook\"\n/usr/bin/install -m 755 \"$BUILT_PRODUCTS_DIR/facienda-dispatch\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/facienda-dispatch\"\n# The dispatcher's launch agent, registered by the installed app through SMAppService.\nmkdir -p \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents\"\n/usr/bin/install -m 644 \"$SRCROOT/Support/LaunchAgents/org.facienda.dispatch.plist\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/org.facienda.dispatch.plist\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0627EA686D3E10E9B79DE77B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EF63E7AB2A4F650A18159281 /* AppModel+ChatSearch.swift in Sources */,
+				25AE549A57667A3CB8668D4C /* AppModel+Claude.swift in Sources */,
+				C04C0996EE3BE7EDCDCA53D4 /* AppModel+Conversations.swift in Sources */,
+				C2FE2D6D9838BB87D35FFBC2 /* AppModel+Covers.swift in Sources */,
+				C2EC309023A803669FD2E10C /* AppModel+Demo.swift in Sources */,
+				24E304CD86E817483E28F810 /* AppModel+Dispatch.swift in Sources */,
+				4C41FDA122B16D1F4FF5A69C /* AppModel+Folders.swift in Sources */,
+				078535696308CA8141E7F6B3 /* AppModel+Groups.swift in Sources */,
+				E6FF475EEA0B218C14B7F2ED /* AppModel+Lookups.swift in Sources */,
+				5D1D7BD86B625CF2B5011A2C /* AppModel+Plan.swift in Sources */,
+				FD23F51E39468A2BBDAABD4A /* AppModel+ServiceModel.swift in Sources */,
+				6498A0FAD7A503EFF6850E51 /* AppModel+Services.swift in Sources */,
+				2E48FDBF9A7C915D31EF1F44 /* AppModel+Setup.swift in Sources */,
+				FF7E1619C1786426BBBD618B /* AppModel+Status.swift in Sources */,
+				C3C7FAE0CB9D8C7A4FE37821 /* AppModel+Tasks.swift in Sources */,
+				FC0E35FDB493E6D468EC860F /* AppModel+Undo.swift in Sources */,
+				D54236E4CEC4AFA4F5AA3BC9 /* AppModel+Writers.swift in Sources */,
+				B1A479430CA384C6961B3332 /* AppModel.swift in Sources */,
+				4C64BF5297B0B22F790BBCC3 /* AppModelTests.swift in Sources */,
+				8113A3D2C1225C90BE1AAB13 /* ClaudeUsage.swift in Sources */,
+				1B4AA2B2E57324A44083DA74 /* CodexConnection.swift in Sources */,
+				4A863529A68E0AB48DCA1CD1 /* DispatcherHost.swift in Sources */,
+				513160CA2037CA632C20EE69 /* MobileCompanion.swift in Sources */,
+				90B8B506144B12B1FA735DDA /* MobileCompanionTests.swift in Sources */,
+				7B344854B3974943095B453D /* SettingsPane.swift in Sources */,
+				4C0ECCF96ED889A1CF73CA15 /* Theme.swift in Sources */,
+				C9B7F74B568EAD043BB6DF21 /* VoiceShaper.swift in Sources */,
+				4E61D176CEE781055EB65DA1 /* VoiceShaperTests.swift in Sources */,
+				883A3EC181AF6EC8127B2470 /* WorkspaceController.swift in Sources */,
+				DC54464C6E26ACEA45CD2D22 /* WorkspaceControllerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0C92D7B3560033ADC43CAC69 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4B9C025FE9148A37AB359E53 /* FaciendaMemory.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26570BF460BBECB9C7CD85B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				10CCF25178523563A6FF9ED4 /* ClaudeCommand.swift in Sources */,
+				568D2B30980AF83B0A2F7E0F /* CompatibleStdioTransport.swift in Sources */,
+				650FB80693F3DF14348B2C98 /* FaciendaMCP.swift in Sources */,
+				4367CE19E9BD6175B5B55A4B /* RunnerCommand.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3C36EDD390307305D271933B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				24CD197E890C136AA870C7CE /* FaciendaPhoneUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48855160A6C56EF0BFD294D6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D431801391E26AECC2B7E10B /* AppDelegate.swift in Sources */,
+				414BD5E535CC253E5B62D0E9 /* AppModel+ChatSearch.swift in Sources */,
+				887A2D169A7430B7B427216C /* AppModel+Claude.swift in Sources */,
+				CAE11581465900574555DDD0 /* AppModel+Conversations.swift in Sources */,
+				F346651F67FA6396571BBC36 /* AppModel+Covers.swift in Sources */,
+				D0CBE7E7A48A85DFB603F3ED /* AppModel+Demo.swift in Sources */,
+				29B80336CCFC116ECFA71C75 /* AppModel+Dispatch.swift in Sources */,
+				05F64E53CFBEB33C6F60DBE4 /* AppModel+Folders.swift in Sources */,
+				7C516D92EF7CF0CC4B3BA10C /* AppModel+Groups.swift in Sources */,
+				037CFCBAE6D30624C5DBCAC1 /* AppModel+Lookups.swift in Sources */,
+				E2844A4A0C12F5359130A39D /* AppModel+Plan.swift in Sources */,
+				51F1D04867FD508CBB7EDD48 /* AppModel+ServiceModel.swift in Sources */,
+				286210FF7E338D9045D60F46 /* AppModel+Services.swift in Sources */,
+				7F6DFA80D943F26FAF79B35D /* AppModel+Setup.swift in Sources */,
+				BBFACA8A02DA25978D186E72 /* AppModel+Status.swift in Sources */,
+				F5C7B04A3602C0DD53071CC3 /* AppModel+Tasks.swift in Sources */,
+				CAC3BFDB7136E5AC5757E57D /* AppModel+Undo.swift in Sources */,
+				284013593BD7A3F98C71F9D9 /* AppModel+Writers.swift in Sources */,
+				7FC13CF7991434C85BC26D23 /* AppModel.swift in Sources */,
+				C9086249852BC898651F4848 /* AppUpdater.swift in Sources */,
+				1D515AC79E2FC1BF26B356C6 /* ApplicationsMove.swift in Sources */,
+				3BE92A1CD21FF329EE998BE1 /* BlockerViews.swift in Sources */,
+				288E698155FCBFF96DB1933E /* BoardHover.swift in Sources */,
+				46BC3A65DCED23EDCC42D982 /* BoardLayout.swift in Sources */,
+				01D0E009C1E3B898DC37A465 /* CaptureView.swift in Sources */,
+				EB6F71A704C0966FC3252835 /* CardEffects.swift in Sources */,
+				1B17F1BA96A3842AEC1EA575 /* ChatChoice.swift in Sources */,
+				F7FAAC4F117BBF9D736B39B2 /* CheckEditor.swift in Sources */,
+				278C2D168989AA154F3B65D3 /* ChoiceRow.swift in Sources */,
+				17F705FD19068F575B9FB232 /* ClaudeRunnerSettings.swift in Sources */,
+				4F89324C12E3E2EC5E6EECDB /* ClaudeUsage.swift in Sources */,
+				B481F3A846E3B63CB135F224 /* CodexConnection.swift in Sources */,
+				CD3D3B66322CFFFCE4D2847A /* ConnectionReviewView.swift in Sources */,
+				9B6B2460D7E9798320048D6C /* CoverWishPopover.swift in Sources */,
+				4E08E24B107B8CD9CB809C8C /* DashboardModes.swift in Sources */,
+				62B5F721D171D47EE96B0349 /* DashboardView.swift in Sources */,
+				9BA99074E8D4E6538EC15156 /* DemoSnapshot.swift in Sources */,
+				EE8F3578B51E80F89FEF1B45 /* Dictation.swift in Sources */,
+				252461DDC4F15F6214A7FEF0 /* DispatcherHost.swift in Sources */,
+				3C50C013DF2404AF38A107D4 /* FaciendaApp.swift in Sources */,
+				BF009027385040D7C2E90088 /* GroupBoard.swift in Sources */,
+				3C8AF44D56F4E923FF3B5B18 /* GroupSheet.swift in Sources */,
+				EA4C8BD04CAEEF7504E65E1C /* MemoryView.swift in Sources */,
+				95FFC3BF0A2BB7A434CE78F0 /* MicButton.swift in Sources */,
+				80BB6240BFD5B4313C0A8596 /* MobileCompanion.swift in Sources */,
+				62B9B150A87EB6BDF81FED9E /* ModelChoice.swift in Sources */,
+				DB34140E2BD3A80F5383E41B /* ModelsSettings.swift in Sources */,
+				7B33121885659EFF023922DC /* MoodSpotlight.swift in Sources */,
+				9B0EF21953A72970A265319D /* OmnibarAttachments.swift in Sources */,
+				2AB8BC438BE24932D5902550 /* OmnibarField.swift in Sources */,
+				37AD9D65752D3BEE5C62E960 /* OmnibarItem.swift in Sources */,
+				C63C105F933C64DADD65E0C5 /* OmnibarModel.swift in Sources */,
+				1629A0BA21DF632F73026E00 /* OmnibarPanel.swift in Sources */,
+				87223502C7CF8B51301F5360 /* OnboardingModel.swift in Sources */,
+				428756E64562675E7217944E /* OnboardingView.swift in Sources */,
+				78DCFD72B657678170A9A7BB /* PlanBoard.swift in Sources */,
+				8BDD1938EAFEC9F6F5AAE1F3 /* PresentingBinding.swift in Sources */,
+				BB7FD537D6D8C72D9EB7990A /* ResultText.swift in Sources */,
+				0A1F7898B413929E98631E03 /* RunnersPane.swift in Sources */,
+				A6B65C071CAF0C82A85A27D9 /* SettingsPane.swift in Sources */,
+				6DB002D95ADA973D7E1A221C /* SettingsView.swift in Sources */,
+				8E55DEBC0A01A9916EAD39B8 /* SetupVisuals.swift in Sources */,
+				B6EBE43050702EBEF631FCCC /* Shortcuts.swift in Sources */,
+				854FC3F34699D664ED6A711A /* SourcesButton.swift in Sources */,
+				923BD4EAED899116F0DA4F1D /* StateLegend.swift in Sources */,
+				4233FFB675806EF5A986915C /* StorageSettings.swift in Sources */,
+				7E9B79CC6AED18B822DBFAAE /* TaskActionsPopover.swift in Sources */,
+				A364C80A7886801C09C891C9 /* TaskChoicesPopover.swift in Sources */,
+				242F42559E86D5E4999A3458 /* TaskComposer.swift in Sources */,
+				E91ED013E468820243E33392 /* TaskDetail.swift in Sources */,
+				9F7E9FB893E31ADB923BECA7 /* TaskDetailParts.swift in Sources */,
+				71B107050C059A829D825220 /* TaskDot.swift in Sources */,
+				4A9E6D36B5E749FC91938C37 /* TaskEditor.swift in Sources */,
+				BA103C8B87DD1C310F21BAEE /* TaskRecapView.swift in Sources */,
+				FEAD4780515E0F294D3D21D2 /* Theme.swift in Sources */,
+				4E2AF7C835D05961B90317B9 /* ThreadBrowser.swift in Sources */,
+				68EDA74D3C9C735A557DE0F0 /* UndoToast.swift in Sources */,
+				5FE1A0C9E71934254237B7E1 /* UpdatePill.swift in Sources */,
+				796685EDD6205E2A1FB692FF /* UsageMeters.swift in Sources */,
+				FEB9AC7B03C65C08872BD466 /* VoiceShaper.swift in Sources */,
+				586AD24FCEBFA23C54EC4382 /* VoiceShapes.swift in Sources */,
+				685F4D5EF08D02C680915CD8 /* WaitAssistant.swift in Sources */,
+				B25F103BC00151281309D328 /* WaitChoices.swift in Sources */,
+				DEDA61DC31BFDEA8F5A07D7F /* WatchComposer.swift in Sources */,
+				7DC823E9018B65A28DAB5E48 /* WhisperEngine.swift in Sources */,
+				2ECCE41B18A5D4EF159BCFDE /* WorkspaceController.swift in Sources */,
+				9927810F47F21C14C015E169 /* WorkspaceMenuItems.swift in Sources */,
+				4D4B41025646AD5082DF45B2 /* WorkspaceSetupViews.swift in Sources */,
+				1E1951F8C30EADF7A99DC47F /* WorkspaceSheets.swift in Sources */,
+				F2C42F1287C90C795A0A0F97 /* WorkspaceSidebar.swift in Sources */,
+				340F38DF486428FF42705432 /* WrapLayout.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		57890F52D491433948AA7D99 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5F64DF7FAD7C2BB217383D09 /* FaciendaDispatch.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		80C397BDD7CAD7E6A3E4E095 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				10537F5739C5DBC72E60597A /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E76E13A8ED2EB50A420E3B41 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3094DFB1A4A20BEB71E70FC /* CaptureView.swift in Sources */,
+				2C9B16088360C4FF4DAD85E0 /* FaciendaPhoneApp.swift in Sources */,
+				F0D94181C63AE4F0E2F2067C /* PhoneRootView.swift in Sources */,
+				F248A823B9F8A2DB1871DEB7 /* PhoneWorkspacesView.swift in Sources */,
+				E9E651884A8CE3BF0E9573DC /* TaskListView.swift in Sources */,
+				6009936292B39ADB5386316B /* VoiceCapture.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E8C625B6A0973402819FDBCF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0D25E6A2784DE1342147535 /* AgentBoundaryTests.swift in Sources */,
+				185A39DA5CABB85AF3358491 /* ChatHandoverTests.swift in Sources */,
+				4C8BB8252413A9E52408B3BF /* ChatIndexTests.swift in Sources */,
+				2F6022D786B242E259708DEF /* CheckPlanTests.swift in Sources */,
+				D998BD40947B89BC8481C497 /* ClaudePermissionsTests.swift in Sources */,
+				DBA39A1C097BED22C4B3A839 /* ClaudeRunnerTests.swift in Sources */,
+				EE206C6BDB7EAFD563ECF0D2 /* CodexConversationTests.swift in Sources */,
+				68D2EE4BC9DF3749737B94BA /* CodexDispatchTests.swift in Sources */,
+				8C0449DBC0770DD96FD793E6 /* DispatchContextTests.swift in Sources */,
+				07645D3A51DC8CB14419C6BD /* GroupFolderTests.swift in Sources */,
+				0687790436D9ADB6D87F5996 /* GroupSourceTests.swift in Sources */,
+				0EE523B49931EB9F5B185D78 /* LibraryHomeTests.swift in Sources */,
+				81CB82741BEE0D0F4C214F6E /* LibraryTests.swift in Sources */,
+				4F93CF4B1BEE255079CA5FB0 /* MemoryModelTests.swift in Sources */,
+				61C2CD1DDD8D4CDD6892E43B /* MobileIntakeTests.swift in Sources */,
+				CC476D2BB504F08E01C638A5 /* NativeMemoryTests.swift in Sources */,
+				CB00E1DEC17FDA65EEE05F2C /* NativeRunnerTests.swift in Sources */,
+				2378FB2B7811622BAF915DC2 /* OwnStepTests.swift in Sources */,
+				556108DD7D919573EA3BDE98 /* PlanLineTests.swift in Sources */,
+				AE855D980873EA80CCABE66C /* SafeUndoTests.swift in Sources */,
+				2DED16EF1FBDB213385D1E7E /* StoreTests.swift in Sources */,
+				FA77A2746392E12B68525668 /* TaskBlockerTests.swift in Sources */,
+				EC707B6DC75CEA9376D06A3F /* TaskGroupTests.swift in Sources */,
+				40723B8F3AA84A3A03146C89 /* TaskPresentationTests.swift in Sources */,
+				4F250F841613AC3710C23E96 /* TaskRecapTests.swift in Sources */,
+				E88A96743F3939CEE9B12B8C /* TaskWaitTests.swift in Sources */,
+				3E3DBA078E521B9E89CD12A6 /* UndoTests.swift in Sources */,
+				69E2D02EFFA1819F762B0B99 /* WorkspaceMemoryTests.swift in Sources */,
+				232D6B7548712D15A6ECFB5E /* WorkspaceSetupTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		06009AF4AD3125871A91122D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 96438C266DB895E687DD0431 /* MemoryHelper */;
+			targetProxy = 5B60E8B4F37953CD6AF27831 /* PBXContainerItemProxy */;
+		};
+		3C2A8328C088D2F7F8AA6794 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E83DA75243BD747FE1452663 /* FaciendaPhone */;
+			targetProxy = 73BA696B3B9E811293A48016 /* PBXContainerItemProxy */;
+		};
+		3C5C4E02B3C5425C5AE96CB8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BC43453024323BBF77B8FD5F /* HookHelper */;
+			targetProxy = 9C3B72A4E45AFD8109D08C36 /* PBXContainerItemProxy */;
+		};
+		65DD7380025405F06F0ABF5D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 87C0765E7F721ECEBEC420A6 /* MCPHelper */;
+			targetProxy = F77E8E566E98AF4D3683AD71 /* PBXContainerItemProxy */;
+		};
+		8C7EB02A50E8AFA6F316A65A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BA7E384C2C51A1AD27E4F109 /* DispatchHelper */;
+			targetProxy = 67EDB3FDC3AD33CEE4821842 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0A9BB8999161BBABAEC6AF84 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		122AF381D522800B6737953B /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Cloud;
+		};
+		17428A8F15805D36340AF432 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone.uitests;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FaciendaPhone;
+			};
+			name = Cloud;
+		};
+		1A40A449095FD651F85CBD91 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.DispatchHelper;
+				PRODUCT_NAME = "facienda-dispatch";
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		2DE6818AACA825F2082850CA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaAppTests;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		35385A4113C37087CF157287 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaAppTests;
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		35EBD8115EC561B3AF8C0035 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.HookHelper;
+				PRODUCT_NAME = "facienda-hook";
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		3B832933281CB28574322827 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaPhone/FaciendaPhone.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/FaciendaPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone;
+				PRODUCT_NAME = FaciendaPhone;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		3DABEB4F1F4E0B30FAAA8676 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MemoryHelper;
+				PRODUCT_NAME = "facienda-memory";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		415ED9CE401E95AD111942B3 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MCPHelper;
+				PRODUCT_NAME = "facienda-mcp";
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		4701412C793DFE5DBF92E73F /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MCPHelper;
+				PRODUCT_NAME = "facienda-mcp";
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		4BF35B068A0E92F5DDF4186E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaPhone/FaciendaPhone.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/FaciendaPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone;
+				PRODUCT_NAME = FaciendaPhone;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		54A8BD978EB08C5A55C11093 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.DispatchHelper;
+				PRODUCT_NAME = "facienda-dispatch";
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		55410AC8F4EB6D986B00BF1B /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaApp/Facienda.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Sources/FaciendaApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Facienda;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate into the top bar. Your speech is turned into text on this Mac.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.mac;
+				SDKROOT = macosx;
+				SPARKLE_FEED_URL = "https://github.com/jostelzer/facienda/releases/latest/download/appcast.xml";
+				SPARKLE_PUBLIC_KEY = "qHW6V3VFt4g6DsWI73sEIX2aa/tQmJgHVDaHdZ4Gxls=";
+			};
+			name = Tester;
+		};
+		582E7BE4A53E5515006217C0 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MemoryHelper;
+				PRODUCT_NAME = "facienda-memory";
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		58F72AA8CA5CBCC9BE8158E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaCoreTests;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		5E0B0D93BD7FE3F680F688BB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.HookHelper;
+				PRODUCT_NAME = "facienda-hook";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		62B90226F8337E4ED0F3604E /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaCoreTests;
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		735221982E7000B1BBA96F06 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.DispatchHelper;
+				PRODUCT_NAME = "facienda-dispatch";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		798F1CD1BF792A9942F56187 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		7FF8E6941812379E8FFC6724 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaCoreTests;
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		82F67D3813447AEF8FB48033 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaPhone/FaciendaPhone.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/FaciendaPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone;
+				PRODUCT_NAME = FaciendaPhone;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Cloud;
+		};
+		94D66FB4EDD42D08EAA66534 /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaAppTests;
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		95119A3F0E36BF27EE0B1D44 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaAppTests;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		9B0953779204810A0F049263 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.HookHelper;
+				PRODUCT_NAME = "facienda-hook";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		AFF8A71D54A0654CF008AA02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone.uitests;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FaciendaPhone;
+			};
+			name = Debug;
+		};
+		B2E4865CD1F2C12642AA6F7E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MemoryHelper;
+				PRODUCT_NAME = "facienda-memory";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		BB55219A314C91C207F738BA /* Cloud */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaApp/FaciendaCloud.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				INFOPLIST_FILE = Sources/FaciendaApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Facienda Development";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate into the top bar. Your speech is turned into text on this Mac.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.mac.development;
+				SDKROOT = macosx;
+			};
+			name = Cloud;
+		};
+		BD746FB03B828532AAAB3141 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.FaciendaCoreTests;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		C1154312224930CB441E43F4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaApp/FaciendaCloud.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				INFOPLIST_FILE = Sources/FaciendaApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Facienda;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate into the top bar. Your speech is turned into text on this Mac.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.mac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		C2EC10519E0AD8A506CACE67 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MCPHelper;
+				PRODUCT_NAME = "facienda-mcp";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		CEE9004DA8F8B1446B6BA37D /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone.uitests;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FaciendaPhone;
+			};
+			name = Tester;
+		};
+		CF02B8F819C775ACC458EE34 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MemoryHelper;
+				PRODUCT_NAME = "facienda-memory";
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		CF61499F39F991076B197C02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.DispatchHelper;
+				PRODUCT_NAME = "facienda-dispatch";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		E67DDFBD4BF73B7381716F98 /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.HookHelper;
+				PRODUCT_NAME = "facienda-hook";
+				SDKROOT = macosx;
+			};
+			name = Tester;
+		};
+		E831BEA842CECF4390932807 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.MCPHelper;
+				PRODUCT_NAME = "facienda-mcp";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		EB3A10BF5218936112655D7E /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaPhone/FaciendaPhone.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/FaciendaPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone;
+				PRODUCT_NAME = FaciendaPhone;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Tester;
+		};
+		F213CCFE05435FC1573CDF2D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/FaciendaApp/Facienda.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = Sources/FaciendaApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Facienda Development";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate into the top bar. Your speech is turned into text on this Mac.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.mac.development;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		F893C56297830546C96E3D9E /* Tester */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Tester;
+		};
+		FF337728DC8FF877FF19824F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6558TXKC42;
+				ENABLE_HARDENED_RUNTIME = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.facienda.iphone.uitests;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FaciendaPhone;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		02E410416264B0C7192F28BA /* Build configuration list for PBXNativeTarget "HookHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				35EBD8115EC561B3AF8C0035 /* Cloud */,
+				9B0953779204810A0F049263 /* Debug */,
+				5E0B0D93BD7FE3F680F688BB /* Release */,
+				E67DDFBD4BF73B7381716F98 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		0B621A69C419742C609B25FA /* Build configuration list for PBXNativeTarget "MemoryHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				582E7BE4A53E5515006217C0 /* Cloud */,
+				3DABEB4F1F4E0B30FAAA8676 /* Debug */,
+				B2E4865CD1F2C12642AA6F7E /* Release */,
+				CF02B8F819C775ACC458EE34 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		16C982376515860EC8C9D8E3 /* Build configuration list for PBXNativeTarget "MCPHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4701412C793DFE5DBF92E73F /* Cloud */,
+				E831BEA842CECF4390932807 /* Debug */,
+				C2EC10519E0AD8A506CACE67 /* Release */,
+				415ED9CE401E95AD111942B3 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		1FAB0B260A8AB463AB06CEA0 /* Build configuration list for PBXNativeTarget "FaciendaPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				82F67D3813447AEF8FB48033 /* Cloud */,
+				4BF35B068A0E92F5DDF4186E /* Debug */,
+				3B832933281CB28574322827 /* Release */,
+				EB3A10BF5218936112655D7E /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		2CF9DDB0648C6B337114F55D /* Build configuration list for PBXNativeTarget "FaciendaAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94D66FB4EDD42D08EAA66534 /* Cloud */,
+				2DE6818AACA825F2082850CA /* Debug */,
+				95119A3F0E36BF27EE0B1D44 /* Release */,
+				35385A4113C37087CF157287 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		39D71C5D82E00CDABC0449F9 /* Build configuration list for PBXNativeTarget "FaciendaCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				62B90226F8337E4ED0F3604E /* Cloud */,
+				BD746FB03B828532AAAB3141 /* Debug */,
+				58F72AA8CA5CBCC9BE8158E9 /* Release */,
+				7FF8E6941812379E8FFC6724 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		57FB08AD65CD47CBF55DAFF0 /* Build configuration list for PBXProject "Facienda" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				122AF381D522800B6737953B /* Cloud */,
+				0A9BB8999161BBABAEC6AF84 /* Debug */,
+				798F1CD1BF792A9942F56187 /* Release */,
+				F893C56297830546C96E3D9E /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		75BD600B4C96E6485AF15DF4 /* Build configuration list for PBXNativeTarget "DispatchHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A40A449095FD651F85CBD91 /* Cloud */,
+				735221982E7000B1BBA96F06 /* Debug */,
+				CF61499F39F991076B197C02 /* Release */,
+				54A8BD978EB08C5A55C11093 /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		AB28D41C9C005C80287602EB /* Build configuration list for PBXNativeTarget "Facienda" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB55219A314C91C207F738BA /* Cloud */,
+				F213CCFE05435FC1573CDF2D /* Debug */,
+				C1154312224930CB441E43F4 /* Release */,
+				55410AC8F4EB6D986B00BF1B /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+		D2BFEE3AEC10A43BECFB9C81 /* Build configuration list for PBXNativeTarget "FaciendaPhoneUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				17428A8F15805D36340AF432 /* Cloud */,
+				AFF8A71D54A0654CF008AA02 /* Debug */,
+				FF337728DC8FF877FF19824F /* Release */,
+				CEE9004DA8F8B1446B6BA37D /* Tester */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Cloud;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BFA5E716D578BFA12844D1C3 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		10A9C5D7F1133842133F51FD /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.12.1;
+			};
+		};
+		19DE8791E3237F232FF1C38A /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = exactVersion;
+				version = 1.1.0;
+			};
+		};
+		69F992F4082BB360EE7730BF /* XCRemoteSwiftPackageReference "textual" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/textual";
+			requirement = {
+				kind = exactVersion;
+				version = 0.5.0;
+			};
+		};
+		D170D978273066828D2D766A /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		022B12815EF8AD2E780F58B1 /* Textual */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 69F992F4082BB360EE7730BF /* XCRemoteSwiftPackageReference "textual" */;
+			productName = Textual;
+		};
+		09116695E8B4A1799C670E74 /* FaciendaBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaBridge;
+		};
+		0944317B36B79DC002BB389B /* FaciendaBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaBridge;
+		};
+		1121F78FDB50B9CF5FCF88AB /* FaciendaBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaBridge;
+		};
+		16CC2563F5A3194796A207D0 /* FaciendaCompanion */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCompanion;
+		};
+		27B3401D79EF88E4018754CF /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 10A9C5D7F1133842133F51FD /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
+		};
+		29A3C6E33CBF74F613CA5E50 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D170D978273066828D2D766A /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		39BCA4BF657C2777F67B3DA6 /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		4369C9359925CE878FE9D4D0 /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		721D990621E445090019FBBB /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		84644A104715317601DD9E9A /* FaciendaCompanion */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCompanion;
+		};
+		8725CE3E611B0EFAF2ABBDB0 /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		ADF081A3FBB1736BF34C6E8F /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		B95B6F1C110E71950021019B /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 19DE8791E3237F232FF1C38A /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+		CF06D902D6E5F9258BDDCFC9 /* FaciendaCompanion */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCompanion;
+		};
+		D1EEE0DD3D59910A5DC217FF /* FaciendaBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaBridge;
+		};
+		DD8B970EF9A05B7BF48B3D39 /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+		F276644ECC45F4EC31219A33 /* FaciendaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FaciendaCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = E89EA3FEA67269540CD8039C /* Project object */;
+}

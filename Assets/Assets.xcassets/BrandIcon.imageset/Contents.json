@@ -1,0 +1,11 @@
+{
+  "images": [
+    { "filename": "brand.png", "idiom": "universal" },
+    {
+      "filename": "brand-dark.png",
+      "idiom": "universal",
+      "appearances": [{ "appearance": "luminosity", "value": "dark" }]
+    }
+  ],
+  "info": { "author": "xcode", "version": 1 }
+}
