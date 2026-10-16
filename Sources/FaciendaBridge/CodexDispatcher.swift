@@ -7,7 +7,8 @@ import FaciendaCore
 /// A turn started here runs in the daemon, and the Codex app shows its chat read-only until it ends ("open in another
 /// app"). Only this connection hears what the turn asks, so the dispatcher follows each turn it starts: it keeps every
 /// approval request in the library for the user to answer in Facienda, sends the answer back, and lets go of the chat
-/// when the turn ends. The daemon then releases it within a minute and the chat is the user's again in Codex.
+/// when the turn ends. The daemon then releases it within a minute and the chat is the user's again in Codex: the
+/// `thread_unload_delay_secs` that connecting Codex sets, since Codex 0.163 otherwise waits half an hour.
 ///
 /// Delivery keeps the queue's guarantees: intent is recorded before the one native create or send, the chat is
 /// acknowledged right after, and a delivery interrupted in between is found by its marker or parked for recovery,

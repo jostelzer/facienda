@@ -11,7 +11,9 @@ public struct ConnectionPlan: Identifiable, Sendable {
     public let cliArguments: [String]
     public let executable: String
     public let preview: String
-    /// Connecting would change nothing: the MCP server is registered and the hooks are in place.
+    /// Connecting adds `thread_unload_delay_secs` to Codex's config, which sets none yet.
+    public var releasesChats = false
+    /// Connecting would change nothing: the MCP server is registered, the hooks are in place and chats are released.
     public var upToDate = false
 }
 
@@ -26,6 +28,39 @@ public actor ConnectionInstaller {
     /// Only the events that change a task: a turn starting (which also hands over the task's context), an approval
     /// request, work resuming after it, and the turn ending or being stopped. Tool starts and session edges add nothing.
     static let hookEvents: Set<String> = ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "Interrupt"]
+    /// Codex keeps an idle chat no client follows loaded for `thread_unload_delay_secs`, and the Codex app shows it as
+    /// "open in another app" until then. Codex 0.163 raised the default from a minute to half an hour, so a chat stayed
+    /// out of the user's reach long after Facienda's turn in it ended. Connecting restores the minute.
+    static let chatRelease = "# Facienda: Codex lets go of a chat a minute after its turn ends, not 30 minutes.\nthread_unload_delay_secs = 60\n"
+
+    /// The config with the minute added, or nil when it already names the setting anywhere, which keeps a value the
+    /// user chose. The line goes first in the file, where a top-level key is always valid TOML.
+    static func addingChatRelease(to config: Data?) -> Data? {
+        let text = config.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        guard text.range(of: #"(?m)^\s*["']?thread_unload_delay_secs["']?\s*="#, options: .regularExpression) == nil else { return nil }
+        return Data((chatRelease + (text.isEmpty ? "" : "\n" + text)).utf8)
+    }
+
+    /// Codex's shared daemon reads the setting only when it starts. It is restarted now only while no chat runs there,
+    /// so no turn is cut short; otherwise the setting applies at its next start, after a Codex update for example.
+    func restartIdleDaemon(executable: String) async {
+        let bridge = CodexBridge()
+        // No daemon running: it reads the setting when it starts.
+        guard (try? await bridge.connectDaemon(socketPath: codexHome.appending(path: "app-server-control/app-server-control.sock").path)) != nil else { return }
+        var idle = false
+        if let loaded = try? await bridge.request("thread/loaded/list")["data"].array {
+            idle = true
+            for thread in loaded.compactMap(\.string) {
+                let status = try? await bridge.request("thread/read", params: .object(["threadId": .string(thread)]))["thread"]["status"]["type"].string
+                if status != "idle" { idle = false; break }
+            }
+        }
+        await bridge.disconnect()
+        guard idle else { return }
+        let managed = codexHome.appending(path: "packages/app-server-daemon/current/bin/codex").path
+        _ = try? await Self.run(FileManager.default.isExecutableFile(atPath: managed) ? managed : executable, ["app-server", "daemon", "restart"], acceptFailure: true)
+    }
+
     private static func isFaciendaHook(_ handler: JSONValue, command: String) -> Bool {
         guard handler["statusMessage"].string == "Facienda lifecycle", let existing = handler["command"].string else { return false }
         return existing == command || existing.hasSuffix("/facienda-hook'")
@@ -66,9 +101,13 @@ public actor ConnectionInstaller {
             guard data["transport"]["command"].string == mcpPath else { throw StoreError.invalid("A different MCP server named facienda is already registered. Review it in Codex before connecting this build.") }
         }
         let unchangedHooks = try original.map { try JSONDecoder().decode(JSONValue.self, from: $0) } == JSONValue.object(root)
-        let preview = "Command:\n" + ([executable] + args).map(Self.shellQuote).joined(separator: " ") + "\n\nWrite \(hooksURL.path):\n" + String(decoding: proposed, as: UTF8.self) + "\n\nOriginal hooks.json and config.toml will be backed up in \(backupRoot.path).\n\nAfter connecting, review and trust these hooks with /hooks in Codex. Installation alone does not activate untrusted hooks."
+        // Disconnecting leaves the setting: a minute was Codex's own default until 0.163.
+        let releasesChats = !disconnect && Self.addingChatRelease(to: config) != nil
+        let release = releasesChats ? "\n\nAdd to the top of \(configURL.path):\n" + Self.chatRelease + "Codex then lets go of a chat a minute after Facienda's turn in it ends, as it did before version 0.163. Codex's background server restarts to read it if no chat is running there; the Codex app reads it when it next starts." : ""
+        let preview = "Command:\n" + ([executable] + args).map(Self.shellQuote).joined(separator: " ") + "\n\nWrite \(hooksURL.path):\n" + String(decoding: proposed, as: UTF8.self) + release + "\n\nOriginal hooks.json and config.toml will be backed up in \(backupRoot.path).\n\nAfter connecting, review and trust these hooks with /hooks in Codex. Installation alone does not activate untrusted hooks."
         var plan = ConnectionPlan(title: disconnect ? "Disconnect Codex" : "Connect Codex", hooksURL: hooksURL, originalHooks: original, originalConfig: config, proposedHooks: proposed, cliArguments: args, executable: executable, preview: preview)
-        plan.upToDate = !disconnect && existing.status == 0 && unchangedHooks
+        plan.releasesChats = releasesChats
+        plan.upToDate = !disconnect && existing.status == 0 && unchangedHooks && !releasesChats
         return plan
     }
     /// Each connect keeps the files it replaced. Only the most recent ones are worth keeping.
@@ -93,6 +132,14 @@ public actor ConnectionInstaller {
         guard try readIfExists(plan.hooksURL) == plan.originalHooks else { throw StoreError.invalid("MCP registration changed, but hooks.json changed during installation. Review a fresh plan; existing hooks were preserved.") }
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try plan.proposedHooks.write(to: plan.hooksURL, options: .atomic)
+        // Read again: registering the MCP server above rewrote config.toml.
+        if plan.releasesChats, let updated = Self.addingChatRelease(to: try readIfExists(configURL)) {
+            // config.toml can hold secrets, so it keeps its permissions, or the owner's alone for a new one.
+            let permissions = (try? FileManager.default.attributesOfItem(atPath: configURL.path)[.posixPermissions]) ?? NSNumber(value: 0o600)
+            try updated.write(to: configURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: configURL.path)
+            await restartIdleDaemon(executable: plan.executable)
+        }
     }
     private func readIfExists(_ url: URL) throws -> Data? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }; return try Data(contentsOf: url)

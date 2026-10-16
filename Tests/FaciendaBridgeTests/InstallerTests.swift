@@ -88,3 +88,30 @@ private func installation() throws -> (ConnectionInstaller, URL, String) {
     #expect(again.upToDate)
     #expect(try await !installer.plan(executable: codex.path, mcpPath: helper, hookPath: hook, disconnect: true).upToDate)
 }
+
+@Test func connectingLetsCodexReleaseChatsAfterAMinute() async throws {
+    let (installer, root, executable) = try installation()
+    let url = root.appending(path: "config.toml")
+    let original = "model = \"gpt\"\nnotify = [\n  [\"a\"],\n]\n\n[mcp_servers.other]\ncommand = \"x\"\n"
+    try Data(original.utf8).write(to: url)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    let plan = try await installer.plan(executable: executable, mcpPath: executable, hookPath: executable, disconnect: false)
+    #expect(plan.releasesChats)
+    #expect(plan.preview.contains("thread_unload_delay_secs = 60"))
+    #expect(try String(contentsOf: url, encoding: .utf8) == original) // Preview alone never changes a file.
+    try await installer.apply(plan)
+    let installed = try String(contentsOf: url, encoding: .utf8)
+    #expect(installed == ConnectionInstaller.chatRelease + "\n" + original)
+    #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int == 0o600)
+    let again = try await installer.plan(executable: executable, mcpPath: executable, hookPath: executable, disconnect: false)
+    #expect(!again.releasesChats)
+    try await installer.apply(try await installer.plan(executable: executable, mcpPath: executable, hookPath: executable, disconnect: true))
+    #expect(try String(contentsOf: url, encoding: .utf8) == installed) // Disconnecting leaves it.
+}
+
+@Test func connectingKeepsTheUsersOwnChatRelease() throws {
+    #expect(ConnectionInstaller.addingChatRelease(to: Data("thread_unload_delay_secs = 300\n".utf8)) == nil)
+    #expect(ConnectionInstaller.addingChatRelease(to: Data("model = \"gpt\"\n  thread_unload_delay_secs=0\n".utf8)) == nil)
+    #expect(ConnectionInstaller.addingChatRelease(to: nil) == Data(ConnectionInstaller.chatRelease.utf8))
+    #expect(ConnectionInstaller.addingChatRelease(to: Data()) == Data(ConnectionInstaller.chatRelease.utf8))
+}
