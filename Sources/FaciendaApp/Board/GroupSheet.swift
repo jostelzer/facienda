@@ -10,6 +10,8 @@ struct GroupCardKey: PreferenceKey {
 /// A card's + opens its group as a sheet over a wash of its cover. The card grows out of its place into the middle
 /// of the window, its cover sweeping from the top band into a tall panel on the left, and the field settles in on the right.
 /// Starting the task folds the sheet straight back into the card, where the new row is already waiting.
+/// The board's own + opens one for a group that does not exist yet: its name is typed on the empty cover, and the sheet
+/// folds into the new card once the group is made.
 ///
 /// Only a light frame moves: the sheet's surface and cover. The field, the model chooser and the task list stand still
 /// in their final place and fade in once the frame has nearly arrived, so typing and popovers never sit inside a moving transform.
@@ -35,8 +37,9 @@ struct GroupSheetLayer: View {
         ZStack(alignment: .topLeading) {
             if let shown {
                 let look = model.look(for: shown), target = target
-                let tasks = model.boardTasks(in: shown == AppModel.unsortedGroup ? nil : shown)
-                let name = model.groups.first { $0.id == shown }?.name ?? "Unsorted"
+                let tasks = shown == AppModel.newGroupSheet ? [] : model.boardTasks(in: shown == AppModel.unsortedGroup ? nil : shown)
+                // A new group's name is typed on the cover itself, so the moving frame carries none.
+                let name = model.groups.first { $0.id == shown }?.name ?? (shown == AppModel.newGroupSheet ? "" : "Unsorted")
                 MoodSpotlight(cover: look.cover, tint: look.tint) { model.releaseSpotlight() }
                     .opacity(min(max(progress, 0), 1))
                 // Resting as the board sees it: nothing to do and nothing planned.
@@ -45,8 +48,8 @@ struct GroupSheetLayer: View {
                                 from: cards[shown] ?? target, to: target, progress: progress, landing: folding, reduceMotion: reduceMotion)
                 // The motion starts once the field has focus: setting that up mid-flight dropped frames.
                 GroupSheetContent(omnibar: omnibar, group: shown, name: name, tasks: tasks, ready: open)
-                    .frame(width: target.width - GroupSheetFrame.panel, height: target.height)
-                    .offset(x: target.minX + GroupSheetFrame.panel, y: target.minY)
+                    .frame(width: target.width, height: target.height)
+                    .offset(x: target.minX, y: target.minY)
                     // Read off the sheet's own progress, so the field lands with the frame rather than on a timer of its own.
                     .modifier(GroupSheetReveal(progress: progress, from: settled ? 0.6 : 0.85, reduceMotion: reduceMotion))
                     .allowsHitTesting(settled)
@@ -55,7 +58,11 @@ struct GroupSheetLayer: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .onChange(of: model.spotlitGroup, initial: true) { old, group in
             if let old, old != group { omnibar.sheetClosed(old) }
-            guard let group else { return fold() }
+            guard let group else {
+                // A new group's sheet folds into the card just made for it rather than back into the +.
+                if let landing = model.sheetLanding { model.sheetLanding = nil; if shown == AppModel.newGroupSheet { shown = landing } }
+                return fold()
+            }
             if old != group { omnibar.sheetOpened(group) }
             // A sheet still folding away opens again from where it is; another group starts from its own card.
             if shown == group { open() } else { progress = 0; settled = false; folding = false; shown = group }
@@ -216,7 +223,8 @@ private struct GroupSheetReveal: ViewModifier, @MainActor Animatable {
     }
 }
 
-/// The right side of the sheet: the field, its model and mic, and the group's tasks for context.
+/// What lies over the sheet: on the right the field, its model and mic, and the group's tasks for context; on the left,
+/// over the cover, a new group's name.
 private struct GroupSheetContent: View {
     @Bindable var omnibar: OmnibarModel
     let group: String
@@ -225,11 +233,53 @@ private struct GroupSheetContent: View {
     /// Called once the field has focus and its caret is in place.
     var ready: () -> Void
     @FocusState private var focused: Bool
+    @FocusState private var naming: Bool
     @State private var selection: TextSelection?
     @State private var dropping = false
     private var model: AppModel { omnibar.model }
+    private var isNew: Bool { group == AppModel.newGroupSheet }
 
     var body: some View {
+        HStack(spacing: 0) {
+            // The cover beneath belongs to the moving frame; only a new group's name takes clicks here.
+            Group {
+                if isNew { nameField } else { Color.clear.allowsHitTesting(false) }
+            }.frame(width: GroupSheetFrame.panel)
+            side
+        }
+        // Esc works wherever focus is in the sheet, not only in the field.
+        .onExitCommand { model.releaseSpotlight() }
+        // Focus once the field is in the window; asked any sooner, AppKit hands it to the top bar.
+        // A draft kept from last time comes back with the caret after it, not selected, so the next key adds to it.
+        // A new group starts with its name.
+        .task {
+            try? await Task.sleep(for: .milliseconds(30)); if isNew { naming = true } else { focused = true }
+            try? await Task.sleep(for: .milliseconds(30)); selection = TextSelection(insertionPoint: omnibar.query.endIndex)
+            ready()
+        }
+        // While the sheet is up, ⌘D dictates into it rather than the bar beneath.
+        .onAppear { model.composersOnScreen += 1 }
+        .onDisappear { model.composersOnScreen -= 1 }
+        .onChange(of: model.dictationRequest) { focused = true; omnibar.toggleDictation() }
+    }
+
+    /// The new group's name, where a group's name sits on its cover. Return goes on to its first task.
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Spacer(minLength: 0)
+            TextField("", text: $omnibar.newGroupName, prompt: Text("Name the group").foregroundStyle(.white.opacity(0.72)))
+                .textFieldStyle(.plain).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                .focused($naming)
+                .onSubmit { focused = true }
+                .padding(.bottom, 3)
+                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(naming ? 0.7 : 0.45)).frame(height: 1) }
+                .accessibilityLabel("Name of the new group")
+            Text("Or leave it to Facienda").font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 16).padding(.bottom, 16)
+    }
+
+    private var side: some View {
         VStack(alignment: .leading, spacing: 0) {
             GeometryReader { proxy in
                 TextField(placeholder, text: $omnibar.query, selection: $selection, axis: .vertical)
@@ -244,7 +294,7 @@ private struct GroupSheetContent: View {
                     .onSubmit { omnibar.submit() }
                     .frame(width: proxy.size.width, alignment: .topLeading)
                     .overlay { VoiceShapes(dictation: omnibar.dictation, text: omnibar.query.isEmpty ? placeholder : omnibar.query) }
-                    .accessibilityLabel("What should happen in " + name)
+                    .accessibilityLabel(isNew ? "First task of the new group" : "What should happen in " + name)
             }
             .takesAttachments(omnibar, focus: $focused, dropping: $dropping)
             // The empty space below the text belongs to the field too: it shows the text cursor, and a click there puts the caret back in it.
@@ -263,16 +313,24 @@ private struct GroupSheetContent: View {
                 Spacer(minLength: 8)
                 if model.capturing { ProgressView().controlSize(.small) }
                 else {
-                    Text("⇧↵ new line").font(.system(size: 10)).foregroundStyle(Palette.muted)
-                    // Unsorted has no plan to hold it.
-                    if model.groups.contains(where: { $0.id == group }) {
+                    // With no task written yet there is no line to break; the room goes to Make group.
+                    if !(isNew && omnibar.makesGroupOnly) { Text("⇧↵ new line").font(.system(size: 10)).foregroundStyle(Palette.muted) }
+                    // Unsorted has no plan to hold it; a new group gets one with its first line.
+                    if isNew || model.groups.contains(where: { $0.id == group }) {
                         Button { omnibar.plan() } label: { SheetButton.label("Plan", key: "⌥↵") }
                             .buttonStyle(SheetButton()).disabled(!omnibar.canPlan)
-                            .help(omnibar.attachments.isEmpty ? "Keep it in \(name)'s plan without starting it (⌥↵)" : "A planned task holds text only; start it to send the files")
+                            .help(!omnibar.attachments.isEmpty ? "A planned task holds text only; start it to send the files"
+                                  : isNew ? "Make the group with this in its plan, not started (⌥↵)" : "Keep it in \(name)'s plan without starting it (⌥↵)")
                     }
-                    Button { omnibar.submit() } label: { SheetButton.label("Start", key: "↵") }
-                        .buttonStyle(SheetButton(prominent: true)).disabled(!omnibar.canStart)
-                        .help("Start it now in \(name) (↵)")
+                    if isNew && omnibar.makesGroupOnly {
+                        Button { omnibar.submit() } label: { SheetButton.label("Make group", key: "↵") }
+                            .buttonStyle(SheetButton(prominent: true)).disabled(!omnibar.canMakeGroup)
+                            .help("Make the group without a task yet (↵)")
+                    } else {
+                        Button { omnibar.submit() } label: { SheetButton.label("Start", key: "↵") }
+                            .buttonStyle(SheetButton(prominent: true)).disabled(!omnibar.canStart)
+                            .help(isNew ? "Make the group and start its first task (↵)" : "Start it now in \(name) (↵)")
+                    }
                 }
             }
             .padding(.horizontal, 22).padding(.bottom, 14)
@@ -293,19 +351,6 @@ private struct GroupSheetContent: View {
             }.buttonStyle(.plain).foregroundStyle(Palette.muted)
                 .help("Close without starting").accessibilityLabel("Close").padding(.top, 12).padding(.trailing, 12)
         }
-        // Esc works wherever focus is in the sheet, not only in the field.
-        .onExitCommand { model.releaseSpotlight() }
-        // Focus once the field is in the window; asked any sooner, AppKit hands it to the top bar.
-        // A draft kept from last time comes back with the caret after it, not selected, so the next key adds to it.
-        .task {
-            try? await Task.sleep(for: .milliseconds(30)); focused = true
-            try? await Task.sleep(for: .milliseconds(30)); selection = TextSelection(insertionPoint: omnibar.query.endIndex)
-            ready()
-        }
-        // While the sheet is up, ⌘D dictates into it rather than the bar beneath.
-        .onAppear { model.composersOnScreen += 1 }
-        .onDisappear { model.composersOnScreen -= 1 }
-        .onChange(of: model.dictationRequest) { focused = true; omnibar.toggleDictation() }
     }
 
     private func row(_ task: FaciendaTask) -> some View {
@@ -327,7 +372,8 @@ private struct GroupSheetContent: View {
         case .listening where omnibar.dictation.showsVoice: return ""
         case .preparing, .listening: return "Listening…"
         case .idle, .finishing:
-            return omnibar.attachments.isEmpty ? "What should happen in \(name)?" : "What should happen with \(omnibar.attachments.count == 1 ? "it" : "them")?"
+            if !omnibar.attachments.isEmpty { return "What should happen with \(omnibar.attachments.count == 1 ? "it" : "them")?" }
+            return isNew ? "Its first task, or leave it empty" : "What should happen in \(name)?"
         }
     }
 }
@@ -342,6 +388,8 @@ private struct SheetButton: ButtonStyle {
             Text(title)
             Text(key).font(.system(size: 10)).opacity(0.6)
         }
+        // A button's words never clip; the spacer before it gives way first.
+        .fixedSize()
     }
 
     func makeBody(configuration: Configuration) -> some View {

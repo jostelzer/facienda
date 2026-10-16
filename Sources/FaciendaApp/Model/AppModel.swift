@@ -50,12 +50,16 @@ import FaciendaBridge
     /// Bumped to start or stop dictating into the top bar.
     var dictationRequest = 0
     /// The group a task started from the top bar joins, set by a card's + and lit up on the board until let go.
-    /// Nil lets the runner file it; `unsortedGroup` keeps it in "Unsorted".
+    /// Nil lets the runner file it; `unsortedGroup` keeps it in "Unsorted"; `newGroupSheet` makes a group for it first.
     var omnibarGroup: String?
     static let unsortedGroup = ""
+    /// The board's own +: a sheet for a group that does not exist yet, named together with its first task.
+    static let newGroupSheet = "new-group"
+    /// The group just made in the new group's sheet, which the sheet folds into instead of back into the +.
+    var sheetLanding: String?
     /// The group in the spotlight. It only shows on the board.
     var spotlitGroup: String? { destination == .dashboard ? omnibarGroup : nil }
-    /// Set by the menu, shortcut and command bar; the board opens its New group card and clears it.
+    /// Set by the menu, shortcut and command bar; the board presses its + and clears it.
     var newGroupRequested = false
     /// A task the board should scroll to and open, as when its row is clicked. Set when the top bar brings one back.
     var boardOpenRequest: String?
@@ -434,6 +438,11 @@ import FaciendaBridge
     }
     func compose() {
         search = ""; destination = .inbox; selection = nil; composerFocusRequest += 1
+    }
+    /// ⌘N: Unsorted's sheet, as its + opens it. The task joins no group unless it is moved into one.
+    func composeUnsorted() {
+        search = ""; destination = .dashboard; selection = nil
+        omnibarGroup = Self.unsortedGroup
     }
     /// The task lists are the board with only their state's chip on; the board turns them on and clears the request.
     /// The dashboard itself keeps the chips as they are.

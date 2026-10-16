@@ -63,3 +63,14 @@ import Testing
     let evolved = TaskNameWriter.prompt(for: task, latestResult: nil, chat: "USER: actually swap it for the larger model instead", language: "German")
     #expect(evolved.contains("swap it for the larger model") && evolved.contains("Print the return label"))
 }
+
+@Test func groupNamedFromItsFirstTaskIsTheSubjectAndShort() throws {
+    #expect(GroupNameWriter.provisional(from: "Order a monitor arm that fits the Studio Display") == "monitor arm")
+    #expect(GroupNameWriter.provisional(from: "Taxes\nmore detail") == "taxes")
+    #expect(GroupNameWriter.provisional(from: "   ") == "New group")
+    #expect(GroupNameWriter.provisional(from: String(repeating: "Supercalifragilistic ", count: 4)).count <= GroupNameWriter.maximumLength)
+    #expect(try GroupNameWriter.read(#"{"name":"“Desk setup.”"}"#) == "Desk setup")
+    #expect(try GroupNameWriter.read(#"{"name":"\#(String(repeating: "word ", count: 30))"}"#).count <= GroupNameWriter.maximumLength)
+    let prompt = GroupNameWriter.prompt(task: "Order a monitor arm", groups: ["facienda coding", "releasing"], language: "German")
+    #expect(prompt.contains("GROUPS: facienda coding, releasing") && prompt.contains("Order a monitor arm") && prompt.contains("LANGUAGE: German"))
+}

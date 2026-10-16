@@ -882,3 +882,28 @@ private struct FakePainter: CoverPainting {
     #expect(AppModel.acceptable([completion]) == nil)
     #expect(AppModel.acceptable([Decision(taskId: "t", question: "Which?", recommendation: " ", options: [])]) == nil)
 }
+
+@MainActor @Test func commandNOpensUnsortedsSheetOnTheBoard() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "compose-unsorted-\(UUID().uuidString)/tasks.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Selected task"))
+    let model = try AppModel(store: store)
+    model.showTask(task); model.search = "Selected"; model.destination = .inbox
+    model.composeUnsorted()
+    #expect(model.destination == .dashboard && model.selection == nil && model.search.isEmpty)
+    #expect(model.spotlitGroup == AppModel.unsortedGroup)
+}
+
+@MainActor @Test func boardPlusMakesTheGroupNamedOrNamedAfterItsFirstTask() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "board-plus-\(UUID().uuidString)/tasks.sqlite"))
+    let model = try AppModel(store: store)
+    // A name and no task: just the group, and the sheet folds into its card.
+    let studio = try #require(model.makeGroup(named: "  Studio ", firstTask: ""))
+    #expect(studio.name == "Studio" && model.sheetLanding == studio.id && model.boardTasks(in: studio.id).isEmpty)
+    // No name: called after the first task until Facienda names it, and the task can go into its plan.
+    let desk = try #require(model.makeGroup(named: "", firstTask: "Order a monitor arm that fits the Studio Display"))
+    #expect(desk.name == "monitor arm" && model.sheetLanding == desk.id)
+    #expect(model.planTask("Order a monitor arm that fits the Studio Display", in: desk.id))
+    #expect(model.plannedLines(in: desk.id).map(\.text) == ["Order a monitor arm that fits the Studio Display"])
+    // New groups join the board wherever there is room, after the others.
+    #expect(model.groups.map(\.name) == ["Studio", "monitor arm"])
+}

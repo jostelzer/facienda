@@ -55,6 +55,11 @@ import FaciendaBridge
         Self.discardStalePasted()
     }
 
+    /// The name typed on the new group's sheet. Left empty, Facienda names the group from its first task.
+    var newGroupName = ""
+    /// The group the new group's sheet already made, so trying again after a failed start never makes a second one.
+    @ObservationIgnored private var madeGroup: String?
+
     var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// While a group is lit, typing writes its next task: no results hang over the lit card.
     var isOpen: Bool { !dismissed && !trimmed.isEmpty && model.spotlitGroup == nil }
@@ -63,8 +68,11 @@ import FaciendaBridge
     /// A group's sheet can keep the task in the group's plan instead. Unsorted has no plan, and a plan line holds text only.
     var canPlan: Bool {
         !trimmed.isEmpty && !model.demo && !submitting && attachments.isEmpty && followUp == nil
-            && model.groups.contains { $0.id == model.spotlitGroup }
+            && (model.groups.contains { $0.id == model.spotlitGroup } || model.spotlitGroup == AppModel.newGroupSheet)
     }
+    /// The new group's sheet with a name and no task: Start just makes the group.
+    var makesGroupOnly: Bool { model.spotlitGroup == AppModel.newGroupSheet && trimmed.isEmpty && attachments.isEmpty }
+    var canMakeGroup: Bool { makesGroupOnly && !newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.demo && !submitting }
 
     // MARK: Results
 
@@ -279,6 +287,7 @@ import FaciendaBridge
     /// Return: the highlighted result, or start the task.
     func submit() {
         guard !finding else { return }
+        if model.spotlitGroup == AppModel.newGroupSheet { startInNewGroup(); return }
         if isOpen, let item = items.first(where: { $0.id == highlighted }) { run(item) } else { findOrStart() }
     }
 
@@ -341,9 +350,14 @@ import FaciendaBridge
     }
 
     func start() {
+        if model.spotlitGroup == AppModel.newGroupSheet { startInNewGroup(); return }
+        start(in: model.omnibarGroup)
+    }
+
+    private func start(in groupID: String?) {
         guard canStart else { return }
-        if let threadId = Self.codexThreadID(trimmed) { addChat(threadId); return }
-        if let sessionId = ClaudeDesktop.sessionID(inLink: trimmed) { addClaudeSession(sessionId); return }
+        if let threadId = Self.codexThreadID(trimmed) { addChat(threadId, in: groupID); return }
+        if let sessionId = ClaudeDesktop.sessionID(inLink: trimmed) { addClaudeSession(sessionId, in: groupID); return }
         var request = trimmed
         if let followUp { request += "\n\nContinue from the Codex chat “\(followUp.title)”: codex://threads/\(followUp.threadId)" }
         submitting = true
@@ -352,14 +366,33 @@ import FaciendaBridge
         Task {
             defer { submitting = false }
             if await model.capture(title: request, intention: "", area: "Personal", date: Date(), startNow: true, attachments: attachments,
-                                   groupID: model.omnibarGroup, reveal: reveal, model: model.composerModel) { finish() }
+                                   groupID: groupID, reveal: reveal, model: model.composerModel) { finish() }
         }
     }
 
+    /// The board's +: the group, named or left for Facienda to name, and its first task, started or planned.
+    /// Without a task it is simply a new group. Either way the sheet folds into the new card.
+    func startInNewGroup(plan planning: Bool = false) {
+        if makesGroupOnly { guard canMakeGroup else { return } }
+        else { guard planning ? canPlan : canStart else { return } }
+        let text = trimmed
+        let group: TaskGroup
+        if let made = madeGroup, let existing = model.groups.first(where: { $0.id == made }) { group = existing; model.sheetLanding = made }
+        else {
+            guard let made = model.makeGroup(named: newGroupName, firstTask: text) else { return }
+            group = made; madeGroup = made.id
+        }
+        if makesGroupOnly { finish(); return }
+        if planning {
+            if model.planTask(text, in: group.id) { finish() }
+            return
+        }
+        start(in: group.id)
+    }
+
     /// A pasted Codex link becomes a task that tracks that chat, in the lit group if there is one. You stay where you are.
-    private func addChat(_ threadId: String) {
+    private func addChat(_ threadId: String, in groupID: String?) {
         submitting = true
-        let groupID = model.omnibarGroup
         Task {
             defer { submitting = false }
             if await model.importThread(CodexThread(id: threadId, title: "", cwd: "", updatedAt: Date()), groupID: groupID, reveal: false) {
@@ -369,9 +402,8 @@ import FaciendaBridge
     }
 
     /// A pasted Claude session link or `local_…` ID becomes a task that tracks that session.
-    private func addClaudeSession(_ sessionId: String) {
+    private func addClaudeSession(_ sessionId: String, in groupID: String?) {
         submitting = true
-        let groupID = model.omnibarGroup
         Task {
             defer { submitting = false }
             if await model.importClaudeSession(sessionId, groupID: groupID, reveal: false) {
@@ -429,7 +461,9 @@ import FaciendaBridge
     /// a group's sheet folds straight back into its card, where the new row is already in place.
     /// Option-Return or the sheet's Plan button: the task waits at the end of its group's plan, not started.
     func plan() {
-        guard canPlan, let group = model.spotlitGroup, model.planTask(trimmed, in: group) else { return }
+        guard canPlan, let group = model.spotlitGroup else { return }
+        if group == AppModel.newGroupSheet { startInNewGroup(plan: true); return }
+        guard model.planTask(trimmed, in: group) else { return }
         finish()
     }
 
@@ -438,6 +472,7 @@ import FaciendaBridge
         model.releaseSpotlight()
         query = ""; followUp = nil; dismissed = false; offered = nil; attachments = []
         sections = []; highlighted = Self.startID; autoPick = nil
+        newGroupName = ""; madeGroup = nil
         model.search = ""
     }
 
@@ -466,6 +501,8 @@ import FaciendaBridge
     func sheetClosed(_ group: String) {
         if dictation.isActive { dictation.cancel() }
         if !trimmed.isEmpty || !attachments.isEmpty { drafts[group] = (query, attachments) }
+        // Its name stays for next time; a group it made for a start that failed is simply there on the board now.
+        if group == AppModel.newGroupSheet { madeGroup = nil }
         query = parked.text; followUp = parked.followUp; attachments = parked.attachments; parked = ("", nil, [])
         dismissed = true
     }

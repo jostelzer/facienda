@@ -18,6 +18,15 @@ extension AppModel {
         }
         return created
     }
+    /// The board's +: the group its sheet names, or, with the name left empty, one called after its first task until
+    /// Facienda finds a better name. The sheet folds into its card.
+    func makeGroup(named name: String, firstTask text: String) -> TaskGroup? {
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let group = createGroup(name: typed.isEmpty ? GroupNameWriter.provisional(from: text) : typed) else { return nil }
+        if typed.isEmpty { nameGroup(group, from: text) }
+        sheetLanding = group.id
+        return group
+    }
     func renameGroup(_ group: TaskGroup, name: String) {
         guard name.trimmingCharacters(in: .whitespacesAndNewlines) != group.name else { return }
         perform(undo: "Rename Group") { try store.renameGroup(group.id, name: name); refresh() }

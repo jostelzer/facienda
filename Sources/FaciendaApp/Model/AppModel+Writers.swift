@@ -34,6 +34,23 @@ extension AppModel {
             } catch { self.error = "Couldn't name the task: " + error.localizedDescription }
         }
     }
+    /// Names a group made on the board's + without a name, from its first task, as the user's other groups are named.
+    /// It keeps its stand-in name if no model can be asked, and a name the user typed meanwhile wins.
+    func nameGroup(_ group: TaskGroup, from task: String) {
+        guard !demo, serviceModelReady, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let executable = executable, luna = Self.nameLuna, before = group.name
+        let prompt = GroupNameWriter.prompt(task: task, groups: groups.map(\.name).filter { $0 != before })
+        Task {
+            do {
+                try await luna.warm(executable: executable)
+                let thread = try await luna.open(.groupName)
+                defer { Task { await luna.close(thread) } }
+                let name = try GroupNameWriter.read(try await luna.ask(thread, text: prompt, schema: GroupNameWriter.schema, effort: GroupNameWriter.reasoningEffort, timeout: .seconds(30)))
+                guard let current = groups.first(where: { $0.id == group.id }), current.name == before else { return }
+                renameGroup(current, name: name)
+            } catch {}
+        }
+    }
     /// Splits "call the landlord tomorrow morning" into the step and its reminder time. Falls back to the text as typed.
     func readStep(_ text: String, for task: FaciendaTask) async -> (step: String, at: Date?) {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)

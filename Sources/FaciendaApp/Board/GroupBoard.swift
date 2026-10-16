@@ -45,10 +45,6 @@ struct GroupBoard: View {
     @State private var choosing: String?
     /// A card to scroll into view.
     @State private var scrollTarget: String?
-    /// The New group card's name field, while open.
-    @State private var namingNew = false
-    @State private var newDraft = ""
-    @FocusState private var newFocused: Bool
     /// The task awaiting confirmation to be deleted.
     @State private var deleting: FaciendaTask?
     /// The task whose name is being edited in place, and the name being typed.
@@ -71,18 +67,19 @@ struct GroupBoard: View {
     /// Stands in for "Unsorted" in the board.
     private static let looseKey = ""
     private static let looseName = "Unsorted"
-    /// Stands in for the New group card, which always rests at the foot of the shortest column.
+    /// Stands in for the card a carried task can be dropped on to start a group. It shows only while a task is carried,
+    /// at the foot of the shortest column.
     private static let newKey = "+new"
 
     private var laneCount: Int { max(1, Int((boardWidth + Self.laneSpacing) / (Self.minLaneWidth + Self.laneSpacing))) }
 
-    /// The cards on screen in display order: groups as saved, then "Unsorted".
+    /// The cards on screen in display order: groups as saved, then "Unsorted", and the drop card while a task is carried.
     private func shownKeys(_ lists: [String: [FaciendaTask]]) -> [String] {
         // While filtering, groups with nothing to show step aside; truly empty ones rest in place otherwise.
         let filtering = filtering
         var keys = model.groups.filter { !filtering || lists[$0.id]?.isEmpty == false || !visiblePlannedLines(in: $0.id).isEmpty }.map(\.id)
         if !filtering || lists[Self.looseKey]?.isEmpty == false { keys.append(Self.looseKey) }
-        keys.append(Self.newKey)
+        if rowDrag != nil { keys.append(Self.newKey) }
         return keys
     }
 
@@ -167,10 +164,12 @@ struct GroupBoard: View {
                     scrollTarget = nil
                 }
             }
-            // The File menu, the shortcut and the command bar all open the New group card.
+            // The File menu, the shortcut and the command bar all press the board's +.
             .onAppear { if model.newGroupRequested { beginNewGroup() }; openRequested() }
             .onChange(of: model.boardOpenRequest) { _, _ in openRequested() }
             .onChange(of: model.newGroupRequested) { _, requested in if requested { beginNewGroup() } }
+            // A group made on the board's + may land below the fold; its sheet folds into it there.
+            .onChange(of: model.sheetLanding) { _, group in if let group { scrollTarget = group } }
             // A new row keeps its recap while its choices are open, and counts as read once they close.
             .onChange(of: choosing) { closed, _ in if let closed, let task = model.tasksByID[closed] { model.noteOpened(task) } }
         }
@@ -290,10 +289,20 @@ struct GroupBoard: View {
     }
 
     /// Explains each glyph and doubles as the filter. The Plan view shows the same one.
+    /// The board's own + ends the row: as the island's + adds a workspace, it adds a group, in line with the cards' own +.
     private var legend: some View {
-        StateLegend(model: model, scope: .board, tasks: model.boardTasks(in: nil) + model.groups.flatMap { model.boardTasks(in: $0.id) },
-                    plannedCount: model.groups.reduce(0) { $0 + model.plannedLines(in: $1.id).count })
+        HStack(alignment: .top, spacing: 8) {
+            StateLegend(model: model, scope: .board, tasks: model.boardTasks(in: nil) + model.groups.flatMap { model.boardTasks(in: $0.id) },
+                        plannedCount: model.groups.reduce(0) { $0 + model.plannedLines(in: $1.id).count })
+            Spacer(minLength: 0)
+            PlusButton(help: "New group (⇧⌘G)", label: "New group") { beginNewGroup() }
+                // Where the new group's sheet grows out of and, if let go, folds back into.
+                .anchorPreference(key: GroupCardKey.self, value: .bounds) { [AppModel.newGroupSheet: $0] }
+                .padding(.trailing, Self.plusInset).padding(.top, -3)
+        }
     }
+    /// How far a + sits in from the edge of the board or of its card, so every + on the board lines up.
+    private static let plusInset: CGFloat = cardInset - 6
 
     private func card(_ id: String?, name: String, group: TaskGroup?, tasks: [FaciendaTask]) -> some View {
         let key = id ?? Self.looseKey, lifted = drag?.id == key
@@ -338,39 +347,17 @@ struct GroupBoard: View {
             }
     }
 
-    /// Always the last card: name it, or drop tasks on it, and it becomes a group where it stands.
+    /// Shows only while a task is carried, at the foot of the shortest column: drop the task on it and it becomes a group
+    /// where it stands, its name open, ready to change.
     private var newGroupCard: some View {
         let key = Self.newKey, targeted = dropTarget == key
-        return Group {
-            if namingNew {
-                TextField("Name the group", text: $newDraft).textFieldStyle(.plain).font(.system(size: 13, weight: .semibold))
-                    .focused($newFocused)
-                    // Focus once the field is in the window; asked any sooner, AppKit hands it to the top bar.
-                    .task { try? await Task.sleep(for: .milliseconds(30)); newFocused = true }
-                    .onSubmit { commitNewGroup() }.onExitCommand { namingNew = false; newDraft = "" }
-                    .onChange(of: newFocused) { _, focused in if !focused { commitNewGroup() } }
-            } else {
-                Button { beginNewGroup() } label: {
-                    Label(targeted ? "Drop to start a group" : "New group", systemImage: "plus")
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(targeted ? Palette.blue : Palette.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }.buttonStyle(.plain).help("Name a new group, or drop tasks here to start one (⇧⌘G)")
-            }
-        }
-        .frame(minHeight: 22).padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(targeted ? Palette.blue.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? Palette.blue : Palette.line, style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: [5, 4])))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { cardFrames[key] = $0 }
-        .dropDestination(for: String.self) { items, _ in
-            let known = items.filter { dropped in model.tasks.contains { $0.id == dropped } }
-            guard !known.isEmpty else { return false }
-            makeGroup(named: AppModel.newGroupName, holding: known)
-            return true
-        } isTargeted: { targeted in
-            if targeted { dropTarget = key } else if dropTarget == key { dropTarget = nil }
-        }
+        return Label("Drop to start a group", systemImage: "plus")
+            .font(.system(size: 13, weight: .semibold)).foregroundStyle(targeted ? Palette.blue : Palette.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 22).padding(.horizontal, 14).padding(.vertical, 12)
+            .background(targeted ? Palette.blue.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? Palette.blue : Palette.line, style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: [5, 4])))
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { cardFrames[key] = $0 }
     }
 
     /// `hoverKey` names the card whose rim firms up under the pointer; nil keeps the rim as it is.
@@ -384,7 +371,7 @@ struct GroupBoard: View {
             if showCovers, let group { cover(group, resting: resting) { titleRow(id, name: name, group: group, resting: resting, size: 15) } }
             if !banner { titleRow(id, name: name, group: group, resting: resting).padding(.bottom, 6) }
             if resting {
-                Text(group == nil ? "Tasks without a group land here." : Self.resting(since: model.lastActive(in: group?.id)))
+                Text(group == nil ? "Nothing here right now." : Self.resting(since: model.lastActive(in: group?.id)))
                     .font(.system(size: 11)).foregroundStyle(Palette.muted).padding(.bottom, 2)
             }
             ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
@@ -398,14 +385,6 @@ struct GroupBoard: View {
                 PlannedRow(model: model, line: line, hover: hover,
                            above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true)
             }
-            // Every card has its strip, an empty one too: with the header's + gone, it is the only way to start a task there.
-            NewTaskStrip(name: name) { newTask(in: group) }
-                .overlay(alignment: .top) {
-                    RowRule(hover: hover, id: Self.stripKey, above: planned.last.map { Self.plannedKey($0.id) } ?? tasks.last?.id,
-                            lifted: planned.isEmpty && tasks.last.map(model.isUnread) == true)
-                }
-                // Out to the card's edges and down to its foot, where the card's clip rounds the corners.
-                .padding(.horizontal, -Self.cardInset).padding(.bottom, -8)
         }
         .padding(.horizontal, Self.cardInset).padding(.top, 12).padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -432,6 +411,9 @@ struct GroupBoard: View {
             }
             Spacer(minLength: 0)
             if let group { SourcesButton(model: model, group: group) }
+            // The island's +, in the same corner of every card, Unsorted's too: a task in this group, or in the pile.
+            PlusButton(help: "New task in " + name, label: "New task in " + name) { newTask(in: group) }
+                .padding(.trailing, -6).padding(.vertical, -2)
         }.frame(minHeight: 22).contentShape(Rectangle())
             .simultaneousGesture(dragCard(id ?? Self.looseKey))
     }
@@ -590,7 +572,6 @@ struct GroupBoard: View {
         guard let date else { return "Resting" }
         return "Resting · last active " + date.formatted(.relative(presentation: .named))
     }
-    private static let stripKey = "new-task-strip"
     /// A planned line's key among the rows the pointer can be over, apart from task IDs.
     static func plannedKey(_ id: String) -> String { "planned:" + id }
 
@@ -752,18 +733,11 @@ struct GroupBoard: View {
         withAnimation(Motion.move) { model.complete(task) }
     }
 
+    /// The board's +: a sheet with the group's name and its first task. Asking again while it is up lets it go.
     private func beginNewGroup() {
         model.newGroupRequested = false
-        newDraft = ""; namingNew = true
-        scrollTarget = Self.newKey
-    }
-
-    private func commitNewGroup() {
-        guard namingNew else { return }
-        namingNew = false
-        let name = newDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        newDraft = ""
-        if !name.isEmpty { makeGroup(named: name, holding: []) }
+        if model.spotlitGroup == AppModel.newGroupSheet { model.releaseSpotlight(); return }
+        model.omnibarGroup = AppModel.newGroupSheet
     }
 
     /// Makes the group in the New group card's spot. Dropped tasks arrive with the name open, ready to change.
@@ -801,26 +775,28 @@ struct RowDrag: Equatable {
     var newGroup = false
 }
 
-/// The foot of every card: one strip, edge to edge, that starts a task in the group.
-/// Anywhere in it counts, not just the words; under the pointer it washes and the words firm up.
-private struct NewTaskStrip: View {
-    let name: String
-    let start: () -> Void
-    @State private var hover = false
+/// The island's +, as the board uses it: a bare glyph in muted ink that adds one thing inside what it sits on.
+/// Under the pointer it only deepens; nothing grows or moves.
+private struct PlusButton: View {
+    let help: String
+    let label: String
+    let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        Button(action: start) {
-            Text("New task…").font(.system(size: 12)).foregroundStyle(hover ? Palette.ink : Palette.muted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, GroupBoard.cardInset).padding(.top, 9).padding(.bottom, 11)
-                .background(Palette.ink.opacity(hover ? 0.045 : 0))
-                .contentShape(Rectangle())
+        Button(action: action) {
+            Image(systemName: "plus").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.muted)
+                .frame(width: 26, height: 26).contentShape(Rectangle())
+                .brightness(hovering ? 0.08 : 0)
         }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(Motion.fade, value: hover)
-        .help("New task in " + name)
-        .accessibilityLabel("New task in " + name)
+        .buttonStyle(PressFade())
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(label)
+    }
+
+    private struct PressFade: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View { configuration.label.opacity(configuration.isPressed ? 0.7 : 1) }
     }
 }
 

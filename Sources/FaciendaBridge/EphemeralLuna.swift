@@ -160,6 +160,8 @@ extension EphemeralLuna.Profile {
         developerInstructions: HeadlineWriter.developerInstructions, reasoningEffort: HeadlineWriter.reasoningEffort)
     public static let name = Self(id: "facienda-name", baseInstructions: HeadlineWriter.baseInstructions,
         developerInstructions: TaskNameWriter.developerInstructions, reasoningEffort: TaskNameWriter.reasoningEffort)
+    public static let groupName = Self(id: "facienda-group-name", baseInstructions: HeadlineWriter.baseInstructions,
+        developerInstructions: GroupNameWriter.developerInstructions, reasoningEffort: GroupNameWriter.reasoningEffort)
     public static let wait = Self(id: "facienda-wait", baseInstructions: WaitCompiler.baseInstructions,
         developerInstructions: WaitCompiler.developerInstructions, reasoningEffort: WaitCompiler.reasoningEffort)
     public static let nextSteps = Self(id: "facienda-next-steps", baseInstructions: NextStepWriter.baseInstructions,

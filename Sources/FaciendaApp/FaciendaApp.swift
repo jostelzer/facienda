@@ -19,7 +19,7 @@ import FaciendaCore
     }
     private func openNewTask() {
         delegate.reopenWindow?()
-        model?.compose()
+        model?.composeUnsorted()
     }
     private func go(_ destination: Destination) {
         delegate.reopenWindow?()
