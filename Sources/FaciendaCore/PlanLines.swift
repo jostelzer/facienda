@@ -135,29 +135,40 @@ extension FaciendaStore {
     }
 
     /// Puts a line, with everything under it, under `parentId` just before the sibling `beforeId`, or last when that is nil.
+    /// With `groupId` the line moves into that group's plan, in the same workspace; tasks its lines started stay in their group.
     /// A line never goes under itself or one of its own lines.
-    public func placePlanLine(_ id: String, parentId: String?, before beforeId: String?, now: Date = Date()) throws {
+    public func placePlanLine(_ id: String, groupId: String? = nil, parentId: String?, before beforeId: String?, now: Date = Date()) throws {
         try write { db in
             guard var line = try PlanLine.fetchOne(db, key: id) else { throw StoreError.notFound }
+            let oldGroup = line.groupId, group = groupId ?? oldGroup
+            if group != oldGroup {
+                guard let target = try TaskGroup.fetchOne(db, key: group), let source = try TaskGroup.fetchOne(db, key: oldGroup),
+                      target.workspaceId == source.workspaceId, workspaceID.map({ $0 == target.workspaceId }) ?? true else { throw StoreError.notFound }
+            }
             var ancestor = parentId
             while let current = ancestor {
-                guard current != id, let above = try PlanLine.fetchOne(db, key: current), above.groupId == line.groupId else {
+                guard current != id, let above = try PlanLine.fetchOne(db, key: current), above.groupId == group else {
                     throw StoreError.invalid("A line can't go under itself.")
                 }
                 ancestor = above.parentId
             }
             let oldParent = line.parentId
-            var siblings = try Self.siblings(db, groupId: line.groupId, parentId: parentId).filter { $0.id != id }
+            var siblings = try Self.siblings(db, groupId: group, parentId: parentId).filter { $0.id != id }
             let index: Int
             if let beforeId {
                 guard let found = siblings.firstIndex(where: { $0.id == beforeId }) else { throw StoreError.notFound }
                 index = found
             } else { index = siblings.count }
-            line.parentId = parentId; line.updatedAt = now
+            if group != oldGroup {
+                // The lines under it come along.
+                let steps = PlanOutline(try PlanLine.fetchAll(db, sql: "SELECT * FROM planLines WHERE groupId = ?", arguments: [oldGroup])).descendants(of: id)
+                for step in steps { try db.execute(sql: "UPDATE planLines SET groupId = ?, updatedAt = ? WHERE id = ?", arguments: [group, now, step.id]) }
+            }
+            line.groupId = group; line.parentId = parentId; line.updatedAt = now
             siblings.insert(line, at: index)
             try line.update(db)
             try Self.renumber(db, siblings)
-            if oldParent != parentId { try Self.renumber(db, Self.siblings(db, groupId: line.groupId, parentId: oldParent)) }
+            if oldGroup != group || oldParent != parentId { try Self.renumber(db, Self.siblings(db, groupId: oldGroup, parentId: oldParent)) }
         }
     }
 

@@ -178,3 +178,52 @@ private func drag(_ db: FaciendaStore, _ group: String, _ id: String, to target:
     _ = try db.adoptIntoPlan(taskId: task.id, groupId: group.id, parentId: nil, before: later.id)
     #expect(try outline(db, group.id) == ["Demo quality", "Review power controls", "Later"])
 }
+
+@Test func aLineMovesToAnotherGroupsPlanWithItsSteps() throws {
+    let db = try store(), trips = try db.createGroup(name: "Trips"), launch = try db.createGroup(name: "Launch")
+    let book = try db.addPlanLine(groupId: trips.id, text: "Book the train")
+    let pack = try db.addPlanLine(groupId: trips.id, text: "Pack")
+    let list = try db.addPlanLine(groupId: trips.id, parentId: pack.id, text: "Write the list")
+    let draft = try db.addPlanLine(groupId: launch.id, text: "Draft the announcement")
+
+    // A planned line carried to another card lands just above the line it was dropped before.
+    try db.placePlanLine(book.id, groupId: launch.id, parentId: nil, before: draft.id)
+    #expect(try outline(db, launch.id) == ["Book the train", "Draft the announcement"])
+    #expect(try outline(db, trips.id) == ["Pack", "  Write the list"])
+    // A goal takes its steps along, here to the end of the other plan.
+    try db.placePlanLine(pack.id, groupId: launch.id, parentId: nil, before: nil)
+    #expect(try outline(db, launch.id) == ["Book the train", "Draft the announcement", "Pack", "  Write the list"])
+    #expect(try outline(db, trips.id).isEmpty)
+    // Naming the group it is already in just moves it within that plan.
+    try db.placePlanLine(book.id, groupId: launch.id, parentId: nil, before: nil)
+    #expect(try outline(db, launch.id) == ["Draft the announcement", "Pack", "  Write the list", "Book the train"])
+    let lines = try db.planLines()
+    for parent in Set(lines.map(\.parentId)) {
+        #expect(lines.filter { $0.parentId == parent }.map(\.position).sorted() == Array(0..<lines.filter { $0.parentId == parent }.count))
+    }
+
+    // It can't go under a line of the plan it isn't joining.
+    let home = try db.addPlanLine(groupId: trips.id, text: "Back home")
+    #expect(throws: StoreError.self) { try db.placePlanLine(draft.id, groupId: trips.id, parentId: list.id, before: nil) }
+    #expect(throws: StoreError.self) { try db.placePlanLine(draft.id, groupId: "missing", parentId: nil, before: nil) }
+    #expect(try outline(db, trips.id) == ["Back home"])
+
+    // A started line moves as words only; its task stays in its group.
+    let task = try db.create(FaciendaTask(title: "Back home"))
+    try db.assignGroup(taskId: task.id, groupId: trips.id)
+    try db.linkPlanLine(home.id, taskId: task.id)
+    try db.placePlanLine(home.id, groupId: launch.id, parentId: nil, before: nil)
+    #expect(try db.planLines().first { $0.id == home.id }?.groupId == launch.id)
+    #expect(try db.groupMembers().first { $0.taskId == task.id }?.groupId == trips.id)
+}
+
+@Test func aLineMovesOnlyToAGroupInItsWorkspace() throws {
+    let db = try store(), home = try db.defaultWorkspace()
+    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
+    let trips = try personal.createGroup(name: "Trips"), launch = try office.createGroup(name: "Launch")
+    let train = try personal.addPlanLine(groupId: trips.id, text: "Book the train")
+    #expect(throws: StoreError.self) { try personal.placePlanLine(train.id, groupId: launch.id, parentId: nil, before: nil) }
+    #expect(throws: StoreError.self) { try db.placePlanLine(train.id, groupId: launch.id, parentId: nil, before: nil) }
+    #expect(try personal.planLines().map(\.text) == ["Book the train"])
+}

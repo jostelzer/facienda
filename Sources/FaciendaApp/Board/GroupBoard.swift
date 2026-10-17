@@ -23,10 +23,12 @@ struct GroupBoard: View {
     /// The board while a drag is in flight; saved when the card is dropped.
     @State private var livePlaces: [String: BoardSlot]?
     @State private var cardFrames: [String: CGRect] = [:]
-    /// A task being dragged: where the pointer is, where it grabbed the row, and the row's size.
+    /// A task or planned row being dragged: where the pointer is, where it grabbed the row, and the row's size.
     @State private var rowDrag: RowDrag?
     /// Every card's rows while a task is dragged, the dragged one already where it would land. The others slide aside to make room.
     @State private var liveRows: [String: [String]]?
+    /// Every group's planned rows while a planned one is dragged, the same way. Unsorted has no plan, so it has none.
+    @State private var livePlanned: [String: [String]]?
     /// True while a released task glides into its slot.
     @State private var rowSettling = false
     /// Each row's frame on the board, read only while a task is dragged, so recording them never redraws the board.
@@ -214,21 +216,27 @@ struct GroupBoard: View {
                         .offset(x: drag.location.x - drag.grab.width, y: drag.location.y - drag.grab.height)
                         .allowsHitTesting(false)
                 }
-                // The lifted task follows the pointer; its slot stays open where it will land.
-                if let rowDrag, let task = model.tasksByID[rowDrag.id] {
-                    rowFace(task, previous: nil)
-                        .frame(width: rowDrag.size.width, height: rowDrag.size.height)
-                        .background { RoundedRectangle(cornerRadius: 10).fill(Palette.card).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
-                        .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line, lineWidth: 1).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
-                        .shadow(color: .black.opacity(rowSettling ? 0.06 : 0.22), radius: rowSettling ? 3 : 14, y: rowSettling ? 1 : 6)
-                        .scaleEffect(rowSettling ? 1 : 1.025)
-                        .offset(x: rowDrag.location.x - rowDrag.grab.width, y: rowDrag.location.y - rowDrag.grab.height)
-                        .allowsHitTesting(false)
+                // The lifted task or planned row follows the pointer; its slot stays open where it will land.
+                if let rowDrag {
+                    Group {
+                        if !rowDrag.planned, let task = model.tasksByID[rowDrag.id] { rowFace(task, previous: nil) }
+                        else if rowDrag.planned, let line = model.planLines.first(where: { $0.id == rowDrag.id }) {
+                            PlannedRow(model: model, line: line, hover: hover, above: nil, lifted: false, carrying: true)
+                        }
+                    }
+                    .frame(width: rowDrag.size.width, height: rowDrag.size.height)
+                    .background { RoundedRectangle(cornerRadius: 10).fill(Palette.card).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
+                    .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line, lineWidth: 1).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
+                    .shadow(color: .black.opacity(rowSettling ? 0.06 : 0.22), radius: rowSettling ? 3 : 14, y: rowSettling ? 1 : 6)
+                    .scaleEffect(rowSettling ? 1 : 1.025)
+                    .offset(x: rowDrag.location.x - rowDrag.grab.width, y: rowDrag.location.y - rowDrag.grab.height)
+                    .allowsHitTesting(false)
                 }
             }
             .animation(boardReady ? Motion.move : nil, value: placed)
             .animation(Motion.move, value: model.groupMembers)
             .animation(Motion.move, value: liveRows)
+            .animation(Motion.move, value: livePlanned)
             .animation(Motion.move, value: model.taskPlaces)
             .animation(Motion.move, value: hiddenStates)
         }
@@ -363,7 +371,7 @@ struct GroupBoard: View {
     /// `hoverKey` names the card whose rim firms up under the pointer; nil keeps the rim as it is.
     private func cardContent(_ id: String?, name: String, group: TaskGroup?, tasks: [FaciendaTask], hoverKey: String? = nil) -> some View {
         // Tasks planned and not started follow the group's tasks. They are never new, so New and a search leave them out.
-        let planned = group.map { visiblePlannedLines(in: $0.id) } ?? []
+        let planned = group.map { arrangedPlanned(visiblePlannedLines(in: $0.id), in: $0.id) } ?? []
         let resting = tasks.isEmpty && planned.isEmpty
         return VStack(alignment: .leading, spacing: 0) {
             // A painted cover carries the name on its fade; without one the name has its own row.
@@ -376,14 +384,20 @@ struct GroupBoard: View {
             }
             ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
                 // The dragged task's own slot stays open where it will land.
-                let lifted = rowDrag?.id == task.id
+                let lifted = rowDrag?.planned == false && rowDrag?.id == task.id
                 row(task, in: id, among: tasks, at: index)
                     .opacity(lifted ? 0 : 1)
                     .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
             }
             ForEach(Array(planned.enumerated()), id: \.element.id) { index, line in
+                // A planned row moves like a task: its slot stays open where it will land.
+                let lifted = rowDrag?.planned == true && rowDrag?.id == line.id
                 PlannedRow(model: model, line: line, hover: hover,
-                           above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true)
+                           above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true,
+                           carrying: rowDrag != nil)
+                    .opacity(lifted ? 0 : 1)
+                    .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[Self.plannedKey(line.id)] = $0 }
             }
         }
         .padding(.horizontal, Self.cardInset).padding(.top, 12).padding(.bottom, 8)
@@ -424,58 +438,76 @@ struct GroupBoard: View {
         return ids.compactMap { model.tasksByID[$0] }
     }
 
-    /// Lifts a task by its row. It follows the pointer across cards, and the rows under it slide aside to open its spot.
+    /// While a planned row is dragged, each group shows its planned rows as they will be once it lands.
+    private func arrangedPlanned(_ lines: [PlanLine], in key: String) -> [PlanLine] {
+        guard let ids = livePlanned?[key] else { return lines }
+        return ids.compactMap { id in model.planLines.first { $0.id == id } }
+    }
+
+    /// Lifts a task, or a planned row, by its row. It follows the pointer across cards, and the rows under it slide aside to open its spot.
+    /// A planned row moves among the planned rows of the groups' cards; Unsorted has no plan, so over it the row stays where it last was.
     /// `shown` is the board's lists as drawn; the row grabbed is the shown one under where the drag began.
     private func dragRow(_ shown: [String: [FaciendaTask]]) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.boardSpace))
             .onChanged { value in
                 if rowDrag == nil {
-                    // Only a row starts a task's drag; a card's header and the rest of the board leave it be.
+                    // Only a row starts a row's drag; a card's header and the rest of the board leave it be.
                     // Rows filtered out keep their last frame, so only the ones on screen count.
-                    guard drag == nil, let task = shownKeys(shown).lazy.compactMap({ shown[$0] }).joined()
-                        .first(where: { rowFrames.rows[$0.id]?.contains(value.startLocation) == true }),
-                          let frame = rowFrames.rows[task.id] else { return }
+                    guard drag == nil else { return }
+                    let keys = shownKeys(shown), start = value.startLocation
+                    func lift(_ id: String, _ frame: CGRect, planned: Bool) -> RowDrag {
+                        RowDrag(id: id, location: value.location, grab: CGSize(width: start.x - frame.minX, height: start.y - frame.minY), size: frame.size, planned: planned)
+                    }
+                    if let task = keys.lazy.compactMap({ shown[$0] }).joined().first(where: { rowFrames.rows[$0.id]?.contains(start) == true }),
+                       let frame = rowFrames.rows[task.id] {
+                        liveRows = Dictionary(uniqueKeysWithValues: keys.filter { $0 != Self.newKey }.map { ($0, shown[$0]?.map(\.id) ?? []) })
+                        rowDrag = lift(task.id, frame, planned: false)
+                    } else if let line = keys.lazy.flatMap({ visiblePlannedLines(in: $0) }).first(where: { rowFrames.rows[Self.plannedKey($0.id)]?.contains(start) == true }),
+                              let frame = rowFrames.rows[Self.plannedKey(line.id)] {
+                        livePlanned = Dictionary(uniqueKeysWithValues: model.groups.filter { keys.contains($0.id) }.map { ($0.id, visiblePlannedLines(in: $0.id).map(\.id)) })
+                        rowDrag = lift(line.id, frame, planned: true)
+                    } else { return }
                     choosing = nil; hover.row = nil
-                    liveRows = Dictionary(uniqueKeysWithValues: shownKeys(shown).filter { $0 != Self.newKey }.map { ($0, shown[$0]?.map(\.id) ?? []) })
-                    rowDrag = RowDrag(id: task.id, location: value.location, grab: CGSize(width: value.startLocation.x - frame.minX, height: value.startLocation.y - frame.minY), size: frame.size)
                     NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
                 }
-                guard var current = rowDrag, var lists = liveRows else { return }
-                let taskID = current.id
+                guard var current = rowDrag else { return }
                 current.location = value.location
                 let centre = CGPoint(x: value.location.x - current.grab.width + current.size.width / 2, y: value.location.y - current.grab.height + current.size.height / 2)
-                // Over the New group card, the task will start a group of its own.
+                // Over the New group card, the row will start a group of its own.
                 current.newGroup = cardFrames[Self.newKey]?.contains(centre) == true
                 dropTarget = current.newGroup ? Self.newKey : nil
                 rowDrag = current
-                // The card under the task; between cards it stays where it last was.
-                guard !current.newGroup, let card = lists.keys.first(where: { cardFrames[$0]?.contains(centre) == true }) else { return }
-                let from = lists.first { $0.value.contains(taskID) }?.key
-                for key in lists.keys { lists[key]?.removeAll { $0 == taskID } }
-                // Just above the first row whose middle lies below the task's.
-                let above = lists[card, default: []].filter { (rowFrames.rows[$0]?.midY ?? .infinity) < centre.y }.count
-                lists[card, default: []].insert(taskID, at: above)
-                guard lists != liveRows else { return }
-                liveRows = lists
-                // One soft tick when the task crosses into another card; moving within a card stays quiet.
-                if from != card { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+                guard !current.newGroup, let lists = current.planned ? livePlanned : liveRows,
+                      let moved = carry(current.id, in: lists, to: centre, frame: { rowFrames.rows[current.planned ? Self.plannedKey($0) : $0] }),
+                      moved.lists != lists else { return }
+                if current.planned { livePlanned = moved.lists } else { liveRows = moved.lists }
+                // One soft tick when the row crosses into another card; moving within a card stays quiet.
+                if moved.crossed { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
             }
             .onEnded { _ in
-                guard let current = rowDrag, let lists = liveRows else { finishRowDrag(); return }
+                guard let current = rowDrag else { finishRowDrag(); return }
                 if current.newGroup {
                     finishRowDrag()
-                    makeGroup(named: AppModel.newGroupName, holding: [current.id])
+                    makeGroup(named: AppModel.newGroupName, holding: current.planned ? [] : [current.id], planning: current.planned ? [current.id] : [])
                     return
                 }
-                guard let slot = rowFrames.rows[current.id] else { finishRowDrag(); return }
+                guard let lists = current.planned ? livePlanned : liveRows,
+                      let slot = rowFrames.rows[current.planned ? Self.plannedKey(current.id) : current.id] else { finishRowDrag(); return }
                 // Glide from the pointer into the open slot, then save the order the board already shows.
                 withAnimation(Motion.move) {
                     rowSettling = true
                     rowDrag?.location = CGPoint(x: slot.minX + current.grab.width, y: slot.minY + current.grab.height)
                 } completion: {
                     if let (card, rows) = lists.first(where: { $0.value.contains(current.id) }), let index = rows.firstIndex(of: current.id) {
-                        let spot: AppModel.TaskSpot = index > 0 ? .below(rows[index - 1]) : rows.count > 1 ? .above(rows[1]) : .top
-                        model.place(taskID: current.id, in: card == Self.looseKey ? nil : card, at: spot)
+                        if current.planned {
+                            // Just above the planned row below it, or last in the group's plan. Put back where it was, nothing changes.
+                            if rows != visiblePlannedLines(in: card).map(\.id) {
+                                model.placePlanLine(current.id, in: card, parentId: nil, before: index + 1 < rows.count ? rows[index + 1] : nil)
+                            }
+                        } else {
+                            let spot: AppModel.TaskSpot = index > 0 ? .below(rows[index - 1]) : rows.count > 1 ? .above(rows[1]) : .top
+                            model.place(taskID: current.id, in: card == Self.looseKey ? nil : card, at: spot)
+                        }
                     }
                     finishRowDrag()
                     NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
@@ -483,8 +515,19 @@ struct GroupBoard: View {
             }
     }
 
+    /// `lists` with the carried row moved into the card under `centre`, just above the first row whose middle lies below it,
+    /// and whether that took it into another card. Nil between cards, and over a card `lists` doesn't hold.
+    private func carry(_ id: String, in lists: [String: [String]], to centre: CGPoint, frame: (String) -> CGRect?) -> (lists: [String: [String]], crossed: Bool)? {
+        guard let card = lists.keys.first(where: { cardFrames[$0]?.contains(centre) == true }) else { return nil }
+        var moved = lists
+        for key in moved.keys { moved[key]?.removeAll { $0 == id } }
+        let above = moved[card, default: []].filter { (frame($0)?.midY ?? .infinity) < centre.y }.count
+        moved[card, default: []].insert(id, at: above)
+        return (moved, lists[card]?.contains(id) != true)
+    }
+
     private func finishRowDrag() {
-        liveRows = nil; rowDrag = nil; rowSettling = false; dropTarget = nil
+        liveRows = nil; livePlanned = nil; rowDrag = nil; rowSettling = false; dropTarget = nil
     }
 
     /// The painted banner across the top of a group's card, or its placeholder while Codex paints. A resting group's banner is dimmed down and darkened.
@@ -740,18 +783,19 @@ struct GroupBoard: View {
         model.omnibarGroup = AppModel.newGroupSheet
     }
 
-    /// Makes the group in the New group card's spot. Dropped tasks arrive with the name open, ready to change.
-    private func makeGroup(named name: String, holding taskIDs: [String]) {
+    /// Makes the group in the New group card's spot. Dropped tasks and planned rows arrive with the name open, ready to change.
+    private func makeGroup(named name: String, holding taskIDs: [String], planning lineIDs: [String] = []) {
         let spot = places(visibleLists)[Self.newKey]
-        guard let group = model.createGroup(name: name, holding: taskIDs, lane: spot?.lane, row: spot?.row) else { return }
+        guard let group = model.createGroup(name: name, holding: taskIDs, planning: lineIDs, lane: spot?.lane, row: spot?.row) else { return }
+        let dropped = !taskIDs.isEmpty || !lineIDs.isEmpty
         // A filter hides groups with nothing to show, which would swallow the empty group just made.
         // Done and Planned are no filter, so they stay as the user left them.
-        if taskIDs.isEmpty && filtering {
+        if !dropped && filtering {
             hiddenStates = hidden.intersection(Self.tidyingStates).sorted().joined(separator: ",")
             onlyNew = false; model.search = ""
         }
         landed = group.id
-        if !taskIDs.isEmpty { beginRename(group) }
+        if dropped { beginRename(group) }
         scrollTarget = group.id
     }
 
@@ -767,12 +811,14 @@ struct GroupBoard: View {
 }
 
 /// A task lifted off the board: where the pointer is, where it grabbed the row, the row's size, and whether it is over the New group card.
+/// A planned row lifts the same way; its `id` is then its plan line's.
 struct RowDrag: Equatable {
     var id: String
     var location: CGPoint
     var grab: CGSize
     var size: CGSize
     var newGroup = false
+    var planned = false
 }
 
 /// The island's +, as the board uses it: a bare glyph in muted ink that adds one thing inside what it sits on.
@@ -802,12 +848,15 @@ private struct PlusButton: View {
 
 /// A task written down in the group's plan and not started yet, below the group's tasks.
 /// It carries the Plan view's empty circle, which turns into play under the pointer and starts it.
+/// It drags like a task, into another group's plan too.
 private struct PlannedRow: View {
     let model: AppModel
     let line: PlanLine
     let hover: BoardHover
     let above: String?
     let lifted: Bool
+    /// True while a row is carried across the board: the rows it passes don't wash, and letting go over play doesn't start this one.
+    let carrying: Bool
     @State private var launching = false
     private var key: String { GroupBoard.plannedKey(line.id) }
 
@@ -834,7 +883,8 @@ private struct PlannedRow: View {
             .accessibilityLabel("Start “\(line.text)”")
         }
         .contentShape(Rectangle())
-        .onHover { inside in if inside { hover.row = key } else if hover.row == key { hover.row = nil } }
+        .onHover { inside in if inside, !carrying { hover.row = key } else if hover.row == key { hover.row = nil } }
+        .help("Planned. Drag to move")
         .contextMenu {
             Button("Start now", systemImage: "play") { start() }.disabled(launching)
             Divider()
@@ -845,7 +895,7 @@ private struct PlannedRow: View {
     }
 
     private func start() {
-        guard !launching else { return }
+        guard !launching, !carrying else { return }
         launching = true
         Task {
             _ = await model.launchPlanLine(line, text: line.text)

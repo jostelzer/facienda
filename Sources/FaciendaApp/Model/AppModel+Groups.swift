@@ -7,11 +7,13 @@ extension AppModel {
         search = ""; destination = .dashboard; selection = nil; newGroupRequested = true
     }
     /// The board's New group card becomes a real group where it stood, holding any tasks dropped on it.
-    @discardableResult func createGroup(name: String, holding taskIDs: [String] = [], lane: Int? = nil, row: Int? = nil) -> TaskGroup? {
+    /// A planned task dropped there becomes the first line of the new group's plan.
+    @discardableResult func createGroup(name: String, holding taskIDs: [String] = [], planning lineIDs: [String] = [], lane: Int? = nil, row: Int? = nil) -> TaskGroup? {
         var created: TaskGroup?
         perform(undo: "New Group") {
             let group = try store.createGroup(name: name)
             for taskID in taskIDs { try store.assignGroup(taskId: taskID, groupId: group.id) }
+            for lineID in lineIDs { try store.placePlanLine(lineID, groupId: group.id, parentId: nil, before: nil) }
             if let lane, let row { try store.placeGroups([GroupPlacement(id: group.id, lane: lane, row: row)]) }
             created = group
             refresh()

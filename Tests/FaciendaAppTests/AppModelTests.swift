@@ -658,6 +658,23 @@ private struct FakePainter: CoverPainting {
     #expect(model.boardTasks(in: reading.id).isEmpty && model.groups.count == 2)
 }
 
+@MainActor @Test func aPlannedTaskMovesToAnotherGroupOrStartsOne() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "move-planned-\(UUID().uuidString)/tasks.sqlite"))
+    let model = try AppModel(store: store)
+    let home = try #require(model.createGroup(name: "Home")), trips = try #require(model.createGroup(name: "Trips"))
+    #expect(model.planTask("Book the train", in: home.id) && model.planTask("Fix the lamp", in: home.id) && model.planTask("Pack", in: trips.id))
+    // Carried to the Trips card, just above its planned "Pack".
+    let train = try #require(model.plannedLines(in: home.id).first)
+    model.placePlanLine(train.id, in: trips.id, parentId: nil, before: model.plannedLines(in: trips.id).first?.id)
+    #expect(model.plannedLines(in: trips.id).map(\.text) == ["Book the train", "Pack"])
+    #expect(model.plannedLines(in: home.id).map(\.text) == ["Fix the lamp"])
+    // Dropped on the card that starts a group, it becomes that group's plan.
+    let lamp = try #require(model.plannedLines(in: home.id).first)
+    let group = try #require(model.createGroup(name: AppModel.newGroupName, planning: [lamp.id], lane: 0, row: 3))
+    #expect(model.plannedLines(in: group.id).map(\.text) == ["Fix the lamp"] && model.plannedLines(in: home.id).isEmpty)
+    #expect(model.tasks.isEmpty)
+}
+
 @MainActor @Test func claudeTasksOpenInClaudeAndRelayRepliesThroughItsRunner() async throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-claude-\(UUID().uuidString)/facienda.sqlite"))
     let model = try AppModel(store: store) { _ in }

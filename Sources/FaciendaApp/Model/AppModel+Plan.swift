@@ -28,7 +28,10 @@ extension AppModel {
     func indentPlanLine(_ id: String) { perform(undo: "Indent") { try store.indentPlanLine(id); refresh() } }
     func outdentPlanLine(_ id: String) { perform(undo: "Outdent") { try store.outdentPlanLine(id); refresh() } }
     func movePlanLine(_ id: String, by offset: Int) { perform(undo: "Move Line") { try store.movePlanLine(id, by: offset); refresh() } }
-    func placePlanLine(_ id: String, parentId: String?, before: String?) { perform(undo: "Move Line") { try store.placePlanLine(id, parentId: parentId, before: before); refresh() } }
+    /// With `groupID` the line moves into that group's plan, as a planned row carried to another card does.
+    func placePlanLine(_ id: String, in groupID: String? = nil, parentId: String?, before: String?) {
+        perform(undo: "Move Line") { try store.placePlanLine(id, groupId: groupID, parentId: parentId, before: before); refresh() }
+    }
     func adoptIntoPlan(_ taskID: String, group: String, parentId: String?, before: String?) {
         perform(undo: "Move Task") { try store.adoptIntoPlan(taskId: taskID, groupId: group, parentId: parentId, before: before); refresh() }
     }
