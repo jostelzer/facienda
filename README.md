@@ -2,27 +2,12 @@
 
 **Things that must be done. A little less on your mind.**
 
-Mission control for AI agents: lay out your work on a visual board, and Claude or Codex carry it out on your Mac.
+One board for everything you're doing, and you don't do it alone. Lay your work out as groups, each with its own picture and its own place, and find things the way you find them in a room: by where they are. Claude and Codex work on the same board. They research, write, work in your browser and apps as you would, wait for an answer from the world, and hand things back when it's your turn. A glance tells you what moved. Everything else stays quietly in its place.
 
-![Facienda in dark mode, with illustrative demo data](Assets/Brand/facienda-app-preview-dark.png)
+Not only for code. A trip, your taxes, a paper, a house move: anything with steps, waiting and loose ends.
 
-Agents are good at doing a task and bad at waiting for something. Instead of a dozen chat windows and a reply you almost missed, Facienda shows all the work on one board and pulls you in only when it needs you.
+![Facienda in dark mode, with demo data](Assets/Brand/facienda-app-preview-dark.png)
 
-- **Spatial board.** Groups of tasks, each with a generated image and a place on the board. You find work by where it sits.
-- **Claude or Codex, per task.** Execution stays in their apps; Facienda owns the big picture.
-- **The fork.** When an agent finishes a step, it continues, watches something, or hands the next action back to you.
-- **Your own to-dos too**, with dates, next to the agents' work.
-- **Memory** that learns how you work.
-- **Local.** Mac only, on your own machine.
+**[Download](https://github.com/jostelzer/facienda/releases/latest)** · macOS 26 or later; agents need Claude Code or Codex · Beta
 
-## Build
-
-With Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen), no Apple developer account needed:
-
-```sh
-scripts/dev-build.sh --open
-```
-
-Pull requests are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Facienda is a beta. Report problems in [Issues](https://github.com/jostelzer/facienda/issues), security issues as described in [SECURITY.md](SECURITY.md). Apache License 2.0, see [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+[Build it yourself](CONTRIBUTING.md#build) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache 2.0](LICENSE)
