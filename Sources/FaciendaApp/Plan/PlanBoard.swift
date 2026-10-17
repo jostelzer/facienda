@@ -12,8 +12,8 @@ struct PlanBoard: View {
     @Bindable var model: AppModel
     @Binding var groupID: String?
     @AppStorage("groupCovers") private var showCovers = true
-    @AppStorage("dashboardHiddenStates") private var hiddenStates = GroupBoard.defaultHiddenStates
-    @AppStorage("dashboardOnlyNew") private var onlyNew = false
+    @AppStorage(LegendScope.plan.hiddenKey) private var hiddenStates = LegendScope.plan.defaultHidden
+    @AppStorage(LegendScope.plan.onlyNewKey) private var onlyNew = false
     /// Text typed into a line and not yet saved. Saving happens on Return, on leaving the line and on starting it.
     @State private var drafts: [String: String] = [:]
     @FocusState private var focused: String?
@@ -149,7 +149,7 @@ struct PlanBoard: View {
         VStack(spacing: 0) {
             if let group {
                 // The legend stays put, as on the board; the plan below can grow tall.
-                StateLegend(model: model, tasks: legendTasks(group),
+                StateLegend(model: model, scope: .plan, tasks: legendTasks(group),
                             plannedCount: lines.filter { $0.launchedTaskId == nil && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)
                     .frame(maxWidth: Self.columnWidth, alignment: .leading)
                     .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 4).frame(maxWidth: .infinity)

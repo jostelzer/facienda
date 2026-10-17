@@ -8,10 +8,9 @@ struct GroupBoard: View {
     @State private var draftName = ""
     @State private var dropTarget: String?
     /// Comma-separated legend entries the user switched off. Done tasks start hidden.
-    @AppStorage("dashboardHiddenStates") private var hiddenStates = GroupBoard.defaultHiddenStates
-    static let defaultHiddenStates = TaskDot.Kind.done.rawValue
+    @AppStorage(LegendScope.board.hiddenKey) private var hiddenStates = LegendScope.board.defaultHidden
     /// Narrows the board to unread tasks, whatever their state.
-    @AppStorage("dashboardOnlyNew") private var onlyNew = false
+    @AppStorage(LegendScope.board.onlyNewKey) private var onlyNew = false
     @AppStorage("groupCovers") private var showCovers = true
     /// The card, row and cover under the pointer. Only the small views that draw the hover read it, so moving the
     /// pointer across the board redraws those alone rather than every card.
@@ -292,7 +291,7 @@ struct GroupBoard: View {
 
     /// Explains each glyph and doubles as the filter. The Plan view shows the same one.
     private var legend: some View {
-        StateLegend(model: model, tasks: model.boardTasks(in: nil) + model.groups.flatMap { model.boardTasks(in: $0.id) },
+        StateLegend(model: model, scope: .board, tasks: model.boardTasks(in: nil) + model.groups.flatMap { model.boardTasks(in: $0.id) },
                     plannedCount: model.groups.reduce(0) { $0 + model.plannedLines(in: $1.id).count })
     }
 
@@ -693,7 +692,7 @@ struct GroupBoard: View {
     private func openRequested() {
         guard let id = model.boardOpenRequest else { return }
         model.boardOpenRequest = nil
-        if !visibleLists.values.contains(where: { $0.contains { $0.id == id } }) { hiddenStates = Self.defaultHiddenStates; onlyNew = false }
+        if !visibleLists.values.contains(where: { $0.contains { $0.id == id } }) { hiddenStates = LegendScope.board.defaultHidden; onlyNew = false }
         scrollTarget = model.groupMembers[id].flatMap { group in model.groups.contains { $0.id == group } ? group : nil } ?? Self.looseKey
         // The choices wait for the scroll, so they open on the row where it lands.
         Task { try? await Task.sleep(for: .milliseconds(400)); choosing = id }

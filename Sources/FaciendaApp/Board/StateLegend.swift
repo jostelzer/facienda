@@ -1,15 +1,39 @@
 import SwiftUI
 import FaciendaCore
 
-/// The shared filters: New, a divider, then Planned and the task states with their counts.
-/// Both views read the same settings, so a filter set in one holds in the other.
+/// Board and Plan each keep their own filters, so what one hides stays shown in the other.
+/// The board rests with Done and Planned hidden; the plan view shows Planned and hides Done.
+enum LegendScope {
+    case board, plan
+
+    var hiddenKey: String { self == .board ? "boardHiddenStates" : "planHiddenStates" }
+    var onlyNewKey: String { self == .board ? "boardOnlyNew" : "planOnlyNew" }
+    var defaultHidden: String {
+        switch self {
+        case .board: [TaskDot.Kind.done, .notStarted].map(\.rawValue).sorted().joined(separator: ",")
+        case .plan: TaskDot.Kind.done.rawValue
+        }
+    }
+    /// The view on screen, which task lists and the task panel adjust.
+    static var current: LegendScope { UserDefaults.standard.string(forKey: "dashboardMode") == DashboardMode.plan.rawValue ? .plan : .board }
+}
+
+/// The filters of one view: New, a divider, then Planned and the task states with their counts.
 struct StateLegend: View {
     @Bindable var model: AppModel
     /// The tasks the counts are taken from.
     let tasks: [FaciendaTask]
     let plannedCount: Int
-    @AppStorage("dashboardHiddenStates") private var hiddenStates = GroupBoard.defaultHiddenStates
-    @AppStorage("dashboardOnlyNew") private var onlyNew = false
+    @AppStorage private var hiddenStates: String
+    @AppStorage private var onlyNew: Bool
+
+    init(model: AppModel, scope: LegendScope, tasks: [FaciendaTask], plannedCount: Int) {
+        self.model = model
+        self.tasks = tasks
+        self.plannedCount = plannedCount
+        _hiddenStates = AppStorage(wrappedValue: scope.defaultHidden, scope.hiddenKey)
+        _onlyNew = AppStorage(wrappedValue: false, scope.onlyNewKey)
+    }
 
     var body: some View {
         let counts = Dictionary(grouping: tasks) { TaskDot.Kind(model: model, task: $0).legend }.mapValues(\.count)
@@ -61,21 +85,21 @@ struct StateLegend: View {
     static func hidden(_ stored: String) -> Set<String> { Set(stored.split(separator: ",").map(String.init)) }
 
     /// Only the chips a task list stands for, such as Done for Go to Done.
-    static func show(_ list: Destination) {
+    static func show(_ list: Destination, scope: LegendScope = .current) {
         let kinds = TaskDot.Kind.legend(for: list)
         guard !kinds.isEmpty else { return }
-        store(Set(TaskDot.Kind.legendOrder.filter { !kinds.contains($0) }.map(\.rawValue)))
-        UserDefaults.standard.set(false, forKey: "dashboardOnlyNew")
+        store(Set(TaskDot.Kind.legendOrder.filter { !kinds.contains($0) }.map(\.rawValue)), scope)
+        UserDefaults.standard.set(false, forKey: scope.onlyNewKey)
     }
 
     /// Turns on the chip of a task opened in its panel, so its row is on the board beside it.
-    @MainActor static func reveal(_ task: FaciendaTask, in model: AppModel) {
-        var set = hidden(UserDefaults.standard.string(forKey: "dashboardHiddenStates") ?? GroupBoard.defaultHiddenStates)
-        if set.remove(TaskDot.Kind(model: model, task: task).legend.rawValue) != nil { store(set) }
-        if !model.isUnread(task) { UserDefaults.standard.set(false, forKey: "dashboardOnlyNew") }
+    @MainActor static func reveal(_ task: FaciendaTask, in model: AppModel, scope: LegendScope = .current) {
+        var set = hidden(UserDefaults.standard.string(forKey: scope.hiddenKey) ?? scope.defaultHidden)
+        if set.remove(TaskDot.Kind(model: model, task: task).legend.rawValue) != nil { store(set, scope) }
+        if !model.isUnread(task) { UserDefaults.standard.set(false, forKey: scope.onlyNewKey) }
     }
 
-    private static func store(_ hidden: Set<String>) {
-        UserDefaults.standard.set(hidden.sorted().joined(separator: ","), forKey: "dashboardHiddenStates")
+    private static func store(_ hidden: Set<String>, _ scope: LegendScope) {
+        UserDefaults.standard.set(hidden.sorted().joined(separator: ","), forKey: scope.hiddenKey)
     }
 }
