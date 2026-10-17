@@ -868,8 +868,6 @@ private struct PlannedRow: View {
             Text("Planned").font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
         .padding(.vertical, 8).padding(.trailing, GroupBoard.actionWidth).frame(maxWidth: .infinity, alignment: .leading)
-        // Beneath the start button, which keeps its own tooltip.
-        .fullTextOnHover(line.text)
         .background { GroupBoard.RowWash(hover: hover, id: key) }
         .overlay(alignment: .top) { GroupBoard.RowRule(hover: hover, id: key, above: above, lifted: lifted) }
         .overlay(alignment: .trailing) {
@@ -887,7 +885,8 @@ private struct PlannedRow: View {
         }
         .contentShape(Rectangle())
         .onHover { inside in if inside, !carrying { hover.row = key } else if hover.row == key { hover.row = nil } }
-        .help("Planned. Drag to move")
+        // A line cut short shows whole under the pointer, before the row's hint.
+        .fullTextOnHover(line.text, help: "Planned. Drag to move")
         .contextMenu {
             Button("Start now", systemImage: "play") { start() }.disabled(launching)
             Divider()
