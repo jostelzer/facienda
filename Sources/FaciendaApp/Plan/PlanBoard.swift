@@ -412,7 +412,7 @@ struct PlanBoard: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(task.displayName).font(.system(size: 13, weight: unread || goal ? .semibold : .regular))
-                        .foregroundStyle(dot == .done ? Palette.muted : Palette.ink).lineLimit(2).multilineTextAlignment(.leading)
+                        .foregroundStyle(dot == .done ? Palette.muted : Palette.ink).shortened(to: 2).multilineTextAlignment(.leading)
                     if let entry, goal { rollup(entry) }
                 }
                 if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2).multilineTextAlignment(.leading) }
@@ -436,7 +436,7 @@ struct PlanBoard: View {
             if model.canOpen(task) { Button("Open in \(model.agent(for: task).name)") { model.open(task) } }
             if let entry { if model.canOpen(task) { Divider() }; lineActions(entry, group: group, launched: true) }
         }
-        .help(model.offersChoices(task) || !model.canOpen(task) ? "Choose what's next. Drag to move." : "Open in \(model.agent(for: task).name). Drag to move.")
+        .fullTextOnHover(task.displayName, help: model.offersChoices(task) || !model.canOpen(task) ? "Choose what's next. Drag to move." : "Open in \(model.agent(for: task).name). Drag to move.")
         .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
         .accessibilityLabel(task.displayName + ", " + dot.label + (unread ? ", new" : ""))
     }
@@ -446,9 +446,11 @@ struct PlanBoard: View {
         HStack(alignment: .top, spacing: Self.markGap) {
             Group { if entry.childIDs.isEmpty { Color.clear } else { disclosure(entry) } }.frame(width: Self.markWidth, height: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.line.text).font(.system(size: 13)).foregroundStyle(Palette.muted).lineLimit(2)
+                Text(entry.line.text).font(.system(size: 13)).foregroundStyle(Palette.muted).shortened(to: 2)
                 Text("Its task lives in another workspace now").font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
+            // Beside the fold arrow, which keeps its own tooltip.
+            .fullTextOnHover(entry.line.text)
         }
         .padding(.vertical, Self.rowPadding).padding(.leading, CGFloat(depth) * Self.indent).padding(.trailing, 8)
         .frame(maxWidth: .infinity, alignment: .leading)

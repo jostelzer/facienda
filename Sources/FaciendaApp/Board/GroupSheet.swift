@@ -356,7 +356,7 @@ private struct GroupSheetContent: View {
     private func row(_ task: FaciendaTask) -> some View {
         let unread = model.isUnread(task)
         return HStack(spacing: 8) {
-            Text(task.displayName).font(.system(size: 12, weight: unread ? .semibold : .regular)).foregroundStyle(Palette.ink).lineLimit(1)
+            Text(task.displayName).font(.system(size: 12, weight: unread ? .semibold : .regular)).foregroundStyle(Palette.ink).fullTextOnHover(task.displayName)
             Spacer(minLength: 6)
             TaskDot(kind: TaskDot.Kind(model: model, task: task)).frame(width: 18, height: 16)
         }

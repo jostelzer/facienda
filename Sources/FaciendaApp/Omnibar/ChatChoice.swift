@@ -22,7 +22,7 @@ struct ChatChoice: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 18, weight: .semibold)).lineLimit(2)
+                    Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 18, weight: .semibold)).fullTextOnHover(chat.title, lines: 2)
                     if !chat.cwd.isEmpty || chat.provider == .claude {
                         Text([chat.provider == .claude ? "Claude session" : nil, chat.cwd.isEmpty ? nil : chat.cwd].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
                     }
@@ -57,11 +57,11 @@ struct ChatChoice: View {
                         ForEach(openTasks) { task in
                             Button { if model.handOver(chat.candidate, taskID: task.id) { close() } } label: {
                                 HStack {
-                                    Text(task.displayName).font(.system(size: 13)).lineLimit(1)
+                                    Text(task.displayName).font(.system(size: 13)).shortened(to: 1)
                                     Spacer(minLength: 8)
                                     Image(systemName: "arrow.turn.down.right").font(.system(size: 11)).foregroundStyle(Palette.muted)
                                 }.padding(.horizontal, 8).padding(.vertical, 6).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).fullTextOnHover(task.displayName)
                         }
                         if openTasks.isEmpty {
                             Text(filter.isEmpty ? "No open tasks to continue." : "No open task matches.").font(.system(size: 12)).foregroundStyle(Palette.muted).padding(8)

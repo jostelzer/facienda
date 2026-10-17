@@ -76,7 +76,7 @@ struct ThreadBrowser: View {
     private func row(_ thread: CodexThread) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                Text(thread.title.isEmpty ? "Untitled thread" : thread.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Text(thread.title.isEmpty ? "Untitled thread" : thread.title).font(.system(size: 13, weight: .medium)).fullTextOnHover(thread.title)
                 Text("\(thread.statusLabel) · Polled · \(thread.cwd)").font(.system(size: 9)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
             }; Spacer()
             Button("Open ↗") { model.openThread(thread.id) }.buttonStyle(.borderless)
@@ -91,7 +91,7 @@ struct ThreadBrowser: View {
     private func claudeRow(_ session: ClaudeDesktop.Session) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                Text(session.title.isEmpty ? "Untitled session" : session.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Text(session.title.isEmpty ? "Untitled session" : session.title).font(.system(size: 13, weight: .medium)).fullTextOnHover(session.title)
                 Text("Claude · \(session.lastActivityAt.formatted(.dateTime.day().month(.abbreviated))) · \(session.cwd)").font(.system(size: 9)).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.middle)
             }; Spacer()
             Button("Open ↗") { model.openThread(session.id) }.buttonStyle(.borderless)

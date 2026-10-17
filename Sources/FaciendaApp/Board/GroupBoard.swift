@@ -644,7 +644,8 @@ struct GroupBoard: View {
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[task.id] = $0 }
         .contextMenu { actions(task, in: group, among: tasks, at: index) }
-        .help(dot.label + ". Click to choose what's next, or drag to move")
+        // A name cut short shows whole under the pointer, anywhere on the row.
+        .fullTextOnHover(task.displayName, help: dot.label + ". Click to choose what's next, or drag to move")
         .accessibilityElement(children: .contain).accessibilityAddTraits(.isButton)
         .accessibilityAction { choose(task) }
         .accessibilityAction(named: "Move up") { if index > 0 { reorder(task, in: group, at: .above(tasks[index - 1].id)) } }
@@ -665,7 +666,7 @@ struct GroupBoard: View {
                 // A recap's one time, when the agent answered, ends the name's line.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(task.displayName).font(.system(size: 13, weight: unread ? .semibold : .regular))
-                        .foregroundStyle(dot == .done || naming ? Palette.muted : Palette.ink).lineLimit(2).multilineTextAlignment(.leading)
+                        .foregroundStyle(dot == .done || naming ? Palette.muted : Palette.ink).shortened(to: 2).multilineTextAlignment(.leading)
                     if let time = recap.flatMap(TaskRecapView.time(of:)) {
                         Spacer(minLength: 0)
                         Text(time).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(Palette.muted).fixedSize()
@@ -863,10 +864,12 @@ private struct PlannedRow: View {
     var body: some View {
         let hot = hover.row == key
         VStack(alignment: .leading, spacing: 3) {
-            Text(line.text).font(.system(size: 13)).foregroundStyle(Palette.ink).lineLimit(2).multilineTextAlignment(.leading)
+            Text(line.text).font(.system(size: 13)).foregroundStyle(Palette.ink).shortened(to: 2).multilineTextAlignment(.leading)
             Text("Planned").font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
         .padding(.vertical, 8).padding(.trailing, GroupBoard.actionWidth).frame(maxWidth: .infinity, alignment: .leading)
+        // Beneath the start button, which keeps its own tooltip.
+        .fullTextOnHover(line.text)
         .background { GroupBoard.RowWash(hover: hover, id: key) }
         .overlay(alignment: .top) { GroupBoard.RowRule(hover: hover, id: key, above: above, lifted: lifted) }
         .overlay(alignment: .trailing) {

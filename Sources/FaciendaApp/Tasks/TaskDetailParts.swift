@@ -88,7 +88,7 @@ struct DeliveryRecovery: View {
             if let chats = search?.chats, chats.count > 1 {
                 ForEach(chats) { chat in
                     HStack {
-                        Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 12)).lineLimit(1)
+                        Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 12)).fullTextOnHover(chat.title)
                         Spacer()
                         Button("Use this chat") { model.useDeliveryChat(item, chat) }.buttonStyle(QuietButton(compact: true)).disabled(model.demo)
                     }

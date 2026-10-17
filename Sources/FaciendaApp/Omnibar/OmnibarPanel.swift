@@ -121,7 +121,7 @@ struct OmnibarPanel: View {
         case let .task(task):
             TaskDot(kind: TaskDot.Kind(model: model, task: task), animated: false).frame(width: 18).padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
-                Text(task.displayName).font(.system(size: 13)).lineLimit(1)
+                Text(task.displayName).font(.system(size: 13)).fullTextOnHover(task.displayName)
                 Text(model.taskStatus(task)).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -133,7 +133,7 @@ struct OmnibarPanel: View {
             icon("bubble.left.and.bubble.right", tint: Palette.muted)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 13)).lineLimit(1)
+                    Text(chat.title.isEmpty ? "Untitled chat" : chat.title).font(.system(size: 13)).fullTextOnHover(chat.title)
                     Text(chat.updatedAt, format: .dateTime.day().month(.abbreviated).year()).font(.system(size: 10)).foregroundStyle(Palette.muted)
                     if chat.provider == .claude { Text("Claude").font(.system(size: 10)).foregroundStyle(Palette.muted) }
                     if model.links.contains(where: { $0.codexThreadId == chat.threadId }) {
