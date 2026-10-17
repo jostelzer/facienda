@@ -38,9 +38,15 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     try personal.update(errand.id) { $0 = edited }
     #expect(try db.task(errand.id).workspaceId == home.id)
     #expect(try db.newCounts().isEmpty)
+    #expect(try db.runningCounts().isEmpty)
     _ = try office.update(report.id) { $0.state = .running }
+    #expect(try db.runningCounts() == [work.id: 1])
     try office.saveResult(taskId: report.id, text: "Drafted")
     #expect(try db.newCounts() == [work.id: 1])
+    #expect(try db.runningCounts().isEmpty)
+    // Work handed to an agent counts as running before the agent picks it up.
+    _ = try personal.enqueueDispatch(taskId: errand.id)
+    #expect(try db.runningCounts() == [home.id: 1])
 }
 
 @Test func runnerFilesNewTasksInsideTheirOwnWorkspace() throws {

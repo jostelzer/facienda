@@ -45,8 +45,13 @@ enum WorkspaceSheet: Identifiable {
     private(set) var pinned: [String]
     private(set) var order: [String]
     private(set) var recent: [String]
+    /// Where each workspace sits on the sidebar's island, as fractions of its width and height. Opening one never
+    /// moves anything; only dragging does.
+    private(set) var places: [String: CGPoint]
     /// Workspaces that need you, including ones not visited since launch.
     private var fresh: [String: Int] = [:]
+    /// Tasks in progress in each workspace, read with the new counts.
+    private var running: [String: Int] = [:]
     /// Paints the sidebar pictures through Codex. nil in the demo and tests, so they never reach Codex.
     @ObservationIgnored var coverPainter: (any CoverPainting)?
     /// Painted pictures by workspace ID.
@@ -73,6 +78,8 @@ enum WorkspaceSheet: Identifiable {
         pinned = defaults.stringArray(forKey: "pinnedWorkspaces") ?? []
         order = defaults.stringArray(forKey: "workspaceOrder") ?? []
         recent = defaults.stringArray(forKey: "recentWorkspaces") ?? []
+        places = (defaults.dictionary(forKey: "workspacePlaces") as? [String: [Double]] ?? [:])
+            .compactMapValues { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
         do {
             if demo, load { install(try AppModel(demo: true)) }
             else if load, FileManager.default.fileExists(atPath: libraryURL.path) { try openLibrary() }
@@ -125,14 +132,20 @@ enum WorkspaceSheet: Identifiable {
             workspaces = try library.workspaces()
             memorySpaces = try library.memorySpaces()
             fresh = try library.newCounts()
+            running = try library.runningCounts()
         } catch { self.error = error.localizedDescription }
-        loadCovers(); paintMissingCovers()
+        settlePlaces(); loadCovers(); paintMissingCovers()
     }
 
     /// Tasks that came back finished since the user last opened them.
     func newCount(for workspace: Workspace) -> Int {
         // Background models refresh lazily, so only the one on screen is fresher than the library.
         workspace.id == current?.id ? model?.newCount ?? 0 : fresh[workspace.id] ?? 0
+    }
+
+    /// Tasks in progress: running, or handed to an agent that has not picked them up yet.
+    func runningCount(for workspace: Workspace) -> Int {
+        workspace.id == current?.id ? model?.count(.processing) ?? 0 : running[workspace.id] ?? 0
     }
 
     func memoryName(for workspace: Workspace) -> String {
@@ -165,6 +178,60 @@ enum WorkspaceSheet: Identifiable {
         ids.insert(source.id, at: after ? to + 1 : to)
         order = ids
         defaults.set(order, forKey: "workspaceOrder")
+    }
+
+    // MARK: Places on the island
+
+    func place(of workspace: Workspace) -> CGPoint { places[workspace.id] ?? CGPoint(x: 0.5, y: 0.5) }
+
+    /// Kept clear of the island's edges, so the open workspace has room to come close.
+    func setPlace(_ workspace: Workspace, to point: CGPoint) {
+        places[workspace.id] = CGPoint(x: min(max(point.x, 0.12), 0.88), y: min(max(point.y, 0.08), 0.92))
+        savePlaces()
+    }
+
+    /// Puts every workspace back into the zigzag, in the order of the list, for when the island has got crowded.
+    func arrangePlaces() {
+        places = [:]
+        settlePlaces()
+    }
+
+    /// The first workspaces fall into a gentle zigzag down the island, in the order of the list.
+    private static let slots = [CGPoint(x: 0.32, y: 0.13), CGPoint(x: 0.7, y: 0.29), CGPoint(x: 0.31, y: 0.45),
+                                CGPoint(x: 0.69, y: 0.61), CGPoint(x: 0.33, y: 0.77), CGPoint(x: 0.7, y: 0.91)]
+
+    /// A workspace gets its place once, the first time it is seen, and keeps it; a new one never shifts the others.
+    private func settlePlaces() {
+        let ids = Set(workspaces.map(\.id))
+        var changed = places.keys.contains { !ids.contains($0) }
+        places = places.filter { ids.contains($0.key) }
+        for workspace in ordered where places[workspace.id] == nil {
+            places[workspace.id] = freeSpot()
+            changed = true
+        }
+        if changed { savePlaces() }
+    }
+
+    /// The next free slot of the zigzag, or else the point farthest from every workspace already there.
+    /// Distances count height more, since the island is taller than it is wide.
+    private func freeSpot() -> CGPoint {
+        let gap = { (a: CGPoint, b: CGPoint) in hypot(a.x - b.x, (a.y - b.y) * 1.7) }
+        if let slot = Self.slots.first(where: { slot in places.values.allSatisfy { gap(slot, $0) > 0.2 } }) { return slot }
+        var best = CGPoint(x: 0.5, y: 0.5), widest = -1.0
+        for column in 0...8 {
+            for row in 0...12 {
+                let point = CGPoint(x: 0.12 + 0.76 * Double(column) / 8, y: 0.08 + 0.84 * Double(row) / 12)
+                let nearest = places.values.map { gap(point, $0) }.min() ?? 1
+                if nearest > widest { best = point; widest = nearest }
+            }
+        }
+        return best
+    }
+
+    /// The demo's sample workspaces never overwrite the places of the real ones.
+    private func savePlaces() {
+        guard !demo else { return }
+        defaults.set(places.mapValues { [$0.x, $0.y] }, forKey: "workspacePlaces")
     }
 
     @discardableResult func open(_ workspace: Workspace) -> Bool {

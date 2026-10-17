@@ -40,9 +40,11 @@
 		284013593BD7A3F98C71F9D9 /* AppModel+Writers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D666659FA64942A38396871 /* AppModel+Writers.swift */; };
 		286210FF7E338D9045D60F46 /* AppModel+Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FBD2BD5830F7FF53E31C82 /* AppModel+Services.swift */; };
 		288E698155FCBFF96DB1933E /* BoardHover.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC6C02AE0A0F4781863EBC2 /* BoardHover.swift */; };
+		28A46A52AAA805EBD18338E0 /* ForceField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C483E76A3B1C7A1379F4E490 /* ForceField.swift */; };
 		29B80336CCFC116ECFA71C75 /* AppModel+Dispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD305FFE3D971F3DAF4293E0 /* AppModel+Dispatch.swift */; };
 		2AB8BC438BE24932D5902550 /* OmnibarField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA05C9AC724DD87E5D4BE9F5 /* OmnibarField.swift */; };
 		2C9B16088360C4FF4DAD85E0 /* FaciendaPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21AE3BE147E06A5DE338F48A /* FaciendaPhoneApp.swift */; };
+		2C9EB170846D83F214F8E933 /* ForceFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604FBDC60FC1FE97219559D0 /* ForceFieldTests.swift */; };
 		2DED16EF1FBDB213385D1E7E /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CD998B1C7AD7E98FAD8F44 /* StoreTests.swift */; };
 		2E48FDBF9A7C915D31EF1F44 /* AppModel+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5DA6B5D6714EBE79FE615DE /* AppModel+Setup.swift */; };
 		2ECCE41B18A5D4EF159BCFDE /* WorkspaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24444E9EA1B191490CA96C92 /* WorkspaceController.swift */; };
@@ -66,6 +68,7 @@
 		486272069577740D0BFF41C5 /* FaciendaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4369C9359925CE878FE9D4D0 /* FaciendaCore */; };
 		4A863529A68E0AB48DCA1CD1 /* DispatcherHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31EA852BF9735C12487648E /* DispatcherHost.swift */; };
 		4A9E6D36B5E749FC91938C37 /* TaskEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9EF934DA7586E74C68DE96 /* TaskEditor.swift */; };
+		4B09B0B7B27BCC2A7AF88AF7 /* ForceField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C483E76A3B1C7A1379F4E490 /* ForceField.swift */; };
 		4B9C025FE9148A37AB359E53 /* FaciendaMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0782FEEC1919312E579FD6E4 /* FaciendaMemory.swift */; };
 		4C0ECCF96ED889A1CF73CA15 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E77EC21E4C1124414051FD /* Theme.swift */; };
 		4C41FDA122B16D1F4FF5A69C /* AppModel+Folders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD1C0FA321D1CE2F0041AAA /* AppModel+Folders.swift */; };
@@ -123,6 +126,7 @@
 		883A3EC181AF6EC8127B2470 /* WorkspaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24444E9EA1B191490CA96C92 /* WorkspaceController.swift */; };
 		887A2D169A7430B7B427216C /* AppModel+Claude.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190932C138DA7920C967E9D9 /* AppModel+Claude.swift */; };
 		894CB16F67E7302FC7C834FF /* memory-models.json in Resources */ = {isa = PBXBuildFile; fileRef = 9006F734793994BAB35ECE0A /* memory-models.json */; };
+		8A64DDA503E6D655B121EFFA /* IslandFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB7540D27A3320ED18EA0C8C /* IslandFrame.swift */; };
 		8BDD1938EAFEC9F6F5AAE1F3 /* PresentingBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60310A20186F8DA5637A63C /* PresentingBinding.swift */; };
 		8C0449DBC0770DD96FD793E6 /* DispatchContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A01DFCA6FF5FE2BE0AE10AE /* DispatchContextTests.swift */; };
 		8E55DEBC0A01A9916EAD39B8 /* SetupVisuals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27919841D64152C85DCA2664 /* SetupVisuals.swift */; };
@@ -130,6 +134,7 @@
 		923BD4EAED899116F0DA4F1D /* StateLegend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90760038D05C16943F3BD621 /* StateLegend.swift */; };
 		95FFC3BF0A2BB7A434CE78F0 /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D528CE09ACC3804163733B /* MicButton.swift */; };
 		9927810F47F21C14C015E169 /* WorkspaceMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD4AC5CD72402B8F81AEDE /* WorkspaceMenuItems.swift */; };
+		9B060B53BFC68727B0A881A3 /* IslandFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB7540D27A3320ED18EA0C8C /* IslandFrame.swift */; };
 		9B0EF21953A72970A265319D /* OmnibarAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 506B3118D93CC1EE39020456 /* OmnibarAttachments.swift */; };
 		9B6B2460D7E9798320048D6C /* CoverWishPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE783F065D7E26132BF04077 /* CoverWishPopover.swift */; };
 		9BA99074E8D4E6538EC15156 /* DemoSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D14CAC4BD7AF2061C0757C9 /* DemoSnapshot.swift */; };
@@ -150,6 +155,7 @@
 		BB7FD537D6D8C72D9EB7990A /* ResultText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 389C8E8D7F7353425AE8FF19 /* ResultText.swift */; };
 		BBFACA8A02DA25978D186E72 /* AppModel+Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2875CEB0D5F858214E0623 /* AppModel+Status.swift */; };
 		BF009027385040D7C2E90088 /* GroupBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E837F6632A7A2586DAB806A /* GroupBoard.swift */; };
+		BF8CD60ADB3A7DD6ECF1D4F3 /* WorkspaceWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778094A46C6E08B437A060F7 /* WorkspaceWindow.swift */; };
 		C04C0996EE3BE7EDCDCA53D4 /* AppModel+Conversations.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */; };
 		C2EC309023A803669FD2E10C /* AppModel+Demo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C474E07460193F6C6384F74 /* AppModel+Demo.swift */; };
 		C2FE2D6D9838BB87D35FFBC2 /* AppModel+Covers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D3E916559095537871F5E8E /* AppModel+Covers.swift */; };
@@ -303,6 +309,7 @@
 		5F1880931BC39ADEB5A68963 /* Facienda.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Facienda.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5F9CD3960A821481269F0967 /* PhoneWorkspacesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWorkspacesView.swift; sourceTree = "<group>"; };
 		5FE890AE7A5FC63753D88869 /* GroupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSheet.swift; sourceTree = "<group>"; };
+		604FBDC60FC1FE97219559D0 /* ForceFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForceFieldTests.swift; sourceTree = "<group>"; };
 		60A2D96410ADB2512F7CDE08 /* WorkspaceControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceControllerTests.swift; sourceTree = "<group>"; };
 		61483856A37211D363775183 /* AppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
 		617617F4C7FB9363420C5CDA /* RunnersPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnersPane.swift; sourceTree = "<group>"; };
@@ -318,6 +325,7 @@
 		7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShaper.swift; sourceTree = "<group>"; };
 		75EEA177E85C2D2D77FCE69E /* UndoToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoToast.swift; sourceTree = "<group>"; };
 		7600524553604245E519EEA9 /* AppModel+Undo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Undo.swift"; sourceTree = "<group>"; };
+		778094A46C6E08B437A060F7 /* WorkspaceWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindow.swift; sourceTree = "<group>"; };
 		783F36D19966D031ECBF8B91 /* VoiceShapes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShapes.swift; sourceTree = "<group>"; };
 		79A3A8D75DD0279F420EA62B /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		7C474E07460193F6C6384F74 /* AppModel+Demo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Demo.swift"; sourceTree = "<group>"; };
@@ -364,6 +372,7 @@
 		BBF9F6570A419D3AA905A092 /* MemoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryView.swift; sourceTree = "<group>"; };
 		BEB7984B12817AD376C2CBFC /* AppModel+Conversations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Conversations.swift"; sourceTree = "<group>"; };
 		C3CB66435896201158F3E415 /* MobileCompanionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCompanionTests.swift; sourceTree = "<group>"; };
+		C483E76A3B1C7A1379F4E490 /* ForceField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForceField.swift; sourceTree = "<group>"; };
 		C60310A20186F8DA5637A63C /* PresentingBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentingBinding.swift; sourceTree = "<group>"; };
 		C847C5AB9E24DC8BCB1B9933 /* ApplicationsMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationsMove.swift; sourceTree = "<group>"; };
 		CAC6C02AE0A0F4781863EBC2 /* BoardHover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardHover.swift; sourceTree = "<group>"; };
@@ -376,6 +385,7 @@
 		D814A742A6D4CEC7066AE122 /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		D83E486219C36302B14A54ED /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		D985B26E54678198488896D8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		DB7540D27A3320ED18EA0C8C /* IslandFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandFrame.swift; sourceTree = "<group>"; };
 		DD9EF934DA7586E74C68DE96 /* TaskEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEditor.swift; sourceTree = "<group>"; };
 		DE783F065D7E26132BF04077 /* CoverWishPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWishPopover.swift; sourceTree = "<group>"; };
 		DE9785093A50952CC314226D /* FaciendaPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FaciendaPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -614,6 +624,7 @@
 			isa = PBXGroup;
 			children = (
 				15CB56AEAC2F58FA9213E19B /* AppModelTests.swift */,
+				604FBDC60FC1FE97219559D0 /* ForceFieldTests.swift */,
 				C3CB66435896201158F3E415 /* MobileCompanionTests.swift */,
 				28CBD5AB6847A80A8940CC87 /* VoiceShaperTests.swift */,
 				60A2D96410ADB2512F7CDE08 /* WorkspaceControllerTests.swift */,
@@ -692,6 +703,8 @@
 				A796C9144B2C10B64EA56A0F /* ClaudeUsage.swift */,
 				6C0794913F709BC8A86ACB1D /* CodexConnection.swift */,
 				E31EA852BF9735C12487648E /* DispatcherHost.swift */,
+				C483E76A3B1C7A1379F4E490 /* ForceField.swift */,
+				DB7540D27A3320ED18EA0C8C /* IslandFrame.swift */,
 				A07C9BFED5E1CDB6B22C169B /* MobileCompanion.swift */,
 				AD50285F87B71CD67F516150 /* SettingsPane.swift */,
 				7057402FD1920FD0A23F6AE8 /* VoiceShaper.swift */,
@@ -717,6 +730,7 @@
 				FEAD4AC5CD72402B8F81AEDE /* WorkspaceMenuItems.swift */,
 				F420127733297C372794BDA7 /* WorkspaceSheets.swift */,
 				79A3A8D75DD0279F420EA62B /* WorkspaceSidebar.swift */,
+				778094A46C6E08B437A060F7 /* WorkspaceWindow.swift */,
 			);
 			path = Workspaces;
 			sourceTree = "<group>";
@@ -1225,6 +1239,9 @@
 				8113A3D2C1225C90BE1AAB13 /* ClaudeUsage.swift in Sources */,
 				1B4AA2B2E57324A44083DA74 /* CodexConnection.swift in Sources */,
 				4A863529A68E0AB48DCA1CD1 /* DispatcherHost.swift in Sources */,
+				28A46A52AAA805EBD18338E0 /* ForceField.swift in Sources */,
+				2C9EB170846D83F214F8E933 /* ForceFieldTests.swift in Sources */,
+				8A64DDA503E6D655B121EFFA /* IslandFrame.swift in Sources */,
 				513160CA2037CA632C20EE69 /* MobileCompanion.swift in Sources */,
 				90B8B506144B12B1FA735DDA /* MobileCompanionTests.swift in Sources */,
 				7B344854B3974943095B453D /* SettingsPane.swift in Sources */,
@@ -1307,8 +1324,10 @@
 				EE8F3578B51E80F89FEF1B45 /* Dictation.swift in Sources */,
 				252461DDC4F15F6214A7FEF0 /* DispatcherHost.swift in Sources */,
 				3C50C013DF2404AF38A107D4 /* FaciendaApp.swift in Sources */,
+				4B09B0B7B27BCC2A7AF88AF7 /* ForceField.swift in Sources */,
 				BF009027385040D7C2E90088 /* GroupBoard.swift in Sources */,
 				3C8AF44D56F4E923FF3B5B18 /* GroupSheet.swift in Sources */,
+				9B060B53BFC68727B0A881A3 /* IslandFrame.swift in Sources */,
 				EA4C8BD04CAEEF7504E65E1C /* MemoryView.swift in Sources */,
 				95FFC3BF0A2BB7A434CE78F0 /* MicButton.swift in Sources */,
 				80BB6240BFD5B4313C0A8596 /* MobileCompanion.swift in Sources */,
@@ -1357,6 +1376,7 @@
 				4D4B41025646AD5082DF45B2 /* WorkspaceSetupViews.swift in Sources */,
 				1E1951F8C30EADF7A99DC47F /* WorkspaceSheets.swift in Sources */,
 				F2C42F1287C90C795A0A0F97 /* WorkspaceSidebar.swift in Sources */,
+				BF8CD60ADB3A7DD6ECF1D4F3 /* WorkspaceWindow.swift in Sources */,
 				340F38DF486428FF42705432 /* WrapLayout.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

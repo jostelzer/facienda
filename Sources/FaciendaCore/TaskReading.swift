@@ -82,4 +82,21 @@ extension FaciendaStore {
             return Dictionary(uniqueKeysWithValues: rows.map { ($0["workspaceId"] as String, $0["count"] as Int) })
         }
     }
+
+    /// Tasks in progress in each workspace, as the board's In progress files them: running, or open with a delivery
+    /// underway. A parked task's check that has not gone out yet leaves it parked.
+    public func runningCounts() throws -> [String: Int] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT workspaceId, count(*) AS count FROM tasks
+                WHERE state NOT IN ('done', 'dropped') AND workspaceId IS NOT NULL
+                  AND (state = 'running' OR EXISTS (
+                    SELECT 1 FROM dispatches WHERE dispatches.taskId = tasks.id
+                      AND (dispatches.state = 'dispatching' OR (dispatches.state IN ('queued', 'claimed')
+                        AND NOT (dispatches.kind = 'check' AND tasks.state IN ('waiting', 'scheduled'))))))
+                GROUP BY workspaceId
+                """)
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0["workspaceId"] as String, $0["count"] as Int) })
+        }
+    }
 }

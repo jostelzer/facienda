@@ -9,6 +9,7 @@ struct DashboardView: View {
     var sidebar = true
     @Environment(\.openWindow) private var openWindow
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.besideLights) private var besideLights
     @State private var omnibar: OmnibarModel
     /// The empty space either side of the top bar's field, which it may take while you type.
     @State private var gaps: [CGFloat] = [0, 0]
@@ -35,8 +36,8 @@ struct DashboardView: View {
     var body: some View {
         HStack(spacing: 0) {
             if sidebar {
-                WorkspaceSidebar(model: model, workspaces: workspaces, windowWidth: pageWidth)
-                Divider()
+                WorkspaceSidebar(model: model, workspaces: workspaces)
+                    .frame(width: min(max(pageWidth * 0.25, 220), 560) - IslandFrame.margin * 2).padding(IslandFrame.margin)
             }
             VStack(spacing: 0) {
                 // Above the page, which the bar grows down over.
@@ -81,7 +82,8 @@ struct DashboardView: View {
             }
         }
         .background(Palette.paper).foregroundStyle(Palette.ink).tint(Palette.accent)
-        .frame(minWidth: sidebar ? 680 : 440, minHeight: 520)
+        // Beside the island it asks no more than the island leaves it, so it never pushes past the window.
+        .frame(minWidth: sidebar ? 680 : IslandFrame.board.width, minHeight: sidebar ? 520 : IslandFrame.board.height)
         .overlay(alignment: .bottom) { UndoOfferToast(model: model) }
         .sheet(item: $omnibar.chosenChat) { chat in ChatChoice(omnibar: omnibar, chat: chat).foregroundStyle(Palette.ink) }
         .sheet(isPresented: $model.showCapture) { CaptureView(model: model) }
@@ -139,7 +141,8 @@ struct DashboardView: View {
             Spacer(minLength: 0).onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gaps[1] = $0 }
         }
         // Behind the bar, so a bar growing down over the page is not crossed by the line.
-        .padding(.horizontal, 24).frame(height: 60).background(alignment: .bottom) { Divider() }
+        // Clear of the window's traffic lights when the island is not under them.
+        .padding(.leading, besideLights ? 84 : 24).padding(.trailing, 24).frame(height: 60).background(alignment: .bottom) { Divider() }
         .overlay(alignment: .trailing) { UpdatePill().padding(.trailing, 20) }
     }
 

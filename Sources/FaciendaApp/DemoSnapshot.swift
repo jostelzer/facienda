@@ -34,6 +34,21 @@ extension AppDelegate {
             }
             let workspaces = WorkspaceController(demo: true, load: false)
             workspaces.install(model)
+            // `--islands`: a few more workspaces with work running and work that came back, to see the sidebar's island
+            // with several planets.
+            if CommandLine.arguments.contains("--islands"), let space = workspaces.memorySpaces.first {
+                let library = model.store.library
+                for (name, fresh, running) in [("Studio", 3, 1), ("Garden", 0, 2), ("Travel", 1, 0), ("Lab", 2, 1)] {
+                    let workspace = try library.createWorkspace(name: name, memorySpaceID: space.id)
+                    for index in 0..<fresh {
+                        _ = try library.scoped(to: workspace.id).create(FaciendaTask(title: "Came back \(index + 1)", state: .needsMe, nextAction: "Review"))
+                    }
+                    for index in 0..<running {
+                        _ = try library.scoped(to: workspace.id).create(FaciendaTask(title: "Working \(index + 1)", state: .running, nextAction: "Wait"))
+                    }
+                }
+                workspaces.reload()
+            }
             if let index = CommandLine.arguments.firstIndex(of: "--section"), CommandLine.arguments.indices.contains(index + 1),
                let section = Destination(rawValue: CommandLine.arguments[index + 1]) {
                 if TaskDot.Kind.legend(for: section).isEmpty { model.destination = section }
@@ -127,6 +142,12 @@ extension AppDelegate {
                 omnibar.query = "Make the board look like this"
                 content = AnyView(OmnibarField(omnibar: omnibar, spare: 400, reach: 600)
                     .padding(40).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(Palette.paper))
+            }
+            // `--window`: the whole window with its island; `--island x,y,w,h` places the island as fractions of the window.
+            if CommandLine.arguments.contains("--window") {
+                let index = CommandLine.arguments.firstIndex(of: "--island")
+                let island = index.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil }
+                content = AnyView(WorkspaceWindow(model: model, workspaces: workspaces, fixedIsland: island))
             }
             if CommandLine.arguments.contains("--settings") { content = AnyView(SettingsView(model: model)) }
             if CommandLine.arguments.contains("--sources-popover"), let group = sourcesGroup {

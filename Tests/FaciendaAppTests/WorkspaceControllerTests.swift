@@ -191,3 +191,69 @@ private struct FakePicturePainter: CoverPainting {
     let restored = try #require(controller.workspaces.first { $0.id == garden.id })
     #expect(restored.coverStyle == "Fauvism" && restored.coverNotes == nil && !controller.canUndoCover(restored))
 }
+
+@MainActor @Test func workspacesKeepTheirPlacesOnTheIslandAndNewOnesNeverShiftThem() throws {
+    let defaults = scratchDefaults("WorkspacePlaces")
+    let (controller, library) = try controller(defaults)
+    let memory = try #require(controller.memorySpaces.first).id
+    for name in ["B", "C"] { #expect(controller.create(name: name, memorySpaceID: memory)) }
+    // Every workspace gets a place of its own, clear of the others.
+    let first = Dictionary(uniqueKeysWithValues: controller.ordered.map { ($0.id, controller.place(of: $0)) })
+    #expect(first.count == 3 && Set(first.values.map { "\($0)" }).count == 3)
+    // A dragged place sticks, kept clear of the island's edge; a new workspace leaves everyone else where they are.
+    let moved = try #require(controller.ordered.last)
+    controller.setPlace(moved, to: CGPoint(x: 1.4, y: -0.2))
+    #expect(controller.place(of: moved) == CGPoint(x: 0.88, y: 0.08))
+    #expect(controller.create(name: "D", memorySpaceID: memory))
+    for workspace in controller.ordered where workspace.id != moved.id && first[workspace.id] != nil {
+        #expect(controller.place(of: workspace) == first[workspace.id])
+    }
+    // Places outlast a restart; tidying puts everyone back into the zigzag.
+    let reopened = WorkspaceController(libraryURL: library, defaults: defaults)
+    #expect(reopened.place(of: moved) == CGPoint(x: 0.88, y: 0.08))
+    reopened.arrangePlaces()
+    #expect(reopened.place(of: moved) != CGPoint(x: 0.88, y: 0.08))
+    #expect(Set(reopened.ordered.map { "\(reopened.place(of: $0))" }).count == 4)
+}
+
+@Test func theIslandLeansOnAWallAndTheBoardMakesRoomForIt() {
+    let window = CGSize(width: 1200, height: 800)
+    // A first island takes the old sidebar's place: a quarter of the width, all the way down the left. Only its free
+    // edge resizes it.
+    let first = IslandFrame.snap(IslandFrame.decode("", share: 0.25, in: window), in: window)
+    #expect(first == CGRect(x: 10, y: 10, width: 280, height: 780))
+    #expect(IslandFrame.room(for: first, in: window).leading == 290)
+    #expect(IslandFrame.freeEdges(first, in: window) == [.trailing])
+    // Carried into the middle, the nearest wall takes it; it never leaves the window or gets too small to hold planets.
+    let floating = IslandFrame.snap(CGRect(x: 820, y: 300, width: 300, height: 400), in: window)
+    #expect(floating.maxX == 1190 && floating.minY == 300)
+    #expect(IslandFrame.room(for: floating, in: window).trailing == 310)
+    let squeezed = IslandFrame.snap(CGRect(x: -500, y: 900, width: 20, height: 20), in: window)
+    #expect(squeezed.size == IslandFrame.smallest && squeezed.minX == 10 && squeezed.maxY == 790)
+    // It can be set down on the bottom too, where it stays, and the board goes above it.
+    let down = IslandFrame.snap(CGRect(x: 450, y: 520, width: 300, height: 300), in: window)
+    #expect(down == CGRect(x: 450, y: 490, width: 300, height: 300))
+    #expect(IslandFrame.room(for: down, in: window).bottom == 310)
+    // Near a corner, both walls pull it on.
+    let corner = IslandFrame.snap(CGRect(x: 35, y: 560, width: 300, height: 200), in: window)
+    #expect(IslandFrame.touching(corner, in: window) == [.leading, .bottom])
+    // A wide island along the bottom takes room from below.
+    let shelf = IslandFrame.snap(CGRect(x: 100, y: 560, width: 900, height: 230), in: window)
+    #expect(IslandFrame.touching(shelf, in: window) == [.bottom])
+    #expect(IslandFrame.room(for: shelf, in: window).bottom == 240)
+    // A dragged edge clicks onto its wall when it comes near.
+    #expect(IslandFrame.resized(CGRect(x: 10, y: 10, width: 280, height: 760), moving: .bottom, in: window).height == 780)
+    // A tall island let go against the top alone still leans on a side wall, so the board is never pushed off the window.
+    let window2 = CGSize(width: 1497, height: 949)
+    let topOnly = IslandFrame.snap(CGRect(x: 198, y: 0, width: 352, height: 928), in: window2)
+    #expect(topOnly.minX == 10)
+    #expect(IslandFrame.room(for: topOnly, in: window2).leading == 362)
+    // Whatever the island does, the board keeps room of its own, and a broken saved place falls back to the first one.
+    let huge = CGRect(x: 10, y: 10, width: 1100, height: 780)
+    #expect(IslandFrame.room(for: huge, in: window).leading == 840)
+    #expect(IslandFrame.decode("0.5,nan,2,0.3", share: 0.25, in: window) == IslandFrame.decode("", share: 0.25, in: window))
+    // Saved as fractions, so it keeps its wall when the window changes size.
+    let wider = CGSize(width: 1600, height: 900)
+    let kept = IslandFrame.snap(IslandFrame.decode(IslandFrame.encode(floating, in: window), share: 0.25, in: wider), in: wider)
+    #expect(kept.maxX == 1590)
+}
