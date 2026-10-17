@@ -17,11 +17,12 @@ Agents are good at doing a task and bad at waiting for something. Instead of a d
 
 ## Build
 
-With Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen):
+With Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen), no Apple developer account needed:
 
 ```sh
-xcodegen generate
-xcodebuild -project Facienda.xcodeproj -scheme Facienda -configuration Debug -derivedDataPath build build
+scripts/dev-build.sh --open
 ```
+
+Pull requests are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Facienda is a beta. Report problems in [Issues](https://github.com/jostelzer/facienda/issues), security issues as described in [SECURITY.md](SECURITY.md). Apache License 2.0, see [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).

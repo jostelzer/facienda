@@ -1,0 +1,23 @@
+# Builds and tests every pull request and push to main, the same way contributors do: scripts/dev-build.sh --test.
+# Runs with no secrets and read-only access; signing and releases happen only on the maintainer's Mac.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-and-test:
+    # The Xcode 27 image: arm64, with Xcode 27.0 as its default.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: brew install xcodegen
+      - run: scripts/dev-build.sh --test
