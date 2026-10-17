@@ -11,7 +11,9 @@ __pycache__/
 build-tests/
 .facienda-task-*/
 .agents/
-# Kept on this Mac only: design mocks, internal notes and screenshots.
+# Kept on this Mac only: agent notes, design mocks, internal notes and screenshots.
+/AGENTS.md
+/CLAUDE.md
 /mocks/
 /docs/mocks/
 /docs/iphone/
