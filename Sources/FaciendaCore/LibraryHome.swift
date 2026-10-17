@@ -7,12 +7,24 @@ import Darwin
 public enum LibraryHome {
     public static let databaseName = "facienda.sqlite"
     public static let libraryFolderName = ".facienda"
+    // The core package is shared by the app and its helpers, so they must choose the same library.
+    // Debug builds never adopt the installed app's pointer or data as a fallback.
+    #if DEBUG
+    private static let supportName = "Facienda Development"
+    private static let dataName = "facienda-development"
+    private static let cacheName = "org.facienda.mac.development"
+    #else
+    private static let supportName = "Facienda"
+    private static let dataName = "facienda"
+    private static let cacheName = "org.facienda.mac"
+    #endif
     /// Facienda's Application Support folder: the pointer, the library's daily copies, the chat index and the speech model.
-    public static let supportDirectory = URL.applicationSupportDirectory.appending(path: "Facienda", directoryHint: .isDirectory)
+    public static let supportDirectory = URL.applicationSupportDirectory.appending(path: supportName, directoryHint: .isDirectory)
+    public static let cacheDirectory = URL.cachesDirectory.appending(path: cacheName, directoryHint: .isDirectory)
     public static let pointerURL = supportDirectory.appending(path: "data-folder.json")
     public static let backupDirectory = supportDirectory.appending(path: "Backups", directoryHint: .isDirectory)
     public static var defaultDataFolder: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "facienda", directoryHint: .isDirectory)
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: dataName, directoryHint: .isDirectory)
     }
 
     /// The library folder. `--library-folder DIR` at launch names another one, so a separate library

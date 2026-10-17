@@ -24,6 +24,7 @@ if test -n "$run_tests"; then
     "${xcode[@]}" -only-testing:FaciendaAppTests test
     # Package.resolved also pins the app's packages, which swift test would otherwise drop from it.
     swift test --disable-automatic-resolution --quiet
+    python3 scripts/test_release.py
     # Both run the bundled helpers against a throwaway library, never yours.
     python3 scripts/integration_smoke.py --helpers "$app/Contents/Helpers" --workspace
     python3 scripts/claude_smoke.py --helpers "$app/Contents/Helpers"

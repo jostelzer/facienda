@@ -132,8 +132,7 @@ public actor MemoryModels {
         return vector
     }
 
-    public static let defaultCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("org.facienda.mac/MemoryModels", isDirectory: true)
+    public static let defaultCache = LibraryHome.cacheDirectory.appendingPathComponent("MemoryModels", isDirectory: true)
 
     /// FaciendaCore's resource bundle, wherever this binary runs from: the app, a bundled helper, `swift build` or tests.
     public static func resourceFolder() -> URL? {

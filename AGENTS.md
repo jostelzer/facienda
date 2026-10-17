@@ -14,7 +14,7 @@ Facienda is a native Mac app in Swift 6 and SwiftUI, for macOS 26. These notes a
 
 - `scripts/dev-build.sh --test` builds the Debug app and runs the tests, with no Apple account. Run it before you call a change done.
 - `project.yml` defines the Xcode project. `xcodegen generate` makes `Facienda.xcodeproj`, which is not in git, so never edit the generated project. A new file in an existing source folder is picked up on the next generate.
-- `--demo` opens the app on sample data. Use it to look at interface changes: a Debug build otherwise opens the same library as an installed Facienda.
+- `--demo` opens the app on sample data. Debug builds otherwise use their own library in `~/facienda-development`, with separate preferences, Application Support and caches. Do not select a production library when testing outside contributions; use a separate macOS account for untrusted code.
 - `scripts/build.sh`, `install.sh` and `release.sh` sign with the maintainer's Apple team. Don't run them unless you're asked to.
 
 ## Code

@@ -46,9 +46,8 @@ import FaciendaBridge
                 mode = agent.status == .requiresApproval ? .needsApproval : .inApp
             }
         } else {
-            // A build outside Applications leaves the queue to the installed app's agent while that delivers, so chats
-            // keep getting the installed helper.
-            if Self.agentRuns || Self.anotherDispatcherHolds(model.nativeRunner) { stopInApp(); mode = .agent; return }
+            // Only a lease on this library counts. The installed agent may be serving a different library.
+            if Self.anotherDispatcherHolds(model.nativeRunner) { stopInApp(); mode = .agent; return }
             mode = .inApp
         }
         // Until the agent may run, the app delivers while it is open.

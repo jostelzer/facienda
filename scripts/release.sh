@@ -41,6 +41,22 @@ fi
 echo "Releasing Facienda $version from $(git rev-parse --short HEAD)${last:+ (last release: $last)}"
 
 repository="jostelzer/facienda"
+# Published releases must identify the source that was built, even if main moves during notarization.
+# A dry run may still build an unpublished commit; it never creates a GitHub release.
+if test -z "$dry_run"; then
+    if ! published_commit="$(gh api "repos/$repository/commits/$commit" --jq .sha)" || test "$published_commit" != "$commit"; then
+        echo "The release commit must already exist in $repository. Publish the reviewed source first." >&2
+        exit 1
+    fi
+    if ! existing_tag="$(git ls-remote --tags "https://github.com/$repository.git" "refs/tags/v$version")"; then
+        echo "Could not check the release tag in $repository." >&2
+        exit 1
+    fi
+    if test -n "$existing_tag"; then
+        echo "v$version already exists in $repository; refusing to reuse its tag." >&2
+        exit 1
+    fi
+fi
 # Any Developer ID Application certificate in the keychain; set FACIENDA_SIGNING_IDENTITY to pick one.
 identity="${FACIENDA_SIGNING_IDENTITY:-Developer ID Application}"
 profile="facienda"
@@ -137,6 +153,6 @@ if test -n "$dry_run"; then
     echo "Dry run: $dmg and $output/appcast.xml are ready; nothing was published."
     exit 0
 fi
-gh release create "v$version" --repo "$repository" --title "Facienda $version" --notes-file "$notes" "$dmg" "$output/appcast.xml"
+gh release create "v$version" --repo "$repository" --target "$commit" --title "Facienda $version" --notes-file "$notes" "$dmg" "$output/appcast.xml"
 git -C "$root" tag -a "v$version" "$commit" -m "Facienda $version"
 echo "Published Facienda $version: https://github.com/$repository/releases/tag/v$version (tagged v$version)"

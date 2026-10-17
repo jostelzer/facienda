@@ -4,7 +4,7 @@ import Darwin
 /// Machine-local credential: never stored in a synced workspace or dispatch prompt.
 public enum MemoryServiceCredentials {
     public static var tokenURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Facienda/memory-service/api-token")
+        LibraryHome.supportDirectory.appending(path: "memory-service/api-token")
     }
 
     public static func readCertificate() throws -> Data {

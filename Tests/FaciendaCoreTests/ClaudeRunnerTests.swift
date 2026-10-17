@@ -320,7 +320,7 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     let firstFolder = try #require(URLComponents(url: first, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "folder" }?.value)
     #expect(firstFolder.hasPrefix(runners.appending(path: "runner-").path))
     #expect(!firstFolder.contains(store.nativeProjectDirectory.lastPathComponent))
-    #expect(FaciendaStore.defaultClaudeRunnerFolder.path.hasSuffix("/facienda/claude"))
+    #expect(FaciendaStore.defaultClaudeRunnerFolder == (LibraryHome.savedDataFolder ?? LibraryHome.defaultDataFolder).appending(path: "claude"))
     // Only the runner's folder lets it apply settings and relay messages without stopping for approval.
     let runnerSettings = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: URL(fileURLWithPath: firstFolder + "/.claude/settings.local.json")))
     #expect(runnerSettings["permissions"]["allow"].array?.contains(.string("mcp__ccd_session_mgmt__set_session_model")) == true)

@@ -8,6 +8,24 @@ private func scratch() throws -> URL {
     return folder.standardizedFileURL.resolvingSymlinksInPath()
 }
 
+@Test func developmentHelpersAndAppUseSeparateDefaultStorage() {
+    #if DEBUG
+    #expect(LibraryHome.defaultDataFolder.lastPathComponent == "facienda-development")
+    #expect(LibraryHome.supportDirectory.lastPathComponent == "Facienda Development")
+    #expect(LibraryHome.cacheDirectory.lastPathComponent == "org.facienda.mac.development")
+    #else
+    #expect(LibraryHome.defaultDataFolder.lastPathComponent == "facienda")
+    #expect(LibraryHome.supportDirectory.lastPathComponent == "Facienda")
+    #expect(LibraryHome.cacheDirectory.lastPathComponent == "org.facienda.mac")
+    #endif
+    #expect(LibraryHome.pointerURL.deletingLastPathComponent() == LibraryHome.supportDirectory)
+    #expect(LibraryHome.backupDirectory.deletingLastPathComponent() == LibraryHome.supportDirectory)
+    #expect(ChatIndex.defaultURL.deletingLastPathComponent() == LibraryHome.supportDirectory)
+    #expect(MemoryModels.defaultCache.deletingLastPathComponent() == LibraryHome.cacheDirectory)
+    #expect(MemoryServiceCredentials.tokenURL.deletingLastPathComponent().deletingLastPathComponent() == LibraryHome.supportDirectory)
+    #expect(HelperPolicy.appLibrary == LibraryHome.libraryFolder(in: LibraryHome.savedDataFolder ?? LibraryHome.defaultDataFolder).appending(path: LibraryHome.databaseName))
+}
+
 @Test func aDeletedLibraryIsReportedAndNeverReplaced() throws {
     let root = try scratch(), url = root.appending(path: "facienda/.facienda/facienda.sqlite")
     #expect(throws: StoreError.self) { try LibraryHome.open(at: url) }

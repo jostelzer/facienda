@@ -21,7 +21,7 @@ public struct ConnectionPlan: Identifiable, Sendable {
 public actor ConnectionInstaller {
     private let codexHome: URL
     private let backupRoot: URL
-    public init(codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex"), backupRoot: URL = URL.applicationSupportDirectory.appending(path: "Facienda/ConnectionBackups")) {
+    public init(codexHome: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".codex"), backupRoot: URL = LibraryHome.supportDirectory.appending(path: "ConnectionBackups")) {
         self.codexHome = codexHome; self.backupRoot = backupRoot
     }
     public static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }

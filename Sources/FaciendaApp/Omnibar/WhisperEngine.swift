@@ -6,22 +6,18 @@ import WhisperKit
 actor WhisperEngine {
     static let shared = WhisperEngine()
     /// Large v3 turbo, quantized: close to the full model's accuracy at a third of the size.
-    static let variant = "large-v3-v20240930_turbo_632MB"
+    static let variant = SpeechModelSnapshot.variant
     static let sampleRate = 16_000
 
     private nonisolated(unsafe) var kit: WhisperKit?
     private var loading: Task<Void, Error>?
 
-    private static var storage: URL {
-        URL.applicationSupportDirectory.appending(path: "Facienda/Speech", directoryHint: .isDirectory)
-    }
-    private static let readyKey = "whisperModelFolder"
+    private static var storage: URL { SpeechModelSnapshot.storage }
+    private static let readyKey = SpeechModelSnapshot.readyKey
 
     /// The downloaded model, if a download finished before.
     private static var modelFolder: URL? {
-        guard let path = UserDefaults.standard.string(forKey: readyKey),
-              FileManager.default.fileExists(atPath: URL(filePath: path).appending(path: "AudioEncoder.mlmodelc").path) else { return nil }
-        return URL(filePath: path)
+        SpeechModelSnapshot.isReady() ? SpeechModelSnapshot.modelFolder : nil
     }
     nonisolated static var isDownloaded: Bool { modelFolder != nil }
 
@@ -30,52 +26,46 @@ actor WhisperEngine {
     /// (WhisperKit's own downloader fails on the model's nested folders.)
     func download(progress: @escaping @Sendable (Double) -> Void) async throws {
         guard Self.modelFolder == nil else { return }
-        let modelName = "openai_whisper-" + Self.variant
-        let folder = Self.storage.appending(path: "models/argmaxinc/whisperkit-coreml/" + modelName, directoryHint: .isDirectory)
-        var files = try await Self.files(in: "argmaxinc/whisperkit-coreml", under: modelName).map { file in
-            (file, folder.appending(path: String(file.path.dropFirst(modelName.count + 1))))
+        let modelName = SpeechModelSnapshot.modelName, folder = SpeechModelSnapshot.modelFolder
+        let model = SpeechModelSnapshot.model, tokenizer = SpeechModelSnapshot.tokenizer
+        var files = try await Self.files(in: model, under: modelName).map { file in
+            (file, model.url(for: file), folder.appending(path: try file.relativePath(under: modelName)))
         }
-        files += try await Self.files(in: "openai/whisper-large-v3", under: nil)
+        files += try await Self.files(in: tokenizer, under: nil)
             .filter { ["tokenizer.json", "tokenizer_config.json"].contains($0.path) }
-            .map { ($0, Self.storage.appending(path: $0.path)) }
+            .map { ($0, tokenizer.url(for: $0), Self.storage.appending(path: try $0.relativePath(under: nil))) }
         let total = max(files.reduce(0) { $0 + $1.0.size }, 1)
-        func missing() -> [(RemoteFile, URL)] {
-            files.filter { file, destination in
-                (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) != file.size
-            }
+        func missing() -> [(SpeechModelSnapshot.File, URL, URL)] {
+            files.filter { file, _, destination in !file.matches(destination) }
         }
         // Each pass fetches what is not complete yet, then checks everything again.
         for _ in 0..<3 {
             let needed = missing()
             if needed.isEmpty { break }
             var done = total - needed.reduce(0) { $0 + $1.0.size }
-            for (file, destination) in needed {
+            for (file, url, destination) in needed {
                 let before = done
-                try await Self.fetch(file.url, to: destination) { received in progress(Double(before + received) / Double(total)) }
+                try await Self.fetch(url, to: destination) { received in progress(Double(before + received) / Double(total)) }
                 done += file.size
                 progress(Double(done) / Double(total))
             }
         }
         guard missing().isEmpty else { throw DownloadFailed() }
         UserDefaults.standard.set(folder.path, forKey: Self.readyKey)
-    }
-
-    private struct RemoteFile: Decodable {
-        let type: String
-        let path: String
-        let size: Int64
-        var repo = ""
-        var url: URL { URL(string: "https://huggingface.co/\(repo)/resolve/main/\(path)")! }
-        private enum CodingKeys: String, CodingKey { case type, path, size }
+        guard Self.modelFolder != nil else {
+            UserDefaults.standard.removeObject(forKey: Self.readyKey)
+            throw DownloadFailed()
+        }
     }
 
     /// The files of a Hugging Face model repository, below a folder or at its top.
-    private static func files(in repo: String, under folder: String?) async throws -> [RemoteFile] {
-        var address = "https://huggingface.co/api/models/\(repo)/tree/main"
-        if let folder { address += "/\(folder)?recursive=true" }
-        let (data, response) = try await URLSession.shared.data(from: URL(string: address)!)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw DownloadFailed() }
-        return try JSONDecoder().decode([RemoteFile].self, from: data).filter { $0.type == "file" }.map { var file = $0; file.repo = repo; return file }
+    private static func files(in source: SpeechModelSnapshot.Source, under folder: String?) async throws -> [SpeechModelSnapshot.File] {
+        let (data, response) = try await URLSession.shared.data(from: source.treeURL(under: folder))
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+              response.value(forHTTPHeaderField: "Link")?.contains("rel=\"next\"") != true else { throw DownloadFailed() }
+        let files = try JSONDecoder().decode([SpeechModelSnapshot.File].self, from: data).filter { $0.type == "file" }
+        guard !files.isEmpty else { throw DownloadFailed() }
+        return files
     }
 
     /// Downloads one file into place, reporting bytes received as it goes.

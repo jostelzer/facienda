@@ -114,7 +114,7 @@ extension AppModel {
         UserDefaults.standard.string(forKey: Self.claudeRunnerFolderKey).flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FaciendaStore.defaultClaudeRunnerFolder
     }
-    static var connectionBackups: URL { URL.applicationSupportDirectory.appending(path: "Facienda/ConnectionBackups") }
+    static var connectionBackups: URL { LibraryHome.supportDirectory.appending(path: "ConnectionBackups") }
     /// The bundled hook that reports when a Claude task session waits for the user's permission.
     var hookHelperPath: String { helperDirectory.appending(path: "facienda-hook").path }
     /// Facienda's permission hook, when not yet in the user's Claude settings, one line each.

@@ -16,7 +16,11 @@ scripts/dev-build.sh --test    # build, then run the tests
 scripts/dev-build.sh --open    # build, then open it on sample data
 ```
 
-The app lands in `build/Build/Products/Debug/Facienda.app` as Facienda Development, signed ad hoc. A dev build uses the same library as an installed Facienda, so try your change with `--open` (sample data) unless you mean to use your own tasks.
+The app lands in `build/Build/Products/Debug/Facienda.app` as Facienda Development, signed ad hoc. Debug builds and their helpers default to `~/facienda-development`, with their own library pointer, backups, chat index, speech downloads and memory caches. Release builds keep using `~/facienda`. A development build does not import the installed app's data or settings. `--open` uses sample data instead.
+
+This prevents accidental mixing of libraries; it is not a sandbox. Choosing another library explicitly still opens it, and connecting Codex or Claude changes that account's agent configuration. Review outside contributions before running them, or use a separate macOS account with test data and test agent accounts.
+
+Dictation downloads fixed model and tokenizer revisions, verifies their content hashes and stores them together. Older unversioned speech downloads are left in place but are not reused; the first use of dictation with this version downloads the reviewed snapshot again. Settings → Storage can move all dictation downloads to the Trash.
 
 `scripts/build.sh`, `install.sh` and `release.sh` are the maintainer's signed builds and need the maintainer's Apple team.
 
