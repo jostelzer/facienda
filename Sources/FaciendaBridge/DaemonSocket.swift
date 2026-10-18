@@ -1,9 +1,8 @@
 import Foundation
 import Darwin
 
-/// The Codex app's own app-server: one daemon that its window and every client share, reached as a WebSocket over a
-/// local socket. A turn started here is a turn of the Codex app itself, so the user sees it, steers it and answers its
-/// approvals there. `codex app-server proxy` is meant to relay this socket over stdio, but it passes nothing through.
+/// Codex's shared daemon, reached as a WebSocket over a local socket. This is separate from the desktop app's server;
+/// both enforce a single writer per chat. `codex app-server proxy` is meant to relay this socket over stdio.
 final class DaemonSocket: Sendable {
     private let descriptor: Int32
 

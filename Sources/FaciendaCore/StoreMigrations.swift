@@ -194,6 +194,18 @@ extension FaciendaStore {
         registerServiceModel(&migrator)
         registerHandovers(&migrator)
         registerTaskHandles(&migrator)
+        migrator.registerMigration("codex_native_queue") { db in
+            try db.execute(sql: "ALTER TABLE dispatches ADD COLUMN codexQueueId TEXT; ALTER TABLE dispatches ADD COLUMN codexQueuePreparedAt DATETIME")
+        }
+        registerOwnMemories(&migrator)
+        registerWorkspaceSources(&migrator)
+        registerMemoryPrivacy(&migrator)
+        registerMemoryMoves(&migrator)
+        registerMemoryEntries(&migrator)
+        registerMemoryDiscovery(&migrator)
+        registerMemoryCollections(&migrator)
+        registerMemoryUnderstanding(&migrator)
+        registerUnifiedIntake(&migrator)
         return migrator
     }
 }

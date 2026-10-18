@@ -130,7 +130,7 @@ extension AppModel {
             if destination != .dashboard, let taskID, let task = tasks.first(where: { $0.id == taskID }) { showTask(task) }
         }
     }
-    func reply(to task: FaciendaTask, text: String, reveal: Bool = true) -> Bool {
+    func reply(to task: FaciendaTask, text: String, reveal: Bool = true, userAuthored: Bool = true) -> Bool {
         guard !demo, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         do {
             if agent(for: task) == .claude {
@@ -139,7 +139,7 @@ extension AppModel {
                 guard workspaceReady else { throw StoreError.invalid("Connect Codex in Settings first. Your reply is still here.") }
             }
             guard pendingDispatch(for: task.id) == nil else { throw StoreError.invalid("A message is already queued for this task.") }
-            _ = try store.enqueueDispatch(taskId: task.id, message: text)
+            _ = try store.enqueueDispatch(taskId: task.id, message: text, userAuthored: userAuthored)
             replyDrafts[task.id] = ""
             refresh(); if reveal { showTask(task) }; return true
         } catch { self.error = error.localizedDescription; return false }

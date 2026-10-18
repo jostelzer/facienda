@@ -8,7 +8,7 @@ Facienda is a beta; only the latest release gets security fixes.
 
 ## Security model
 
-Facienda is a local, single-user Mac app. Your tasks, chats and memory live in one SQLite library in your data folder (default `~/facienda`), readable only by your account. Local storage does not mean all processing stays on the device. Facienda passes relevant task, chat and memory text to Codex or Claude for agent work and background model features, including memory learning when enabled; those providers handle inference traffic under their own account settings and policies. Facienda also checks for updates, downloads its speech model and, if enabled, syncs selected data through private iCloud with the iPhone companion.
+Facienda is a local, single-user Mac app. Your tasks, chats and memory live in one SQLite library in your data folder (default `~/facienda`), readable only by your account. Local storage does not mean all processing stays on the device. Facienda passes relevant task, chat and memory text to Codex or Claude for agent work and background model features, including memory learning when enabled; those providers handle inference traffic under their own account settings and policies. Facienda also checks for updates and downloads its speech model.
 
 Agents are treated as untrusted, since a web page, email or file they read can carry instructions:
 
@@ -20,4 +20,3 @@ What Facienda cannot protect against:
 
 - **Agents with broad access.** An agent that may read any file or run any command without asking can read the library directly and send it out, bypassing Facienda's tools. This includes Codex with `danger-full-access` or approvals off, and Claude allow rules such as `Read(**)`, `Bash(curl *)` or `Bash(python *)`. Keep agents sandboxed and approvals on for work that reads untrusted content.
 - **Other programs running as you.** They can read the library, chat transcripts and task handles like any of your files. The library is not encrypted; use FileVault.
-- **iCloud.** Data the companion syncs is protected by your Apple account, end-to-end only with Advanced Data Protection.

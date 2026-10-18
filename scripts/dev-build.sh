@@ -20,7 +20,7 @@ xcode=(xcodebuild -project Facienda.xcodeproj -scheme Facienda -configuration De
 "${xcode[@]}" build
 app="build/Build/Products/Debug/Facienda.app"
 if test -n "$run_tests"; then
-    # The app's tests live in the Xcode project; the package's own (core, bridge, companion) run under swift test.
+    # The app's tests live in the Xcode project; the package's own (core, bridge) run under swift test.
     "${xcode[@]}" -only-testing:FaciendaAppTests test
     # Package.resolved also pins the app's packages, which swift test would otherwise drop from it.
     swift test --disable-automatic-resolution --quiet

@@ -89,13 +89,6 @@ struct PlanBoard: View {
         return model.boardTasks(in: group.id).filter { !planned.contains($0.id) && passes($0) }
     }
 
-    /// Every task the plan view shows, for the legend's counts.
-    private func legendTasks(_ group: TaskGroup) -> [FaciendaTask] {
-        let planned = lines.compactMap(\.launchedTaskId).compactMap { tasksByID[$0] }
-        let planIDs = Set(planned.map(\.id))
-        return planned + model.boardTasks(in: group.id).filter { !planIDs.contains($0.id) }
-    }
-
     // MARK: Dragging
 
     /// A row lifted by the pointer: a plan line with the lines under it, or a task from below the plan.
@@ -147,13 +140,6 @@ struct PlanBoard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let group {
-                // The legend stays put, as on the board; the plan below can grow tall.
-                StateLegend(model: model, scope: .plan, tasks: legendTasks(group),
-                            plannedCount: lines.filter { $0.launchedTaskId == nil && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)
-                    .frame(maxWidth: Self.columnWidth, alignment: .leading)
-                    .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 4).frame(maxWidth: .infinity)
-            }
             ScrollView {
                 // One column like the board: the open group is a full card, the others fold to a strip.
                 VStack(spacing: 10) {
@@ -165,7 +151,7 @@ struct PlanBoard: View {
                         .id(option.id)
                     }
                 }
-                .frame(maxWidth: Self.columnWidth).padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 120)
+                .frame(maxWidth: Self.columnWidth).padding(.horizontal, IslandFrame.inset).padding(.top, 8).padding(.bottom, 120)
                 .frame(maxWidth: .infinity)
             }
         }

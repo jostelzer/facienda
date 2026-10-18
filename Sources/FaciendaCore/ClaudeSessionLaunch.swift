@@ -248,6 +248,10 @@ extension FaciendaStore {
             + ["attach --dispatch-id", "await --dispatch-id", "prompt --dispatch-id", "name --task-id"].map { "Bash(\(base) --claude \($0) *)" }
     }
 
+    /// How much conversation the runner keeps before Claude compacts it. Every relay step rereads all of it, and on a
+    /// model with a million-token window it would otherwise grow for days, until each step of a start took seconds.
+    public static let claudeRunnerContext = 150_000
+
     /// What the runner session may run without asking: its relay commands and the Claude app tools it relays with.
     public func claudeRunnerRules(helper: String) -> [String] {
         let base = claudeHelperBase(helper: helper)
@@ -277,7 +281,7 @@ extension FaciendaStore {
             "enabledMcpjsonServers": .array([.string("facienda")]),
             "permissions": .object(["allow": .array(rules.map(JSONValue.string))]
                 .merging(folders.isEmpty ? [:] : ["additionalDirectories": .array(folders.map(JSONValue.string))]) { $1 })
-        ])
+        ].merging(runner ? ["autoCompactWindow": .number(Double(Self.claudeRunnerContext))] : [:]) { $1 })
         try Self.makePrivateFolder(folder)
         try Self.makePrivateFolder(folder.appending(path: ".claude"))
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -290,7 +294,8 @@ extension FaciendaStore {
     }
 
     /// Folders earlier builds prepared let a session run any helper command. This library's task folders and runner
-    /// folders that still carry such a rule get today's narrow rules, keeping their linked folders.
+    /// folders that still carry such a rule get today's narrow rules, keeping their linked folders. A runner folder
+    /// from before its context was bounded gets the bound too, so the runner already running compacts from now on.
     public func narrowClaudeFolders(helper: String, runnerBase: URL? = nil) {
         let files = FileManager.default
         let tasks = Set(((try? library.tasks()) ?? []).map(\.id))
@@ -300,9 +305,11 @@ extension FaciendaStore {
         }
         for (folder, runner) in taskFolders.map({ ($0, false) }) + runnerFolders.map({ ($0, true) }) {
             guard let data = try? Data(contentsOf: folder.appending(path: ".claude/settings.local.json")),
-                  let permissions = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["permissions"] as? [String: Any],
+                  let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let permissions = settings["permissions"] as? [String: Any],
                   let allow = permissions["allow"] as? [String],
-                  allow.contains(where: { $0.hasPrefix("Bash(") && $0.hasSuffix(" *)") && !$0.contains(" --") }) else { continue }
+                  allow.contains(where: { $0.hasPrefix("Bash(") && $0.hasSuffix(" *)") && !$0.contains(" --") })
+                    || (runner && settings["autoCompactWindow"] == nil) else { continue }
             try? prepareClaudeFolder(folder, mcpHelper: helper, runner: runner, folders: permissions["additionalDirectories"] as? [String] ?? [])
         }
     }

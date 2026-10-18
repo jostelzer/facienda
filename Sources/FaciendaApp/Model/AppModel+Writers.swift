@@ -10,6 +10,8 @@ extension AppModel {
     private static let stepLuna = BackgroundModel()
     /// Finds the earlier task the top bar asks for while you wait, so it never queues behind anything else.
     private static let findLuna = BackgroundModel()
+    private static let readerLuna = BackgroundModel()
+    private static var readerWarming: Task<Void, Never>?
     private static var findWarming: Task<Void, Never>?
     /// Asks a fast model for a clearer name from the request, notes, recent chat and latest result, so the name follows
     /// where the task went rather than where it started. A manual rename meanwhile wins.
@@ -76,7 +78,8 @@ extension AppModel {
     /// Nil when the model cannot be asked or its reply cannot be used.
     func findEarlierTask(_ text: String) async -> TaskFinder.Answer? {
         guard !demo, serviceModelReady else { return nil }
-        let matching = ((try? store.lookUpTasks(text, limit: 12)) ?? []).map(\.task)
+        // The task asked for may live in any workspace.
+        let matching = ((try? store.library.lookUpTasks(text, limit: 12)) ?? []).map(\.task)
         let recent = tasks.filter { $0.state != .dropped }.sorted { $0.updatedAt > $1.updatedAt }.prefix(40)
         var seen = Set<String>()
         let candidates = (matching + recent).filter { seen.insert($0.id).inserted }
@@ -90,6 +93,86 @@ extension AppModel {
             let reply = try await luna.ask(thread, text: TaskFinder.prompt(text: text, tasks: candidates), schema: TaskFinder.schema, effort: TaskFinder.reasoningEffort, timeout: .seconds(20))
             return TaskFinder.read(reply, tasks: candidates)
         } catch { return nil }
+    }
+
+    /// Starts the reading model before the first pause in typing, so the first reading comes back sooner.
+    func warmReader() {
+        guard !demo, serviceModelReady, Self.readerWarming == nil else { return }
+        let luna = Self.readerLuna, executable = executable
+        Self.readerWarming = Task { try? await luna.warm(executable: executable) }
+    }
+
+    /// What the top bar's text asks for, read by a fast model against the tasks it could be about: those matching its
+    /// words, those that asked something, those parked, and the most recent, with the workspace's notes that match.
+    /// New work is also given its place: the workspace and group across the library it belongs in, learning from where
+    /// the person put earlier work. Nil when there is nothing to read against, the model cannot be asked, or its reply
+    /// cannot be used: Return then starts the text as a task here, as it always did.
+    func readBar(_ text: String) async -> BarReader.Reading? {
+        let candidates = barCandidates(for: text)
+        let words = Set(TaskLookup.terms(text))
+        let notes = Array(memories.filter { fact in
+            fact.supersededBy == nil && !words.isDisjoint(with: TaskLookup.terms(fact.text))
+        }.prefix(8))
+        let places = barPlaces(matching: text)
+        guard !candidates.isEmpty || !notes.isEmpty || places.count > 1 else { return nil }
+        if demo { return DemoReader.read(text, candidates: candidates, notes: notes, places: places, here: workspaceID).map { Self.keepNamed($0, text, places) } }
+        guard serviceModelReady else { return nil }
+        let luna = Self.readerLuna, executable = executable
+        await Self.readerWarming?.value
+        do {
+            try await luna.warm(executable: executable)
+            let thread = try await luna.open(.reader)
+            defer { Task { await luna.close(thread) } }
+            let moved = (try? store.routeCorrections()) ?? []
+            let prompt = BarReader.prompt(text: text, candidates: candidates, notes: notes, places: places, here: workspaceID, moved: moved)
+            let reply = try await luna.ask(thread, text: prompt, schema: BarReader.schema, effort: BarReader.reasoningEffort, timeout: .seconds(20))
+            return BarReader.read(reply, candidates: candidates, notes: notes, places: places, here: workspaceID).map { Self.keepNamed($0, text, places) }
+        } catch { return nil }
+    }
+
+    /// A workspace named in the text decides where new work goes, whatever the reader made of the rest: a place it chose
+    /// there stands, and otherwise the work goes to that workspace without a group.
+    static func keepNamed(_ reading: BarReader.Reading, _ text: String, _ places: [BarPlace]) -> BarReader.Reading {
+        guard reading.kind == .new, let named = FaciendaStore.namedWorkspace(in: text, among: places) else { return reading }
+        var kept = reading
+        if reading.place?.workspaceID != named { kept.place = places.first { $0.workspaceID == named && $0.groupID == nil } }
+        kept.sure = true; kept.alternative = nil
+        return kept
+    }
+
+    /// Every place new work could go, across the library. One place means there is nothing to choose.
+    func barPlaces(matching text: String = "") -> [BarPlace] { (try? store.library.barPlaces(matching: text)) ?? [] }
+
+    /// Keeps where the person put a task made in the bar, so the reader puts similar work there next time.
+    func learnPlace(of taskID: String, workspaceID: String, groupID: String?) {
+        guard let text = try? store.barText(forTask: taskID) else { return }
+        try? store.recordRouteCorrection(text: text, workspaceID: workspaceID, groupID: groupID)
+    }
+
+    /// The tasks a line in the bar could be about, at most 24: matching its words first, then those that asked something,
+    /// then parked ones, then the most recent. Each with its group, how the board describes it, its open question and the
+    /// start of its latest result.
+    func barCandidates(for text: String) -> [BarReader.Candidate] {
+        let matching = ((try? store.lookUpTasks(text, limit: 8)) ?? []).map(\.task)
+        let open = tasks.filter { $0.state.isOpen }
+        let asking = open.filter { pendingQuestion(for: $0) != nil }
+        let parked = open.filter { $0.state == .waiting || $0.state == .scheduled }
+        let recent = open.sorted { $0.updatedAt > $1.updatedAt }
+        var seen = Set<String>()
+        let picked = (matching + asking + parked + recent).filter { seen.insert($0.id).inserted }.prefix(24)
+        return picked.map { task in
+            let group = groupMembers[task.id].flatMap { id in groups.first { $0.id == id }?.name }
+            // The result itself, not its headline: questions about a task are answered from what it found.
+            let latest = latestResults[task.id]?.excerpt.replacingOccurrences(of: "\n", with: " ") ?? ""
+            return BarReader.Candidate(task: task, group: group, status: task.state.isOpen ? taskStatus(task) : "Done",
+                                       question: pendingQuestion(for: task), latest: String(latest.prefix(300)))
+        }
+    }
+
+    /// The question a task is waiting on you to answer, if it asked one the bar may answer. Permission to act is never
+    /// given from the bar: that stays a deliberate click on the task.
+    func pendingQuestion(for task: FaciendaTask) -> Decision? {
+        decisions(for: task.id).last { $0.state == "pending" && ($0.kind == "decision" || $0.kind == "completion") }
     }
 
     /// Writes missing headlines in the background with a fast model. The first sentence stands in meanwhile.
@@ -187,12 +270,18 @@ extension AppModel {
         let chat = await savedChatExcerpt(for: task, limit: 5000)
         let space = try? store.memorySpace(forTask: task.id)
         let notes = space.flatMap { try? store.memory(spaceID: $0.id) } ?? []
-        var learned: JSONValue?
+        var memory = NextStepWriter.memoryExcerpt(notes: notes)
         if let space, memorySettings?.enabled == true {
-            learned = try? await WorkspaceMemoryService(store: store).context(query: task.title + "\n" + source.excerpt.prefix(500), spaceID: space.id, taskID: task.id)["learned"]
+            let question = "What understanding of this workspace's subjects, processes and user preferences should guide the next move? Task: " + String(task.title.prefix(1000)) + "\nLatest result (context, not user evidence): " + String(source.excerpt.prefix(2000))
+            if let context = try? await WorkspaceMemoryService(store: store).context(query: question, spaceID: space.id, taskID: task.id) {
+                memory += "\nCURRENT MEMORY (inferences are advisory):\n" + String(context.json.prefix(9000))
+            }
+            if let reflection = try? await MemoryReflector(store: store, inference: memoryLuna).reflect(question, spaceID: space.id, rounds: 3, priority: .background) {
+                memory += "\n" + String(reflection.context.prefix(7000))
+            }
         }
         guard let thread = try? await luna.open(.nextSteps) else { return }
-        let reply = try? await luna.ask(thread, text: NextStepWriter.prompt(task: task, latestResult: source.excerpt, chat: chat, memory: NextStepWriter.memoryExcerpt(notes: notes, learned: learned)),
+        let reply = try? await luna.ask(thread, text: NextStepWriter.prompt(task: task, latestResult: source.excerpt, chat: chat, memory: memory),
                                         schema: NextStepWriter.schema, effort: NextStepWriter.reasoningEffort, serviceTier: tier, timeout: .seconds(40))
         await luna.close(thread)
         if let reply { try? store.saveNextSteps(NextStepWriter.read(reply, taskId: task.id, eventId: source.eventId)) }

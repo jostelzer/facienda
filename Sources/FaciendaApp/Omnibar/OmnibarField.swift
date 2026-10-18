@@ -14,7 +14,10 @@ struct OmnibarField: View {
     var spare: CGFloat = 0
     /// The window's height. Long text may take most of it before the bar scrolls.
     var reach: CGFloat = 0
-    static let widest: CGFloat = 880
+    /// The widest the field gets. The top bar lets it run out to the board's right edge.
+    var widest: CGFloat = 880
+    /// Something of the window's at the bar's right end, before the model: the trail of what came in.
+    var accessory: AnyView?
     @FocusState private var focused: Bool
     @State private var selection: TextSelection?
     /// Blue wash that fades out when the bar is summoned, so the jump is easy to spot.
@@ -27,7 +30,7 @@ struct OmnibarField: View {
     /// Results follow the text and the page. Letting a lit group go brings back the results for what was typed.
     private var refreshKey: String { [omnibar.query, model.destination.rawValue, model.spotlitGroup ?? "-", omnibar.wraps ? "wraps" : "-"].joined(separator: "|") }
     /// The most the bar can take.
-    private var room: CGFloat { min(Self.widest, slotWidth + spare) }
+    private var room: CGFloat { min(widest, slotWidth + spare) }
     /// Wide enough for the text on one line beside the chips.
     private var needed: CGFloat { textWidth + slotWidth - fieldWidth + 8 }
     /// Lines the bar shows before it scrolls: about 60% of the window, and never fewer than six.
@@ -38,7 +41,7 @@ struct OmnibarField: View {
         // The top bar keeps one line's height; the bar spills down over the page beneath it.
         Color.clear.frame(height: 40)
             // While dictating it takes all the room, for the outlines of the voice not yet written down.
-            .frame(minWidth: max(280, focused ? (omnibar.dictation.isActive ? room : min(room, needed)) : 0), maxWidth: Self.widest)
+            .frame(minWidth: max(280, focused ? (omnibar.dictation.isActive ? room : min(room, needed)) : 0), maxWidth: widest)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { slotWidth = $0 }
             .overlay(alignment: .top) { bar }
             .onChange(of: wraps, initial: true) { _, now in omnibar.wraps = now }
@@ -84,20 +87,23 @@ struct OmnibarField: View {
                     .accessibilityIdentifier("omnibar")
                 if !omnibar.attachments.isEmpty { AttachmentRow(omnibar: omnibar) }
             }
-            if omnibar.finding {
+            if omnibar.finding || omnibar.awaitingRead {
                 HStack(spacing: 5) {
                     ProgressView().controlSize(.mini)
-                    Text("Finding the task…").font(.system(size: 11, weight: .medium))
+                    Text(omnibar.finding ? "Finding the task…" : "Reading…").font(.system(size: 11, weight: .medium))
                 }.foregroundStyle(Palette.muted).frame(height: 24).transition(.opacity)
-            } else if let offered = omnibar.offered, offered.text == omnibar.trimmed {
-                // What a model chose and wrote is shown before Enter sends it.
-                let sends = offered.message.isEmpty ? "" : " and sends “\(CodexApproval.visible(offered.message))”"
-                Text("Is it “\(offered.task.displayName)”? ↵ brings it back" + sends).font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Palette.blue).lineLimit(offered.message.isEmpty ? 1 : 3).truncationMode(.middle).frame(maxWidth: offered.message.isEmpty ? 260 : 360)
-                    .frame(minHeight: 24).fixedSize(horizontal: false, vertical: true).help("Is it “\(offered.task.displayName)”? Enter brings it back" + sends).transition(.opacity)
             } else if let confirmation = omnibar.confirmation {
                 Label(confirmation, systemImage: "checkmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.green)
                     .frame(height: 24).transition(.opacity)
+            } else if let reading = omnibar.reading {
+                ReadingLine(reading: reading, nudge: omnibar.readingNudge).transition(.opacity)
+            } else if omnibar.readingNow {
+                // Something is being read: a reading may follow. Quiet, so plain typing is never interrupted.
+                ProgressView().controlSize(.mini).frame(height: 24).help("Reading what you typed").transition(.opacity)
+            }
+            if let accessory {
+                accessory.frame(height: 24)
+                Rectangle().fill(Palette.line).frame(width: 1, height: 18).padding(.top, 3)
             }
             // In the field itself, so it stays while a group is spotlit and the results list is closed.
             ModelChoiceMenu(model: model, boxed: true)
@@ -117,9 +123,20 @@ struct OmnibarField: View {
         .anchorPreference(key: OmnibarAnchorKey.self, value: .bounds) { $0 }
         .takesAttachments(omnibar, focus: $focused, dropping: $dropping)
         .animation(Motion.fade, value: omnibar.confirmation)
-        .onChange(of: focused) { _, now in if now { omnibar.dismissed = false; omnibar.dictation.warm() } }
+        .animation(Motion.fade, value: omnibar.reading)
+        // The board rings what the reading acts on.
+        .onChange(of: omnibar.reading?.taskID, initial: true) { _, id in if model.readingTarget != id { model.readingTarget = id } }
+        .onDisappear { model.readingTarget = nil }
+        .onChange(of: focused) { _, now in
+            guard now else { return }
+            // The bar and a group's sheet hold different things: going to the bar lets the sheet go, keeping its draft.
+            if model.spotlitGroup != nil { model.releaseSpotlight() }
+            omnibar.dismissed = false; omnibar.dictation.warm()
+        }
         // Only typing in the bar opens its results; text handed back by a closing group sheet stays quiet.
         .onChange(of: omnibar.query) { _, text in
+            // Typing in the bar is the bar's business: a group's sheet still up goes, keeping its draft.
+            if model.spotlitGroup != nil { model.releaseSpotlight() }
             if focused { omnibar.dismissed = false }
             omnibar.edited(text)
         }
@@ -146,5 +163,71 @@ struct OmnibarField: View {
         }
         if !omnibar.attachments.isEmpty { return "What should happen with \(omnibar.attachments.count == 1 ? "it" : "them")?" }
         return omnibar.followUp != nil ? "What should happen next?" : "Start a task, find anything, or ask…"
+    }
+}
+
+/// What Return will do, at the bar's right end: the verb and what it acts on. Below it, what a reply sends, the answer a
+/// question gets or the time a parked task comes back, word for word, since a model may have written it. A reading that
+/// asks which task is meant is amber; one already on the board is quiet.
+struct ReadingLine: View {
+    let reading: BarReading
+    var nudge = 0
+    @State private var lit = false
+
+    var body: some View {
+        let tint = Self.tint(reading.verb)
+        let detail = reading.detail()
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
+                Text(reading.label).lineLimit(1).truncationMode(.middle)
+                if reading.verb != .answered { Text("↵").foregroundStyle(tint.opacity(0.7)) }
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(tint.opacity(lit ? 0.26 : reading.verb == .already ? 0.12 : 0.1), in: RoundedRectangle(cornerRadius: 7))
+            if !detail.isEmpty {
+                Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    .lineLimit(3).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: detail.isEmpty ? 340 : 380, alignment: .trailing)
+        .help(detail.isEmpty ? reading.label : reading.label + ". " + detail)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Return: " + reading.label + (detail.isEmpty ? "" : ", " + detail))
+        // Return was held because this only just appeared: it lights once, so it is seen before the next Return.
+        .onChange(of: nudge) {
+            withAnimation(Motion.fade) { lit = true } completion: { withAnimation(Motion.move) { lit = false } }
+        }
+    }
+
+    static func tint(_ verb: BarReading.Verb) -> Color {
+        switch verb {
+        case .already: Palette.muted
+        case .ask: Palette.amber
+        case .answered: Palette.green
+        default: Palette.blue
+        }
+    }
+
+    private var symbol: String {
+        switch reading.verb {
+        case .start: "plus.circle"
+        case .find: "magnifyingglass"
+        case .open: "arrow.up.right.circle"
+        case .bringBack: "arrow.uturn.backward.circle"
+        case .reply: "arrowshape.turn.up.left"
+        case .already: "checkmark.circle"
+        case .remember, .note: "book.closed"
+        case .trackChat: "link"
+        case .command: "arrow.right.circle"
+        case .chat: "bubble.left.and.bubble.right"
+        case .decide: "questionmark.circle"
+        case .done: "checkmark"
+        case .park: "clock"
+        case .ask: "questionmark.bubble"
+        case .answered: "text.bubble"
+        }
     }
 }

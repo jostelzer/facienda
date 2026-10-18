@@ -3,10 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "Facienda",
-    platforms: [.macOS("26.0"), .iOS("26.0")],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "FaciendaCore", targets: ["FaciendaCore"]),
-        .library(name: "FaciendaCompanion", targets: ["FaciendaCompanion"]),
         .library(name: "FaciendaBridge", targets: ["FaciendaBridge"]),
         .executable(name: "facienda-mcp", targets: ["FaciendaMCP"]),
         .executable(name: "facienda-hook", targets: ["FaciendaHook"]),
@@ -18,7 +17,6 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1")
     ],
     targets: [
-        .target(name: "FaciendaCompanion"),
         .target(name: "FaciendaExceptions"),
         .target(name: "FaciendaCore", dependencies: ["FaciendaExceptions", .product(name: "GRDB", package: "GRDB.swift")],
                 resources: [.copy("Resources/Memory")]),
@@ -27,7 +25,6 @@ let package = Package(
         .executableTarget(name: "FaciendaHook", dependencies: ["FaciendaCore"]),
         .executableTarget(name: "FaciendaMemory", dependencies: ["FaciendaBridge"]),
         .executableTarget(name: "FaciendaDispatch", dependencies: ["FaciendaBridge"]),
-        .testTarget(name: "FaciendaCompanionTests", dependencies: ["FaciendaCompanion"]),
         .testTarget(name: "FaciendaCoreTests", dependencies: ["FaciendaCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "FaciendaBridgeTests", dependencies: ["FaciendaBridge"], resources: [.copy("Fixtures")])
     ],

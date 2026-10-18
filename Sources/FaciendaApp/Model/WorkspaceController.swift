@@ -35,7 +35,6 @@ enum WorkspaceSheet: Identifiable {
     let codex: CodexConnection
     var model: AppModel?
     var workspaces: [Workspace] = []
-    var memorySpaces: [MemorySpace] = []
     var startupError: String?
     var error: String?
     var sheet: WorkspaceSheet?
@@ -65,10 +64,14 @@ enum WorkspaceSheet: Identifiable {
     @ObservationIgnored private var coverFailures: Set<String> = []
     @ObservationIgnored private(set) var library: FaciendaStore?
     @ObservationIgnored private var models: [String: AppModel] = [:]
+    /// Group covers from any workspace, for the bar and History, kept until their file changes.
+    @ObservationIgnored private var groupCovers: [String: (stamp: Date?, image: NSImage?)] = [:]
     @ObservationIgnored private let defaults: UserDefaults
 
     /// The library file this controller opens. Tests pass their own.
     @ObservationIgnored let libraryURL: URL
+    /// What came in through the bar, across every workspace.
+    let feed = FeedModel()
 
     init(libraryURL: URL = LibraryHome.databaseURL, demo: Bool = false, load: Bool = true, defaults: UserDefaults = .standard) {
         self.libraryURL = libraryURL
@@ -84,6 +87,7 @@ enum WorkspaceSheet: Identifiable {
             if demo, load { install(try AppModel(demo: true)) }
             else if load, FileManager.default.fileExists(atPath: libraryURL.path) { try openLibrary() }
         } catch { startupError = error.localizedDescription }
+        feed.workspaces = self
     }
 
     /// Opens the library. A missing one is reported; it is never replaced by an empty one.
@@ -117,20 +121,12 @@ enum WorkspaceSheet: Identifiable {
         reload()
         guard !demo else { return }
         if let current { visited(current); defaults.set(current.id, forKey: "currentWorkspace") }
-        // The phone's workspace keeps syncing while another is on screen.
-        if let id = UserDefaults.standard.string(forKey: "mobileSyncWorkspace"), models[id] == nil,
-           workspaces.contains(where: { $0.id == id }), let library,
-           let companionModel = try? AppModel(store: library.scoped(to: id), codex: codex) {
-            models[id] = companionModel
-            companionModel.start()
-        }
     }
 
     func reload() {
         guard let library else { return }
         do {
             workspaces = try library.workspaces()
-            memorySpaces = try library.memorySpaces()
             fresh = try library.newCounts()
             running = try library.runningCounts()
         } catch { self.error = error.localizedDescription }
@@ -148,9 +144,6 @@ enum WorkspaceSheet: Identifiable {
         workspace.id == current?.id ? model?.count(.processing) ?? 0 : running[workspace.id] ?? 0
     }
 
-    func memoryName(for workspace: Workspace) -> String {
-        memorySpaces.first { $0.id == workspace.memorySpaceId }?.name ?? "Memory"
-    }
 
     func isPinned(_ workspace: Workspace) -> Bool { pinned.contains(workspace.id) }
 
@@ -184,9 +177,9 @@ enum WorkspaceSheet: Identifiable {
 
     func place(of workspace: Workspace) -> CGPoint { places[workspace.id] ?? CGPoint(x: 0.5, y: 0.5) }
 
-    /// Kept clear of the island's edges, so the open workspace has room to come close.
+    /// Kept on the island. The island itself keeps every planet whole inside it, and makes room for the open one.
     func setPlace(_ workspace: Workspace, to point: CGPoint) {
-        places[workspace.id] = CGPoint(x: min(max(point.x, 0.12), 0.88), y: min(max(point.y, 0.08), 0.92))
+        places[workspace.id] = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
         savePlaces()
     }
 
@@ -247,11 +240,33 @@ enum WorkspaceSheet: Identifiable {
         } catch { self.error = error.localizedDescription; return false }
     }
 
-    /// A new workspace shares the library's Codex connection, so it is ready at once.
-    @discardableResult func create(name: String, memorySpaceID: String) -> Bool {
+    /// A group's cover from any workspace, or nil when it has none painted.
+    func groupCover(_ groupID: String) -> NSImage? {
+        guard let library else { return nil }
+        let url = library.coverURL(groupId: groupID)
+        let stamp = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        if let kept = groupCovers[groupID], kept.stamp == stamp { return kept.image }
+        let image = stamp == nil ? nil : NSImage(contentsOf: url)
+        groupCovers[groupID] = (stamp, image)
+        return image
+    }
+
+    /// A workspace's model without bringing it on screen, for work the bar sends there. It is kept and runs as a visited
+    /// workspace's does, so the task starts and is watched while you stay where you are.
+    func model(for workspaceID: String) -> AppModel? {
+        if let kept = models[workspaceID] { return kept }
+        guard !demo, let library, workspaces.contains(where: { $0.id == workspaceID }),
+              let made = try? AppModel(store: library.scoped(to: workspaceID), codex: codex) else { return nil }
+        models[workspaceID] = made
+        made.start()
+        return made
+    }
+
+    /// A new workspace shares the library's Codex connection, so it is ready at once, and starts with an empty memory of its own.
+    @discardableResult func create(name: String) -> Bool {
         guard !demo, let library else { return false }
         do {
-            let workspace = try library.createWorkspace(name: name, memorySpaceID: memorySpaceID)
+            let workspace = try library.createWorkspace(name: name)
             reload()
             return open(workspace)
         } catch { self.error = error.localizedDescription; return false }
@@ -267,16 +282,6 @@ enum WorkspaceSheet: Identifiable {
         } catch { self.error = error.localizedDescription; return false }
     }
 
-    /// From now on the workspace learns into and recalls from this memory. What it learned before stays where it is.
-    @discardableResult func setMemory(_ workspace: Workspace, to spaceID: String) -> Bool {
-        guard !demo, let library else { return false }
-        do {
-            try library.setMemorySpace(workspaceID: workspace.id, spaceID: spaceID)
-            reload(); models[workspace.id]?.refresh()
-            return true
-        } catch { self.error = error.localizedDescription; return false }
-    }
-
     @discardableResult func remove(_ workspace: Workspace) async -> Bool {
         guard !demo, let library else { return false }
         do {
@@ -288,33 +293,6 @@ enum WorkspaceSheet: Identifiable {
                 model = nil
                 if let next = workspaces.first { _ = open(next) }
             }
-            return true
-        } catch { self.error = error.localizedDescription; return false }
-    }
-
-    @discardableResult func createMemory(name: String) -> MemorySpace? {
-        guard !demo, let library else { return nil }
-        do {
-            let space = try library.createMemorySpace(name: name)
-            reload()
-            return space
-        } catch { self.error = error.localizedDescription; return nil }
-    }
-
-    @discardableResult func renameMemory(_ space: MemorySpace, to name: String) -> Bool {
-        guard !demo, let library else { return false }
-        do {
-            try library.renameMemorySpace(space.id, to: name)
-            reload(); model?.refresh()
-            return true
-        } catch { self.error = error.localizedDescription; return false }
-    }
-
-    @discardableResult func deleteMemory(_ space: MemorySpace) -> Bool {
-        guard !demo, let library else { return false }
-        do {
-            try library.deleteMemorySpace(space.id)
-            reload(); model?.refresh()
             return true
         } catch { self.error = error.localizedDescription; return false }
     }

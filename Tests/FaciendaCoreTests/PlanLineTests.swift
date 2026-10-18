@@ -86,7 +86,7 @@ private func outline(_ db: FaciendaStore, _ group: String) throws -> [String] {
 
 @Test func plansStayInTheirWorkspace() throws {
     let db = try store(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let work = try db.createWorkspace(name: "Work")
     let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
     let trips = try personal.createGroup(name: "Trips"), launch = try office.createGroup(name: "Launch")
     _ = try personal.addPlanLine(groupId: trips.id, text: "Book the train")
@@ -219,7 +219,7 @@ private func drag(_ db: FaciendaStore, _ group: String, _ id: String, to target:
 
 @Test func aLineMovesOnlyToAGroupInItsWorkspace() throws {
     let db = try store(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let work = try db.createWorkspace(name: "Work")
     let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
     let trips = try personal.createGroup(name: "Trips"), launch = try office.createGroup(name: "Launch")
     let train = try personal.addPlanLine(groupId: trips.id, text: "Book the train")

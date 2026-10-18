@@ -13,67 +13,15 @@ extension AppModel {
             serviceTask = Task { await runServices() }
             if !demo { Task { await offerAutomaticSources() } }
         }
-        if !demo, mobileSyncEnabled, mobileTask == nil { startMobileSync() }
     }
     func stop() async {
         serviceTask?.cancel(); serviceTask = nil
         memoryTask?.cancel(); memoryTask = nil
         deliveryTask?.cancel(); deliveryTask = nil
-        mobileTask?.cancel(); mobileTask = nil; mobileCompanion = nil
         indexTask?.cancel(); indexTask = nil
         // The Codex connection is shared with the other workspaces, so it stays up.
         started = false
         CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), nil, nil)
-        if mobileSyncEnabled { UserDefaults.standard.removeObject(forKey: "mobileSyncWorkspace") }
-    }
-    func setMobileSync(_ enabled: Bool) {
-        mobileTask?.cancel(); mobileTask = nil; mobileCompanion = nil
-        if enabled {
-            guard mobileCloudBuild else {
-                mobileSyncStatus = "Use the signed Facienda Release app to enable iCloud."
-                return
-            }
-            UserDefaults.standard.set(workspaceID, forKey: "mobileSyncWorkspace")
-            startMobileSync()
-        } else {
-            UserDefaults.standard.removeObject(forKey: "mobileSyncWorkspace")
-            mobileSyncStatus = "iPhone companion is off"
-        }
-    }
-    func startMobileSync() {
-        guard mobileCloudBuild, !demo else {
-            mobileSyncStatus = "Use the signed Facienda Release app to enable iCloud."
-            return
-        }
-        do {
-            mobileCompanion = try MobileCompanion(store: store)
-            mobileTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    guard self.mobileSyncEnabled else {
-                        self.mobileCompanion = nil; self.mobileTask = nil
-                        self.mobileSyncStatus = "iPhone companion is off"
-                        return
-                    }
-                    do {
-                        // The phone sees each task's status as this Mac shows it, worked out here from fresh state.
-                        // The sync reads every workspace and the iCloud store, so it runs off the main thread;
-                        // what it writes comes back through the store's change notifications.
-                        self.refresh()
-                        let ready = self.workspaceReady, companion = self.mobileCompanion
-                        let statuses = Dictionary(self.tasks.map { ($0.id, self.taskStatus($0)) }, uniquingKeysWith: { first, _ in first })
-                        let processing = Set(self.tasks.filter { self.belongs($0, to: .processing) }.map(\.id))
-                        try await Task.detached(priority: .utility) {
-                            // A task this model has not read yet, such as one the phone just sent, goes by its state alone.
-                            try companion?.synchronize(ready: ready, status: { statuses[$0.id] ?? AppModel.plainStatus(of: $0).label },
-                                isProcessing: { statuses[$0.id] != nil ? processing.contains($0.id) : TaskSection.classify($0, queued: false) == .processing })
-                        }.value
-                        self.mobileSyncStatus = self.mobileCompanion?.cloudStatus ?? "Connecting to iCloud…"
-                    } catch { self.mobileSyncStatus = error.localizedDescription }
-                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                }
-            }
-        } catch { mobileSyncStatus = error.localizedDescription }
     }
     func runServices() async {
         // Darwin notifications wake the app after writes from another process. The timer is a fallback.

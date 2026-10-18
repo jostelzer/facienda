@@ -35,7 +35,7 @@ private struct WorkspaceManagerView: View {
                 Spacer()
                 Button("Done") { workspaces.sheet = nil }.keyboardShortcut(.cancelAction)
             }
-            Text("A separate board for each set of tasks. Workspaces that share a memory share what they learn.").font(.system(size: 13)).foregroundStyle(Palette.muted)
+            Text("A separate board for each set of tasks, each with a memory of its own.").font(.system(size: 13)).foregroundStyle(Palette.muted)
             TextField("Find a workspace", text: $search).textFieldStyle(.roundedBorder).focused($searchFocused)
                 .onSubmit { if let first = matches.first, workspaces.open(first) { workspaces.sheet = nil } }
             ScrollView {
@@ -48,10 +48,7 @@ private struct WorkspaceManagerView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: workspace.id == workspaces.current?.id ? "checkmark.circle.fill" : "square.stack.3d.up")
                                         .foregroundStyle(workspace.id == workspaces.current?.id ? Palette.green : Palette.muted)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(workspace.name).font(.system(size: 14, weight: .medium))
-                                        Text(workspaces.memoryName(for: workspace) + " memory").font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
-                                    }
+                                    Text(workspace.name).font(.system(size: 14, weight: .medium))
                                     Spacer()
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityLabel("Open \(workspace.name)")
@@ -78,7 +75,7 @@ private struct WorkspaceManagerView: View {
                     Task { _ = await workspaces.remove(workspace); deleting = false; deletion = nil }
                 }
             } message: { workspace in
-                Text("Remove “\(workspace.name)” from Facienda? Its finished tasks and Codex chats are kept in your library, and its memory stays for the workspaces that share it. A workspace with open tasks can't be deleted until they're done or moved.")
+                Text("Remove “\(workspace.name)” from Facienda? Its finished tasks, Codex chats and memory are kept in your library. A workspace with open tasks can't be deleted until they're done or moved.")
             }
     }
 }
@@ -87,37 +84,22 @@ private struct WorkspaceNameView: View {
     @Bindable var workspaces: WorkspaceController
     let workspace: Workspace?
     @State private var name: String
-    @State private var memory: String
-    @State private var newMemory = ""
-    @State private var addingMemory = false
     @FocusState private var nameFocused: Bool
 
     init(workspaces: WorkspaceController, workspace: Workspace?) {
         self.workspaces = workspaces
         self.workspace = workspace
         _name = State(initialValue: workspace?.name ?? "")
-        // A new workspace starts with the memory of the one on screen.
-        _memory = State(initialValue: workspace?.memorySpaceId ?? workspaces.current?.memorySpaceId ?? workspaces.memorySpaces.first?.id ?? "")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(workspace == nil ? "New workspace" : "Edit workspace").font(.system(size: 28, design: .serif))
-            Text(workspace == nil ? "Give this space a name and choose what it remembers. It uses your existing Codex connection." : "Choose the name you’ll see in the workspace switcher, and the memory it uses.")
+            Text(workspace == nil ? "Give this space a name. It starts with an empty memory of its own and uses your existing Codex connection." : "Choose the name you’ll see in the workspace switcher. Its memory keeps the same name.")
                 .font(.system(size: 13)).foregroundStyle(Palette.muted)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Name").font(.system(size: 12, weight: .medium))
                 TextField("For example, Work or Personal", text: $name).textFieldStyle(.roundedBorder).focused($nameFocused)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Memory").font(.system(size: 12, weight: .medium))
-                HStack {
-                    Picker("Memory", selection: $memory) {
-                        ForEach(workspaces.memorySpaces) { Text($0.name).tag($0.id) }
-                    }.labelsHidden().frame(maxWidth: 220)
-                    Button("New memory…") { newMemory = ""; addingMemory = true }.buttonStyle(QuietButton())
-                }
-                Text(memoryNote).font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
             }
             if let error = workspaces.error {
                 Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(Palette.accent).fixedSize(horizontal: false, vertical: true)
@@ -127,30 +109,16 @@ private struct WorkspaceNameView: View {
                 Spacer()
                 Button(workspace == nil ? "Create workspace" : "Save") { save() }
                     .keyboardShortcut(.defaultAction).buttonStyle(QuietButton(prominent: true))
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || memory.isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }.padding(.top, 4)
         }.padding(28).frame(width: 490).onAppear { nameFocused = true }
-            .alert("New memory", isPresented: $addingMemory) {
-                TextField("For example, Work", text: $newMemory)
-                Button("Cancel", role: .cancel) {}
-                Button("Create") { if let space = workspaces.createMemory(name: newMemory) { memory = space.id } }
-            } message: { Text("A new memory starts empty and stays separate from every other memory.") }
-    }
-
-    private var memoryNote: String {
-        let sharing = workspaces.workspaces.filter { $0.memorySpaceId == memory && $0.id != workspace?.id }.map(\.name)
-        let shared = sharing.isEmpty ? "No other workspace uses this memory." : "Shared with " + sharing.joined(separator: ", ") + "."
-        guard let workspace, workspace.memorySpaceId != memory else { return shared }
-        return shared + " What “\(workspace.name)” already learned stays in \(workspaces.memorySpaces.first { $0.id == workspace.memorySpaceId }?.name ?? "its old memory"); new learning goes here."
     }
 
     private func save() {
         guard let workspace else {
-            if workspaces.create(name: name, memorySpaceID: memory) { workspaces.sheet = nil }
+            if workspaces.create(name: name) { workspaces.sheet = nil }
             return
         }
-        guard workspaces.rename(workspace, to: name) else { return }
-        if workspace.memorySpaceId != memory, !workspaces.setMemory(workspace, to: memory) { return }
-        workspaces.sheet = nil
+        if workspaces.rename(workspace, to: name) { workspaces.sheet = nil }
     }
 }

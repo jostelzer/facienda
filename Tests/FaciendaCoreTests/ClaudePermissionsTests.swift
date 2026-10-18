@@ -34,8 +34,8 @@ private let hook = "/Applications/Facienda.app/Contents/Helpers/facienda-hook"
 
     """
     try Data(original.utf8).write(to: file)
-    #expect(ClaudePermissions.missing(helper: helper, hook: hook, settings: file) == ["Hook \(hook) --claude on PermissionRequest, Notification, PostToolUse, UserPromptSubmit, Stop"])
-    #expect(ClaudePermissions.missingHooks(hook: hook, settings: file) == ["PermissionRequest", "Notification", "PostToolUse", "UserPromptSubmit", "Stop"])
+    #expect(ClaudePermissions.missing(helper: helper, hook: hook, settings: file) == ["Hook \(hook) --claude on PermissionRequest, Notification, PreToolUse, PostToolUse, UserPromptSubmit, Stop"])
+    #expect(ClaudePermissions.missingHooks(hook: hook, settings: file) == ["PermissionRequest", "Notification", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"])
     let backup = try #require(try ClaudePermissions.install(helper: helper, hook: hook, settings: file, backupDirectory: folder.appending(path: "Backups")))
     #expect(try String(contentsOf: backup, encoding: .utf8) == original)
     let updated = try String(contentsOf: file, encoding: .utf8)
@@ -70,7 +70,7 @@ private let hook = "/Applications/Facienda.app/Contents/Helpers/facienda-hook"
                                    "hooks": ["Stop": [["hooks": [mine]]], "PostToolUse": [["matcher": "*", "hooks": [earlier]]]]]
     try JSONSerialization.data(withJSONObject: settings).write(to: file)
     // Rules from an earlier build never count as missing; only the hook is.
-    #expect(ClaudePermissions.missing(helper: helper, hook: hook, settings: file) == ["Hook \(hook) --claude on PermissionRequest, Notification, PostToolUse, UserPromptSubmit, Stop"])
+    #expect(ClaudePermissions.missing(helper: helper, hook: hook, settings: file) == ["Hook \(hook) --claude on PermissionRequest, Notification, PreToolUse, PostToolUse, UserPromptSubmit, Stop"])
     try ClaudePermissions.install(helper: helper, hook: hook, settings: file, backupDirectory: folder.appending(path: "Backups"))
     // Installing takes the earlier build's rules for every session out, and keeps the user's own.
     #expect(try ClaudePermissions.allowList(in: Data(contentsOf: file)) == ["Bash(git status)"])

@@ -97,8 +97,8 @@ public actor CodexBridge {
         }
         try await begin(chunks)
     }
-    /// Connects to the Codex app's own app server instead of starting one. Turns started here belong to the Codex app:
-    /// they show there live, and the user answers their approvals there.
+    /// Connects to Codex's shared daemon. The desktop app uses a separate server: a turn started here holds the
+    /// chat's writer lock, and this client must handle its approvals and release its subscription when done.
     public func connectDaemon(socketPath: String? = nil) async throws {
         disconnect()
         let path = socketPath ?? DaemonSocket.defaultPath
@@ -162,6 +162,12 @@ public actor CodexBridge {
         if let process, process.isRunning { process.terminate() }
         process = nil
         failPending(BridgeError.disconnected)
+    }
+    /// Waits for an owned server to release its chat writer locks before handing them to another app.
+    func disconnectAndWait() async {
+        let owned = process
+        disconnect()
+        if let owned { await Task.detached { owned.waitUntilExit() }.value }
     }
     private func failPending(_ error: any Error) {
         let requests = pending; pending.removeAll()

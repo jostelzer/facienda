@@ -53,7 +53,7 @@ extension AppModel {
         }
         loadingResults.insert(task.id)
         defer { loadingResults.remove(task.id) }
-        let threadId = link.threadId, title = link.title, cwd = session.cwd, last = transcriptStamps[threadId]
+        let threadId = link.threadId, title = link.title, cwd = session.cwd, last = transcriptStamps[threadId], store = store
         // The hook marks a turn running before it is written; one that never is, its prompt held back, is read again.
         let known = force || last?.running == false && link.lastKnownStatus == "active" ? nil : last?.modified
         do {
@@ -63,11 +63,12 @@ extension AppModel {
                 }
                 let modified = (try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
                 if let known, known >= modified { return nil }
+                try store.captureUserMessages(MemoryUserMessages.claude(Data(contentsOf: file)), threadID: threadId, provider: .claude)
                 return (try ClaudeTranscript.read(file, threadId: threadId, fallbackTitle: title), modified)
             }.value
             resultErrors[task.id] = nil
             guard let (conversation, modified) = read else { return }
-            let store = store, taskID = task.id
+            let taskID = task.id
             try await Task.detached(priority: .userInitiated) { try store.saveConversation(taskId: taskID, conversation: conversation, fetchedAt: Date()) }.value
             // A session about to continue (its model is still being applied) is not finished.
             let settling = claudeSessions[threadId].map { !$0.isSettled } ?? false

@@ -179,3 +179,29 @@ private let dispatcher = FaciendaStore.codexDispatcherId
     #expect(throws: StoreError.self) { try store.saveServiceModel(ServiceModelChoice(provider: .codex, model: "")) }
     ServiceModelChoice.current = .luna
 }
+
+@Test func nativeQueuePersistsDestinationBeforeAcceptanceAndDoesNotBlockOtherTasks() throws {
+    let store = try dispatcherStore()
+    let task = try store.create(FaciendaTask(title: "Native queue first"))
+    let first = try store.enqueueDispatch(taskId: task.id)
+    let claimed = try #require(try store.claimDispatch(runnerId: dispatcher))
+    try store.saveDispatchContext(store.directContext(for: claimed, owner: nil, projects: []), dispatchId: first.id, runnerId: dispatcher)
+    _ = try store.beginDispatch(first.id, runnerId: dispatcher)
+    try store.prepareCodexQueue(first.id, runnerId: dispatcher, threadId: "native-queue-chat")
+    #expect(try store.claimDispatch(runnerId: dispatcher)?.threadId == "native-queue-chat")
+    #expect(try store.task(task.id).state != .running)
+    #expect(throws: StoreError.self) { try store.prepareCodexQueue(first.id, runnerId: dispatcher, threadId: "replacement-chat") }
+    #expect(throws: StoreError.self) { try store.recordCodexQueue(first.id, runnerId: "wrong-runner", queuedSubmissionId: "receipt") }
+    try store.recordCodexQueue(first.id, runnerId: dispatcher, queuedSubmissionId: "receipt")
+    try store.recordCodexQueue(first.id, runnerId: dispatcher, queuedSubmissionId: "receipt")
+    #expect(throws: StoreError.self) { try store.recordCodexQueue(first.id, runnerId: dispatcher, queuedSubmissionId: "different-receipt") }
+    #expect(throws: StoreError.self) { try store.releaseUndelivered(first.id, runnerId: dispatcher, reason: "Must not repeat an accepted message") }
+    let other = try store.create(FaciendaTask(title: "Native queue second"))
+    let second = try store.enqueueDispatch(taskId: other.id)
+    #expect(try store.claimDispatch(runnerId: dispatcher)?.id == second.id)
+    let reopened = try FaciendaStore(existing: store.url)
+    #expect(try reopened.codexQueuedDeliveries(runnerId: dispatcher).map(\.id) == [first.id])
+    try reopened.acknowledgeDispatch(first.id, runnerId: dispatcher, threadId: "native-queue-chat", status: "idle")
+    #expect(try reopened.task(task.id).state != .running)
+    #expect(try reopened.codexQueuedDeliveries(runnerId: dispatcher).isEmpty)
+}

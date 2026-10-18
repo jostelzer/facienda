@@ -57,6 +57,8 @@ enum Motion {
     static let move = curve(0.34)
     /// In place: what answers the pointer or the keys, and what stands in for travel under Reduce Motion.
     static let fade = curve(0.16)
+    /// The same curve as a function of progress, for a signal that eases by hand within its own clock.
+    static let shape = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0.65, y: 0), endControlPoint: UnitPoint(x: 0.35, y: 1))
 }
 /// For measuring: how many frames a motion really drew, logged once it lands (Console, category "Motion").
 /// Temporary, while the workspace switch and the group sheet are tuned.

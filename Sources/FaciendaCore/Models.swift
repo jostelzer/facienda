@@ -228,6 +228,11 @@ public struct TaskEvent: Codable, FetchableRecord, PersistableRecord, Identifiab
     public var payload: String
     public var verified: Bool
     public var at: Date
+    public func encode(to container: inout PersistenceContainer) throws {
+        container["id"] = id; container["taskId"] = taskId; container["threadId"] = threadId
+        container["source"] = source; container["kind"] = kind
+        container["payload"] = MemoryRedaction.payload(payload); container["verified"] = verified; container["at"] = at
+    }
     public init(taskId: String? = nil, threadId: String? = nil, source: EventSource, kind: String, payload: String = "", verified: Bool? = nil, at: Date = Date()) {
         self.id = UUID().uuidString; self.taskId = taskId; self.threadId = threadId; self.source = source
         self.kind = kind; self.payload = payload; self.verified = verified ?? source.isVerified; self.at = at
@@ -267,6 +272,7 @@ public struct MemoryFact: Codable, FetchableRecord, PersistableRecord, Identifia
     public var createdAt: Date
     /// The memory this note belongs to. Notes never cross into another memory.
     public var spaceId: String?
+    public var forgottenAt: Date? = nil
     public init(kind: String = "fact", text: String, taskId: String? = nil, source: String) {
         self.id = UUID().uuidString; self.kind = kind; self.text = text; self.originScope = "workspace"
         self.taskId = taskId; self.source = source; self.createdAt = Date()

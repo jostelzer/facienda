@@ -10,7 +10,6 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance: AppAppearance = .system
     @AppStorage("groupCovers") private var groupCovers = true
     @AppStorage("coverBaseStyle") private var coverBaseStyle = GroupCoverPainter.defaultBaseStyle
-    @AppStorage(MobileCompanion.sharesAllTasksKey) private var mobileSharesAllTasks = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -71,16 +70,13 @@ struct SettingsView: View {
             RunnersPane(model: model)
         case .connections:
             codexConnectionSection.settingsCard()
-            // Builds without iCloud, such as the Tester build, have no iPhone companion to offer.
-            if model.mobileCloudBuild { iPhoneCompanionSection.settingsCard() }
             ClaudeUsageSettings(demo: model.demo).settingsCard()
         case .memory:
             chatSearchSection.settingsCard()
-            if let workspaces { MemorySpacesSettings(workspaces: workspaces).settingsCard() }
-            MemoryView(model: model)
+            MemoryView(model: model).settingsCard()
         case .library:
             librarySection.settingsCard()
-            Text("Tasks and confirmed notes stay in your library folder. When enabled, Hindsight stores learned memory in its own database and sends text to its configured model provider. Facienda never edits Codex conversation storage.").font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(4)
+            Text("Memory stays in your library folder. Search and situation matching run on this Mac. When enabled, the AI worker receives redacted user text to curate entries; its suggestions wait for your review. Facienda never edits Codex conversation storage.").font(.system(size: 11)).foregroundStyle(Palette.muted).lineSpacing(4)
         case .storage:
             StorageSettings(model: model)
         case .models:
@@ -128,22 +124,6 @@ struct SettingsView: View {
                 }
             }
             Text("Facienda looks for a new version once a day and downloads it. Then Update in the top bar installs it and opens Facienda again.").font(.system(size: 12)).foregroundStyle(Palette.muted)
-        }
-    }
-
-    private var iPhoneCompanionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Eyebrow(text: "IPHONE COMPANION")
-            Toggle("Receive tasks through iCloud", isOn: Binding(get: { model.mobileSyncEnabled }, set: { model.setMobileSync($0) }))
-                .disabled(model.demo)
-            Text(model.mobileSyncStatus).font(.system(size: 12)).foregroundStyle(Palette.muted)
-            if model.mobileSyncEnabled && !model.demo {
-                Button("Reconnect iCloud") { model.setMobileSync(true) }.buttonStyle(QuietButton())
-                Text("If an iPhone request stays waiting for your Mac, reconnect to check for it again.").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            }
-            Toggle("Show tasks made on this Mac on iPhone", isOn: $mobileSharesAllTasks).disabled(model.demo)
-            Text(mobileSharesAllTasks ? "Every task's name, status and latest line are copied to your private iCloud database." : "Your iPhone sees only the tasks it sent, with their status. Requests from iPhone wait here until you start them.").font(.system(size: 11)).foregroundStyle(Palette.muted)
-            Text("Use the same Apple account on your iPhone. This Mac syncs your workspace names and sends each request to the workspace you choose on your phone. Keep Facienda open and enable this connection on one Mac per account.").font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
     }
 
@@ -201,65 +181,6 @@ struct SettingsView: View {
             Text("Every workspace lives in one library and shares one Codex connection. Facienda keeps the library in its own folder, apart from what tasks make; Storage shows both.").font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
             Text(model.store.libraryDirectory.path).font(.system(size: 12)).foregroundStyle(Palette.muted).textSelection(.enabled)
             Button("Show library folder in Finder") { NSWorkspace.shared.activateFileViewerSelecting([model.store.url]) }.buttonStyle(QuietButton())
-        }
-    }
-}
-
-/// Which memory the current workspace uses, and every memory in the library.
-private struct MemorySpacesSettings: View {
-    @Bindable var workspaces: WorkspaceController
-    @State private var renaming: MemorySpace?
-    @State private var deleting: MemorySpace?
-    @State private var adding = false
-    @State private var draft = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Eyebrow(text: "MEMORY")
-            if let current = workspaces.current {
-                Picker("“\(current.name)” uses", selection: Binding(get: { current.memorySpaceId }, set: { workspaces.setMemory(current, to: $0) })) {
-                    ForEach(workspaces.memorySpaces) { Text($0.name).tag($0.id) }
-                }.frame(maxWidth: 360)
-                Text("Each memory is separate: a workspace only learns into and recalls from its own. Switching keeps what was learned in the old memory; new learning goes to the new one.")
-                    .font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(spacing: 6) {
-                ForEach(workspaces.memorySpaces) { space in
-                    let users = workspaces.workspaces.filter { $0.memorySpaceId == space.id }.map(\.name)
-                    HStack(spacing: 10) {
-                        Image(systemName: "book.closed").foregroundStyle(Palette.muted)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(space.name).font(.system(size: 13, weight: .medium))
-                            Text(users.isEmpty ? "Not used by any workspace" : users.joined(separator: ", ")).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
-                        }
-                        Spacer()
-                        Button { draft = space.name; renaming = space } label: { Image(systemName: "pencil") }
-                            .buttonStyle(.borderless).help("Rename \(space.name)").accessibilityLabel("Rename \(space.name)")
-                        Button(role: .destructive) { deleting = space } label: { Image(systemName: "trash") }
-                            .buttonStyle(.borderless).disabled(!users.isEmpty)
-                            .help(users.isEmpty ? "Delete \(space.name)" : "Choose another memory for its workspaces before deleting it")
-                            .accessibilityLabel("Delete \(space.name)")
-                    }.padding(.horizontal, 12).padding(.vertical, 8).background(Palette.card, in: RoundedRectangle(cornerRadius: 8))
-                }
-            }
-            Button("New memory…") { draft = ""; adding = true }.buttonStyle(QuietButton())
-            if let error = workspaces.error { Text(error).font(.system(size: 12)).foregroundStyle(Palette.accent) }
-        }
-        .alert("New memory", isPresented: $adding) {
-            TextField("For example, Work", text: $draft)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { workspaces.createMemory(name: draft) }
-        } message: { Text("A new memory starts empty and stays separate from every other memory.") }
-        .alert("Rename memory", isPresented: Binding(presenting: $renaming), presenting: renaming) { space in
-            TextField("Name", text: $draft)
-            Button("Cancel", role: .cancel) { renaming = nil }
-            Button("Rename") { workspaces.renameMemory(space, to: draft); renaming = nil }
-        }
-        .alert("Delete memory?", isPresented: Binding(presenting: $deleting), presenting: deleting) { space in
-            Button("Cancel", role: .cancel) { deleting = nil }
-            Button("Delete memory", role: .destructive) { workspaces.deleteMemory(space); deleting = nil }
-        } message: { space in
-            Text("Delete the \(space.name) memory and its confirmed notes from Facienda? What Hindsight already learned stays in its bank on this Mac.")
         }
     }
 }

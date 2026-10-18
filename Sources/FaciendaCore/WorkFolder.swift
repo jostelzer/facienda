@@ -46,6 +46,27 @@ extension FaciendaStore {
         workFolder.appending(path: taskID, directoryHint: .isDirectory)
     }
 
+    /// Private reports and tool arguments must not enter a repository, even when the chosen data folder is in one.
+    public func privateTaskFolder(_ taskID: String) throws -> URL {
+        var folder = taskFolder(taskID), ancestor = folder.standardizedFileURL.resolvingSymlinksInPath()
+        while ancestor.path != "/" {
+            if FileManager.default.fileExists(atPath: ancestor.appending(path: ".git").path) {
+                folder = LibraryHome.supportDirectory.appending(path: "TaskFiles").appending(path: taskID)
+                break
+            }
+            ancestor.deleteLastPathComponent()
+        }
+        ancestor = folder.standardizedFileURL.resolvingSymlinksInPath()
+        while ancestor.path != "/" {
+            guard !FileManager.default.fileExists(atPath: ancestor.appending(path: ".git").path) else {
+                throw StoreError.invalid("Choose a private data folder outside a code repository.")
+            }
+            ancestor.deleteLastPathComponent()
+        }
+        try Self.makePrivateFolder(folder)
+        return folder
+    }
+
     public func isAutomaticWorkingDirectory(_ directory: String, taskID: String) -> Bool {
         // Existing directories may gain a trailing slash when reconstructed from
         // a saved path. Compare filesystem paths, not URL directory hints.
@@ -55,7 +76,7 @@ extension FaciendaStore {
     // MARK: Artifacts
 
     /// Told to every task chat. A task once copied a 30 GB project into its folder twice and filled the disk.
-    public static let artifactRules = "Keep files you make in the working folder, and keep them lean: never copy a whole project, repository or large asset folder there. Work in the original folder, or use git worktree for a separate checkout. Before finishing, delete large intermediate output you no longer need, such as builds, frame renders and downloads."
+    public static let artifactRules = "Keep implementation files in the working folder and private task material in the designated private folder. Keep them lean: never copy a whole project, repository or large asset folder there. Work in the original folder, or use git worktree for a separate checkout. Before finishing, delete large intermediate output you no longer need, such as builds, frame renders and downloads."
 
     /// Days after a task is done before its folder is cleared. nil keeps folders until the user clears them.
     public func artifactRetentionDays() throws -> Int? {

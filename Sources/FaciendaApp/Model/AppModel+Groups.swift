@@ -73,6 +73,8 @@ extension AppModel {
             try store.placeTasks(order)
             refresh()
         }
+        // A task the bar made, put into another group by hand, teaches the bar where such work goes.
+        if joining, groupMembers[taskID] == groupID { learnPlace(of: taskID, workspaceID: workspaceID, groupID: groupID) }
     }
 
     /// Every task in a card, shown or not, in board order. Ordering against all of them keeps hidden and filtered-out tasks where they were.

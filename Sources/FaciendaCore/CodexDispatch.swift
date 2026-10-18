@@ -1,8 +1,7 @@
 import Foundation
 import GRDB
 
-/// Codex work is delivered by Facienda's own dispatcher, which talks to the Codex app's app server directly. It wakes
-/// only when work is queued, so nothing runs while the queue is empty, and setup needs nothing pressed in Codex.
+/// Codex work is queued by Facienda's dispatcher and run by the desktop app. Setup needs nothing pressed in Codex.
 extension FaciendaStore {
     /// The runner ID the dispatcher claims queue entries with.
     public static let codexDispatcherId = "codex-dispatcher"
@@ -36,7 +35,8 @@ extension FaciendaStore {
     /// anything, goes back to the queue. An uncertain one never comes here: it is parked for recovery instead.
     public func releaseUndelivered(_ id: String, runnerId: String, reason: String, now: Date = Date()) throws {
         try write { db in
-            guard var item = try NativeDispatch.fetchOne(db, key: id), item.runnerId == runnerId, item.state == "dispatching" else { throw StoreError.conflict }
+            guard var item = try NativeDispatch.fetchOne(db, key: id), item.runnerId == runnerId, item.state == "dispatching", item.codexQueueId == nil else { throw StoreError.conflict }
+            item.codexQueuePreparedAt = nil
             item.state = "queued"; item.runnerId = nil; item.availableAt = now.addingTimeInterval(60)
             // A check refused in a copy of its chat goes back to the chat itself.
             if item.kind == "check", let plan = try CheckPlan.fetchOne(db, key: item.taskId) { item.threadId = plan.threadId }

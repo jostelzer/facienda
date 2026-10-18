@@ -82,13 +82,7 @@ def main() -> None:
         name = "menu-bar.png" if scale == 1 else f"menu-bar@{scale}x.png"
         save_scaled(place_mark(monochrome, 216, 204), menu / name, 18 * scale)
 
-    # iOS masks its own icon corners and requires an opaque source image.
-    phone = Image.new("RGBA", (resolution, resolution), PAPER)
-    phone.alpha_composite(place_mark(mark, resolution, 650 * SCALE))
-    phone.resize((1024, 1024), Image.Resampling.LANCZOS).convert("RGB").save(
-        ASSETS / "PhoneAssets.xcassets/AppIcon.appiconset/AppIcon.png"
-    )
-    print("Rendered macOS, iPhone, light/dark brand, and menu-bar icons.")
+    print("Rendered macOS, light/dark brand, and menu-bar icons.")
 
 
 if __name__ == "__main__":

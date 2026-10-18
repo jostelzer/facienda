@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// A named set of tasks in the library. Every workspace draws on exactly one memory.
+/// A named set of tasks in the library. Every workspace has a memory of its own, made with it and named after it.
 public struct Workspace: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Hashable, Sendable {
     public static let databaseTableName = "workspaces"
     public var id: String
@@ -10,7 +10,7 @@ public struct Workspace: Codable, FetchableRecord, PersistableRecord, Identifiab
     public var position: Int
     public var createdAt: Date
     public var nameUpdatedAt: Date
-    /// Removed workspaces stay as tombstones so a stale phone catalog cannot bring them back.
+    /// Removed workspaces stay as tombstones so their IDs cannot be reused.
     public var removedAt: Date?
     /// The painting style Codex chose for the sidebar picture, kept so a repaint stays recognisable.
     public var coverStyle: String?
@@ -130,19 +130,20 @@ extension FaciendaStore {
         return workspace
     }
 
-    @discardableResult public func createWorkspace(name: String, memorySpaceID: String, id: String = UUID().uuidString, nameUpdatedAt: Date = Date()) throws -> Workspace {
+    /// A new workspace starts with an empty memory of its own.
+    @discardableResult public func createWorkspace(name: String, id: String = UUID().uuidString, nameUpdatedAt: Date = Date()) throws -> Workspace {
         let name = try Self.validatedName(name, "workspace")
         return try write { db in
             if let existing = try Workspace.fetchOne(db, key: id) { return existing }
-            guard try MemorySpace.fetchOne(db, key: memorySpaceID) != nil else { throw StoreError.invalid("Choose an existing memory for this workspace.") }
+            let space = try Self.createMemorySpace(db, name: name)
             let position = try Self.nextPosition(db, in: "workspaces")
-            let workspace = Workspace(id: id, name: name, memorySpaceId: memorySpaceID, position: position, createdAt: Date(), nameUpdatedAt: nameUpdatedAt)
+            let workspace = Workspace(id: id, name: name, memorySpaceId: space.id, position: position, createdAt: Date(), nameUpdatedAt: nameUpdatedAt)
             try workspace.insert(db)
             return workspace
         }
     }
 
-    /// Renaming changes only the display name; tasks, chats and memory stay where they are.
+    /// Renaming changes only the display name; tasks, chats and memory stay where they are. The memory takes the new name.
     public func renameWorkspace(_ id: String, to name: String, updatedAt: Date = Date()) throws {
         let name = try Self.validatedName(name, "workspace")
         try write { db in
@@ -150,6 +151,7 @@ extension FaciendaStore {
             guard workspace.name != name else { return }
             workspace.name = name; workspace.nameUpdatedAt = updatedAt
             try workspace.update(db)
+            try db.execute(sql: "UPDATE memorySpaces SET name = ? WHERE id = ?", arguments: [name, workspace.memorySpaceId])
         }
     }
 

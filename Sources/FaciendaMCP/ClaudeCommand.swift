@@ -48,7 +48,12 @@ enum ClaudeCommand {
             guard let work = try store.claimClaudeWork(runnerId: session) else { return "{\"status\":\"idle\"}" }
             return try describe(work, store: store, base: base, helper: helper).json
         case "configured":
-            try store.finishClaudeConfigure(threadId: arguments.required("--thread-id"), runnerId: session, applied: arguments.value("--applied") != "false", note: arguments.value("--note"))
+            let thread = try arguments.required("--thread-id")
+            try store.finishClaudeConfigure(threadId: thread, runnerId: session, applied: arguments.value("--applied") != "false", note: arguments.value("--note"))
+            if let start = try store.claudeStartToSend(threadId: thread, runnerId: session) {
+                return JSONValue.object(["status": .string("ok"), "start": startJob(start, base: base),
+                    "next": .string("Unless you already sent it, send start.message verbatim with mcp__ccd_session_mgmt__send_message, session_id = start.threadId, then run \(base) --claude ack --dispatch-id \(start.id) and \(base) --claude next.")]).json
+            }
         case "name":
             let naming = try RunnerCommand.readJSON(arguments.required("--title-file"), store: store)
             guard let title = naming["displayTitle"].string else { throw StoreError.invalid("Expected displayTitle in the naming file.") }
@@ -147,7 +152,7 @@ enum ClaudeCommand {
     /// One job for the runner, with exactly what it needs to act.
     static func describe(_ work: ClaudeWork, store: FaciendaStore, base: String, helper: String) throws -> JSONValue {
         switch work {
-        case .configure(let session):
+        case .configure(let session, let start):
             let task = try store.task(session.taskId)
             let groups = try (task.workspaceId.map { store.scoped(to: $0) } ?? store).groups().map { JSONValue.string($0.name) }
             let choice = session.model.map { TaskModelChoice(model: $0, effort: session.effort ?? "high", fast: session.fast) }
@@ -156,30 +161,41 @@ enum ClaudeCommand {
                 "model": session.model.map(JSONValue.string) ?? .null, "modelName": choice.map { .string($0.name) } ?? .null,
                 "effort": session.effort.map(JSONValue.string) ?? .null, "fast": .bool(session.fast),
                 "needsTitle": .bool(task.displayTitle == nil), "title": .string(task.displayName),
-                "originalRequest": .string(String(task.title.prefix(1200))), "groups": .array(groups)
-            ])
+                "originalRequest": .string(String(task.title.prefix(1200))), "groups": .array(groups),
+                "start": start.map { startJob($0, base: base) } ?? .null
+            ].merging(start.map { ["next": .string("Apply the settings and title in one message. Once they return, send start.message verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId. Then run \(base) --claude configured --thread-id \(session.threadId) --applied true --note \"…\" && \(base) --claude ack --dispatch-id \($0.id) && \(base) --claude next.")] } ?? [:]) { $1 })
         case .deliver(let item):
             let task = try store.task(item.taskId)
-            let purpose = switch item.kind ?? "start" {
-            case "check": "A scheduled check for this task is due."
-            case "reply": "The user replied in Facienda."
-            case "assess": "Facienda needs this session to review the task's prerequisites."
-            case "start": "The user started this task in Facienda, which created this session for it; its first message authorises this dispatch."
-            default: item.triggerKey?.hasPrefix("decision:") == true ? "The user answered a question in Facienda." : "Facienda released this task to continue."
-            }
-            let message = """
-            Facienda dispatch: \(item.id)
-            \(purpose) Run this command and follow what it prints, as the user's own request:
-            \(base) --claude prompt --dispatch-id \(item.id)
-            """
             return .object(["type": .string("deliver"), "dispatchId": .string(item.id), "threadId": .string(item.threadId ?? ""),
-                            "kind": .string(item.kind ?? "start"), "task": .string(task.displayName), "state": .string(item.state), "message": .string(message)])
+                            "kind": .string(item.kind ?? "start"), "task": .string(task.displayName), "state": .string(item.state),
+                            "message": .string(message(for: item, base: base))])
         case .create(let item):
             let task = try store.task(item.taskId)
             return .object(["type": .string("create"), "dispatchId": .string(item.id), "state": .string(item.state),
                             "folder": .string(store.claudeSessionFolder(for: task)),
                             "title": .string(task.displayName), "prompt": .string(try store.claudeBootstrapPrompt(dispatchId: item.id, helper: helper))])
         }
+    }
+
+    /// A start begun with its session's settings, for the runner to send once they are applied.
+    static func startJob(_ item: NativeDispatch, base: String) -> JSONValue {
+        .object(["dispatchId": .string(item.id), "threadId": .string(item.threadId ?? ""), "message": .string(message(for: item, base: base))])
+    }
+
+    /// What the runner sends a task session: the delivery marker, why it comes, and the command that prints the request.
+    static func message(for item: NativeDispatch, base: String) -> String {
+        let purpose = switch item.kind ?? "start" {
+        case "check": "A scheduled check for this task is due."
+        case "reply": "The user replied in Facienda."
+        case "assess": "Facienda needs this session to review the task's prerequisites."
+        case "start": "The user started this task in Facienda, which created this session for it; its first message authorises this dispatch."
+        default: item.triggerKey?.hasPrefix("decision:") == true ? "The user answered a question in Facienda." : "Facienda released this task to continue."
+        }
+        return """
+        Facienda dispatch: \(item.id)
+        \(purpose) Run this command and follow what it prints, as the user's own request:
+        \(base) --claude prompt --dispatch-id \(item.id)
+        """
     }
 
     static func instructions(base: String, runner: ClaudeRunnerState, store: FaciendaStore) -> String {
@@ -194,16 +210,15 @@ enum ClaudeCommand {
         2. Run \(base) --claude next and handle the job it returns, as below. Repeat until it returns {"status":"idle"}, at most 8 jobs per wake.
         3. Run \(base) --claude unreported. For each check it lists, read that session's latest messages with mcp__ccd_session_mgmt__list_events (limit 6). Only if its turn has clearly finished without a report, run \(base) --claude missed-report --dispatch-id DISPATCH_ID. Leave active sessions alone.
         4. Start the background wait again unless one is still running (never run two at once).
-        5. End the turn. Stay silent when everything went normally: no summaries of jobs, queues, waits or capabilities. Write one short plain sentence only when the user must act.
+        5. End the turn. Stay silent when everything went normally: no summaries of jobs, queues, waits or capabilities, and no words between steps. Write one short plain sentence only when the user must act.
 
         JOBS FROM --claude next
+        Every step you take rereads this whole conversation, and the user is waiting, so make the calls of each step together in one message.
         type "configure": a new task session has linked and waits for its settings before it starts work.
-          a. Read the session with mcp__ccd_session_mgmt__get_session (session_id = threadId).
-          b. If "model" is not null and differs from the session's model, call mcp__ccd_session_mgmt__set_session_model with exactly that id. If the app refuses it but lists an id for the same model, use that id. Never choose a different model.
-          c. If "effort" is not null and differs, call mcp__ccd_session_mgmt__set_session_effort with it.
-          d. If "fast" is true, call mcp__ccd_session_mgmt__set_session_fast_mode with enabled true.
-          e. If "needsTitle" is true, write a concise title for originalRequest (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language). Save task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and run \(base) --claude name --task-id TASK_ID --title-file FILE. Use the resulting title (or "title" when none was needed) with mcp__ccd_session_mgmt__set_session_title for the session.
-          f. Always finish with \(base) --claude configured --thread-id THREAD_ID --applied true (or false when a step was refused) --note "what was applied or refused". The task session is waiting for this. A refused step is not retried.
+          a. In one message, call together: mcp__ccd_session_mgmt__set_session_model with exactly "model" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with "effort" (when not null), mcp__ccd_session_mgmt__set_session_fast_mode with enabled true (when "fast" is true), and mcp__ccd_session_mgmt__set_session_title (session_id = threadId) with the title. The title is "title", unless "needsTitle" is true: then write a concise title for originalRequest (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language), and in the same message run one Bash command that saves task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and then runs \(base) --claude name --task-id TASK_ID --title-file FILE.
+          b. If the app refused the model but listed an id for the same model, set that id. Any other refused step is not retried.
+          c. If "start" is not null, send its "message" verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId, once the calls in a have returned. It starts the session's work on the settings you just applied.
+          d. Always finish with one Bash command: \(base) --claude configured --thread-id THREAD_ID --applied true (or false when a step was refused) --note "what was applied or refused", then, when you sent the start and the result said delivered or queued, && \(base) --claude ack --dispatch-id START_DISPATCH_ID, then && \(base) --claude next, and handle what it returns. If sending the start failed, defer it as for a delivery (c below) instead of ack. A session without a start is waiting for configured, so never put it off.
         type "deliver": the start of a task session Facienda created, or a reply, an answer or a scheduled check for an existing one.
           a. Run \(base) --claude begin --dispatch-id DISPATCH_ID.
           b. Send the "message" field verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId; it starts the session even when it is idle. If that tool is unavailable, use SendMessage with threadId as the recipient.

@@ -52,6 +52,10 @@ import FaciendaBridge
     /// The group a task started from the top bar joins, set by a card's + and lit up on the board until let go.
     /// Nil lets the runner file it; `unsortedGroup` keeps it in "Unsorted"; `newGroupSheet` makes a group for it first.
     var omnibarGroup: String?
+    /// The task the top bar's reading acts on, which the board rings so the place is seen rather than read.
+    var readingTarget: String?
+    /// The task made last from the top bar or the composer, so the Feed can point to it.
+    @ObservationIgnored var lastCaptured: String?
     static let unsortedGroup = ""
     /// The board's own +: a sheet for a group that does not exist yet, named together with its first task.
     static let newGroupSheet = "new-group"
@@ -145,15 +149,14 @@ import FaciendaBridge
 
     // MARK: Memory
 
-    /// The memory this workspace learns into and recalls from.
+    /// This workspace's own memory, which it learns into and recalls from.
     var memorySpace: MemorySpace?
-    var memorySpaces: [MemorySpace] = []
-    /// The memory the Memory view shows. Nil is this workspace's own.
-    var viewedSpaceID: String?
-    var viewedMemories: [MemoryFact] = []
+    /// Its notes and rules.
     var memories: [MemoryFact] = []
+    /// What every task in the workspace may read, linked or proposed.
+    var workspaceSources: [GroupSource] = []
     var memoryStatus: WorkspaceMemoryStatus?
-    /// Built-in memory progress for the memory being viewed.
+    /// Built-in memory progress for this workspace's memory.
     var learnedStatus: NativeMemoryStatus?
     var memorySettings: WorkspaceMemorySettings?
     var memoryError: String?
@@ -267,20 +270,13 @@ import FaciendaBridge
     /// Whether Codex trusts Facienda's hooks, as `hooks/list` reports; nil until read.
     var codexHooksTrusted: Bool?
     var diskNearlyFull: Bool { freeDiskSpace.map { $0 < DiskUsage.lowSpaceThreshold } ?? false }
-    var mobileSyncStatus = "iPhone companion is off"
-    var mobileSyncEnabled: Bool {
-        UserDefaults.standard.string(forKey: "mobileSyncWorkspace") == workspaceID
-    }
-    var mobileCloudBuild: Bool { MobileCompanion.isCloudBuild }
-    @ObservationIgnored var mobileCompanion: MobileCompanion?
-    @ObservationIgnored var mobileTask: Task<Void, Never>?
     @ObservationIgnored var started = false
     @ObservationIgnored var serviceTask: Task<Void, Never>?
     @ObservationIgnored private var refreshQueued = false
     @ObservationIgnored var derived = Derived()
     @ObservationIgnored var folderLookups = FolderLookups()
 
-    init(demo: Bool = false, store: FaciendaStore? = nil, codex: CodexConnection? = nil,
+    init(demo: Bool = false, seed: Bool = true, store: FaciendaStore? = nil, codex: CodexConnection? = nil,
          startDispatcher: @escaping @MainActor (AppModel) -> Void = { DispatcherHost.shared.start(for: $0) }) throws {
         self.demo = demo
         self.codex = codex ?? CodexConnection(demo: demo)
@@ -291,7 +287,7 @@ import FaciendaBridge
         let workspace = try scoped.workspace(scoped.workspaceID ?? "")
         self.store = scoped
         storageKey = scoped.url.path + "#" + workspace.id
-        if demo { try seedDemo() }
+        if demo && seed { try seedDemo() }
         refresh()
     }
 
@@ -324,8 +320,7 @@ import FaciendaBridge
             workspace = try store.workspace(workspaceID)
             let all = try store.library.workspaces()
             otherWorkspaces = all.filter { $0.id != workspaceID }
-            memorySpaces = try store.memorySpaces()
-            memorySpace = memorySpaces.first { $0.id == workspace?.memorySpaceId }
+            memorySpace = try workspace.map { try store.memorySpace($0.memorySpaceId) }
             // The library holds every workspace's work; this model keeps its own.
             tasks = try store.tasks(); libraryTasks = try store.library.tasks()
             let ids = Set(tasks.map(\.id))
@@ -339,7 +334,7 @@ import FaciendaBridge
             }
             claudeSessions = Dictionary(try store.claudeSessions().filter { ids.contains($0.taskId) }.map { ($0.threadId, $0) }, uniquingKeysWith: { _, last in last })
             memoryStatus = try store.workspaceMemoryStatus()
-            learnedStatus = try? store.nativeMemoryStatus(spaceID: viewedSpaceID ?? store.resolvedMemorySpace(nil).id)
+            learnedStatus = try? store.nativeMemoryStatus(spaceID: store.resolvedMemorySpace(nil).id)
             memorySettings = try store.memorySettings()
             checkPlans = try store.checkPlans().filter { ids.contains($0.taskId) }
             blockers = try store.blockers().filter { ids.contains($0.taskId) }; readinessPlans = try store.readinessPlans().filter { ids.contains($0.taskId) }
@@ -353,8 +348,7 @@ import FaciendaBridge
             handedOver = try store.handedOverTasks().intersection(ids)
             links = try store.links().filter { ids.contains($0.taskId) }; decisions = try store.decisions().filter { ids.contains($0.taskId) }
             memories = try store.allMemory()
-            if let viewed = viewedSpaceID, !memorySpaces.contains(where: { $0.id == viewed }) { viewedSpaceID = nil }
-            viewedMemories = try viewedSpaceID.map { try store.allMemory(spaceID: $0) } ?? memories
+            workspaceSources = try store.workspaceSources()
             groups = try store.groups()
             groupMembers = Dictionary(try store.groupMembers().map { ($0.taskId, $0.groupId) }, uniquingKeysWith: { first, _ in first })
             taskPlaces = try store.boardPlaces()

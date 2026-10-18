@@ -2,27 +2,12 @@ import Foundation
 import CryptoKit
 import GRDB
 
-/// Library-wide memory service settings. Each memory has its own bank on this service.
+/// Library-wide learning and task fallback settings. Memory has no network service.
 public struct WorkspaceMemorySettings: Codable, FetchableRecord, Sendable, Equatable {
-    public var endpoint: String
     public var enabled: Bool
     public var workerModel: String?
     public var workerReasoningEffort: String = "high"
-    /// `native` learns inside Facienda; `hindsight` uses the optional local Hindsight service.
-    public var engine: String = "native"
-    public var usesHindsight: Bool { engine == "hindsight" }
-
-    public var baseURL: URL {
-        get throws {
-            guard let url = URL(string: endpoint), url.scheme == "https",
-                  ["127.0.0.1", "localhost", "::1"].contains(url.host ?? ""),
-                  url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-                  url.path.isEmpty || url.path == "/" else {
-                throw StoreError.invalid("Use a local Hindsight address, such as https://127.0.0.1:8888.")
-            }
-            return url
-        }
-    }
+    public var useAIWorker: Bool = true
 }
 
 public struct MemoryDocument: Codable, FetchableRecord, Sendable {
@@ -37,8 +22,10 @@ public struct MemoryDocument: Codable, FetchableRecord, Sendable {
     public var error: String?
     /// The memory whose bank receives this source.
     public var spaceId: String?
-    /// The document ID Hindsight knows, when it differs from the local one.
+    /// An older engine's document ID, retained only to read existing libraries.
     public var externalId: String?
+    public var sourceKind: MemorySourceKind = .legacy
+    public var taskId: String? = nil
     public var documentID: String { externalId ?? id }
 }
 
@@ -54,79 +41,82 @@ extension FaciendaStore {
         try db.read { try WorkspaceMemorySettings.fetchOne($0, sql: "SELECT * FROM memorySettings WHERE id = 1")! }
     }
 
-    public func saveMemorySettings(endpoint: String, enabled: Bool, workerModel: String?, workerReasoningEffort: String = "high", engine: String? = nil) throws {
-        var settings = try memorySettings()
-        settings.endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        let engine = engine ?? settings.engine
-        guard ["native", "hindsight"].contains(engine) else { throw StoreError.invalid("Choose built-in memory or Hindsight.") }
-        if engine == "hindsight" { _ = try settings.baseURL }
+    public func saveMemorySettings(enabled: Bool, workerModel: String?, workerReasoningEffort: String = "high") throws {
         guard ["low", "medium", "high", "xhigh", "max", "ultra"].contains(workerReasoningEffort) else {
             throw StoreError.invalid("Choose a supported reasoning effort.")
         }
         let model = workerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         try write { db in
-            let old = try WorkspaceMemorySettings.fetchOne(db, sql: "SELECT * FROM memorySettings WHERE id = 1")!
-            try db.execute(sql: "UPDATE memorySettings SET endpoint = ?, enabled = ?, workerModel = ?, workerReasoningEffort = ?, engine = ? WHERE id = 1", arguments: [settings.endpoint, enabled, model?.isEmpty == false ? model : nil, workerReasoningEffort, engine])
-            if old.endpoint != settings.endpoint {
-                // A new service needs every memory's sources, with fresh operation identities. Its banks are configured again.
-                for doc in try MemoryDocument.fetchAll(db, sql: "SELECT * FROM memoryDocuments") {
-                    try db.execute(sql: "UPDATE memoryDocuments SET state = 'pending', operationId = ?, leaseUntil = NULL, attempts = 0, nextAttempt = ?, error = NULL WHERE id = ?", arguments: [UUID().uuidString, Date(), doc.id])
-                }
-            }
+            try db.execute(sql: "UPDATE memorySettings SET enabled = ?, workerModel = ?, workerReasoningEffort = ?, engine = 'native' WHERE id = 1",
+                           arguments: [enabled, model?.isEmpty == false ? model : nil, workerReasoningEffort])
         }
     }
 
+    public func setMemoryAIWorker(_ enabled: Bool) throws {
+        try write { try $0.execute(sql: "UPDATE memorySettings SET useAIWorker = ? WHERE id = 1", arguments: [enabled]) }
+    }
+
     /// Immutable source records are retained locally even when the service is unavailable.
-    /// A changed source follows its task into the memory it belongs to now.
-    public func enqueueMemoryDocument(id: String, content: String, source: String, at: Date, spaceID: String, externalID: String? = nil) throws {
+    /// A source stays in the workspace where it was first captured, even when its task moves.
+    public func enqueueMemoryDocument(id: String, content: String, source: String, at: Date, spaceID: String, externalID: String? = nil,
+                                      sourceKind: MemorySourceKind = .legacy, taskID: String? = nil) throws {
+        let content = MemoryRedaction.redact(content), source = MemoryRedaction.redact(source)
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let digest = SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
         try db.write { db in
             try db.execute(sql: """
-                INSERT INTO memoryDocuments(id, content, digest, source, at, operationId, state, nextAttempt, spaceId, externalId)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                INSERT INTO memoryDocuments(id, content, digest, source, at, operationId, state, nextAttempt, spaceId, externalId, sourceKind, taskId)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET content = excluded.content, digest = excluded.digest,
-                  source = excluded.source, at = excluded.at, operationId = excluded.operationId, spaceId = excluded.spaceId,
+                  source = excluded.source, at = excluded.at, operationId = excluded.operationId,
+                  sourceKind = excluded.sourceKind, taskId = excluded.taskId,
                   state = 'pending', leaseUntil = NULL, attempts = 0, nextAttempt = excluded.nextAttempt, error = NULL
                 WHERE memoryDocuments.digest != excluded.digest
-                """, arguments: [id, content, digest, source, at, UUID().uuidString, Date(), spaceID, externalID])
+                  OR memoryDocuments.sourceKind != excluded.sourceKind
+                """, arguments: [id, content, digest, source, at, UUID().uuidString, Date(), spaceID, externalID, sourceKind.rawValue, taskID])
         }
+        let originalSpace = try db.read { try String.fetchOne($0, sql: "SELECT spaceId FROM memoryDocuments WHERE id = ?", arguments: [id]) } ?? spaceID
+        try captureUtterance(id: id, text: content, source: source, kind: sourceKind, taskID: taskID, spaceID: originalSpace, at: at)
     }
 
     /// Gathers sources for every memory. Each source goes to the memory of the workspace its task is in.
     public func captureWorkspaceMemory() throws {
         guard try memorySettings().enabled else { return }
-        let sources = try db.read { db -> [(String, String, String, Date, String)] in
+        let sources = try db.read { db -> [(String, String, String, Date, String, MemorySourceKind, String)] in
             let spaces = Dictionary(try Row.fetchAll(db, sql: "SELECT t.id, w.memorySpaceId FROM tasks t JOIN workspaces w ON w.id = t.workspaceId").map {
                 ($0["id"] as String, $0["memorySpaceId"] as String)
             }, uniquingKeysWith: { first, _ in first })
-            var result: [(String, String, String, Date, String)] = try FaciendaTask.fetchAll(db).compactMap { task in
-                spaces[task.id].map { ("task-\(task.id)", "User's original request: \(task.title)\nIntention: \(task.intention)\nCompletion condition: \(task.definitionOfDone)", "Facienda task \(task.id)", task.createdAt, $0) }
-            }
-            let events = try TaskEvent.fetchAll(db, sql: "SELECT * FROM events WHERE kind IN ('user.reply', 'codex.result') AND NOT EXISTS (SELECT 1 FROM memoryDocuments WHERE id = 'event-' || events.id)")
-            result += events.compactMap { event in
-                event.taskId.flatMap { spaces[$0] }.map {
-                    ("event-\(event.id)", "\(event.kind == "codex.result" ? "Assistant report, not independently verified" : "User statement"): \(event.payload)", "Facienda event \(event.id), task \(event.taskId ?? "none"), thread \(event.threadId ?? "unrecorded")", event.at, $0)
-                }
+            // Task fields can be edited by agents. The original user event is the evidence of authorship.
+            let events = try TaskEvent.fetchAll(db, sql: "SELECT * FROM events WHERE source = 'user' AND kind IN ('task.created', 'user.reply')")
+            var result: [(String, String, String, Date, String, MemorySourceKind, String)] = events.compactMap { event in
+                guard let taskID = event.taskId, let space = spaces[taskID] else { return nil }
+                let request = event.kind == "task.created"
+                return (request ? "task-\(taskID)" : "event-\(event.id)", event.payload,
+                        "Facienda event \(event.id), task \(taskID)", event.at, space, request ? .userRequest : .userReply, taskID)
             }
             for decision in try Decision.fetchAll(db, sql: "SELECT * FROM decisions WHERE state = 'answered' AND NOT EXISTS (SELECT 1 FROM memoryDocuments WHERE id = 'decision-' || decisions.id)") {
                 guard let space = spaces[decision.taskId] else { continue }
-                result.append(("decision-\(decision.id)", "Question: \(decision.question)\nUser answer: \(decision.answer ?? "")", "Facienda decision \(decision.id), task \(decision.taskId)", decision.answeredAt ?? decision.createdAt, space))
+                // The question is agent text. Retain the user's answer without attributing that question to them.
+                guard let answer = decision.answer, !answer.isEmpty else { continue }
+                result.append(("decision-\(decision.id)", answer, "Facienda decision \(decision.id), task \(decision.taskId)", decision.answeredAt ?? decision.createdAt, space, .userDecision, decision.taskId))
             }
             return result
         }
-        for (id, content, source, at, space) in sources { try enqueueMemoryDocument(id: id, content: content, source: source, at: at, spaceID: space) }
+        for (id, content, source, at, space, kind, taskID) in sources {
+            try enqueueMemoryDocument(id: id, content: content, source: source, at: at, spaceID: space, sourceKind: kind, taskID: taskID)
+        }
         for space in try memorySpaces() {
-            let notes = try memory(spaceID: space.id), id = Self.curatedNotesID(space.id)
+            // Rules are instructions, not knowledge to learn from.
+            let notes = try memory(spaceID: space.id).filter { $0.kind != Self.ruleKind && $0.confirmedAt != nil }, id = Self.curatedNotesID(space.id)
             let existing = try db.read { try Row.fetchOne($0, sql: "SELECT externalId FROM memoryDocuments WHERE id = ?", arguments: [id]) }
             let externalID: String? = existing.flatMap { $0["externalId"] as String? }
-            // A memory whose last note moved away says so, rather than keeping the old notes in Hindsight.
+            // A memory whose last note moved away must not keep its earlier note snapshot.
             guard !notes.isEmpty || existing != nil else { continue }
             let content = notes.isEmpty ? "There are currently no user-confirmed notes in this memory." : notes.sorted { $0.id < $1.id }.map {
                 "[\($0.confirmedAt == nil ? "Unconfirmed agent contribution" : "Explicit user-confirmed fact; takes precedence over inferred summaries")] \($0.text)\nSource: \($0.source)\nRecord: \($0.id)"
             }.joined(separator: "\n\n")
             try enqueueMemoryDocument(id: id, content: content, source: "Current Facienda memory notes; supersedes earlier versions of this document",
-                                      at: notes.map(\.createdAt).max() ?? Date(), spaceID: space.id, externalID: externalID)
+                                      at: notes.map(\.createdAt).max() ?? Date(), spaceID: space.id, externalID: externalID, sourceKind: .curatedNotes)
         }
     }
 

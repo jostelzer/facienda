@@ -77,4 +77,6 @@ private func conversation(_ id: String, _ texts: [(String, String)]) throws -> J
     reply.threadId = "other"
     let missing = try await DeliveryFinder.find(reply, runnerThreadId: "runner", bridge: bridge)
     #expect(missing.chats.isEmpty && missing.complete)
+    // Only recent turns are read, never a whole history.
+    #expect(try await bridge.request("fixture/threadReads")["ids"].array?.isEmpty == true)
 }

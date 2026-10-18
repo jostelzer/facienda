@@ -27,7 +27,7 @@ public actor ConnectionInstaller {
     public static func shellQuote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     /// Only the events that change a task: a turn starting (which also hands over the task's context), an approval
     /// request, work resuming after it, and the turn ending or being stopped. Tool starts and session edges add nothing.
-    static let hookEvents: Set<String> = ["UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "Interrupt"]
+    static let hookEvents: Set<String> = ["UserPromptSubmit", "PermissionRequest", "PreToolUse", "PostToolUse", "Stop", "Interrupt"]
     /// Codex keeps an idle chat no client follows loaded for `thread_unload_delay_secs`, and the Codex app shows it as
     /// "open in another app" until then. Codex 0.163 raised the default from a minute to half an hour, so a chat stayed
     /// out of the user's reach long after Facienda's turn in it ended. Connecting restores the minute.

@@ -49,6 +49,31 @@ extension AppModel {
         let offered = await Task.detached { (try? store.offerAutomaticSources()) ?? 0 }.value
         if offered > 0 { refresh() }
     }
+    // MARK: The workspace's own sources
+
+    /// A folder linked for the whole workspace is read, never worked in; work folders belong to groups.
+    func chooseWorkspaceSourceFolder() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.prompt = "Link"
+        panel.message = "Every task in “\(workspace?.name ?? "this workspace")” will be told about this folder and read it when it matters."
+        if panel.runModal() == .OK, let url = panel.url { linkWorkspaceSource(url.path, title: nil) }
+    }
+    func chooseWorkspaceSourceFile() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.canChooseFiles = true; panel.prompt = "Link"
+        panel.message = "Every task in “\(workspace?.name ?? "this workspace")” will be told about this file and read it when it matters."
+        if panel.runModal() == .OK, let url = panel.url { linkWorkspaceSource(url.path, title: nil) }
+    }
+    func linkWorkspaceSource(_ address: String, title: String?) {
+        perform(undo: "Link Source") { try store.linkWorkspaceSource(address, title: title); refresh() }
+    }
+    func linkPastedWorkspaceSource() {
+        guard let pasted = pastedSource() else { error = "The clipboard holds no web link or path on this Mac."; return }
+        linkWorkspaceSource(pasted.address, title: pasted.title)
+    }
+    /// The user's line on what a source holds, which agents are told with its address.
+    func setSourceAbout(_ source: GroupSource, _ about: String) {
+        perform { try store.setSourceAbout(source.id, about); refresh() }
+    }
+
     func acceptSource(_ source: GroupSource) { perform(undo: "Link Source") { try store.setSourceState(source.id, .linked); refresh() } }
     func dismissSource(_ source: GroupSource) { perform(undo: "Dismiss Source") { try store.setSourceState(source.id, .dismissed); refresh() } }
     func unlinkSource(_ source: GroupSource) { perform(undo: "Unlink Source") { try store.setSourceState(source.id, .dismissed); refresh() } }

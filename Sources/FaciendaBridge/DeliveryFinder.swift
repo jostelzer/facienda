@@ -13,15 +13,19 @@ public enum DeliveryFinder {
 
     /// The runner's own chat is skipped: its create/send call carries the same marker.
     public static func find(_ dispatch: NativeDispatch, runnerThreadId: String?, bridge: CodexBridge, maxPages: Int = 5) async throws -> Result {
+        // A minute of slack covers clock skew between the store and Codex. Only turns since then are read.
+        let sent = dispatch.requestedAt.addingTimeInterval(-60)
         if let owner = dispatch.threadId {
             // A follow-up can only have gone to the chat it was addressed to.
-            let response = try await bridge.readThread(owner)
-            let conversation = try ThreadConversation.read(response, threadId: owner)
-            let thread = CodexThread(id: owner, title: conversation.title, cwd: response["thread"]["cwd"].string ?? "", updatedAt: Date())
-            return Result(chats: conversation.containsDelivery(dispatch.id) ? [thread] : [], complete: true)
+            let conversation = try await ThreadConversation.recent(owner, since: sent, bridge: bridge)
+            let thread = CodexThread(id: owner, title: conversation.title, cwd: "", updatedAt: Date())
+            if conversation.containsDelivery(dispatch.id) { return Result(chats: [thread], complete: true) }
+            // An accepted queued message can still start. Absence from history alone never permits "send again".
+            let pending = try await CodexAppDelivery.queued(dispatch, bridge: bridge)
+            return Result(chats: [], complete: pending == nil && dispatch.codexQueuePreparedAt == nil)
         }
-        // Listing is newest first; a minute of slack covers clock skew between the store and Codex.
-        let since = dispatch.requestedAt.timeIntervalSince1970 - 60
+        // Listing is newest first.
+        let since = sent.timeIntervalSince1970
         var candidates: [CodexThread] = [], cursor: String?, complete = false
         for _ in 0..<maxPages {
             let page = try await bridge.listThreads(cursor: cursor)
@@ -33,7 +37,7 @@ public enum DeliveryFinder {
         for thread in candidates {
             try Task.checkCancellation()
             do {
-                if try ThreadConversation.read(await bridge.readThread(thread.id), threadId: thread.id).containsDelivery(dispatch.id) { found.append(thread) }
+                if try await ThreadConversation.recent(thread.id, since: sent, bridge: bridge).containsDelivery(dispatch.id) { found.append(thread) }
             } catch let error as BridgeError {
                 if case .disconnected = error { throw error }
                 complete = false

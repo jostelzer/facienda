@@ -6,6 +6,7 @@ public struct HookEvent: Codable, Sendable {
     public let turn_id: String?
     public let cwd: String?
     public let transcript_path: String?
+    public var tool_input: JSONValue? = nil
     /// The event as Facienda tracks it. A chat running with auto-review has Codex's own reviewer answer each permission
     /// request, so the user is never asked and the chat keeps working: that request is tracked as `AutoReview`.
     public var trackedName: String {
@@ -25,6 +26,12 @@ public struct HookEvent: Codable, Sendable {
         }
     }
     public func apply(to store: FaciendaStore) throws -> JSONValue? {
+        if hook_event_name == "PreToolUse" {
+            guard let context = try store.memoryHookContext(threadID: session_id, input: tool_input ?? .null) else { return nil }
+            // A private audit receipt changes no memory, task state, or permission. Failure never blocks the tool.
+            if let task = try? store.currentTask(threadId: session_id) { try? store.recordMemoryDelivery(taskID: task.id, kind: "Tool context", text: context) }
+            return .object(["hookSpecificOutput": .object(["hookEventName": .string("PreToolUse"), "additionalContext": .string(context)])])
+        }
         let task = try store.currentTask(threadId: session_id), name = trackedName
         // Only retain lifecycle metadata, never tool payloads, prompts or transcript paths.
         try store.record(TaskEvent(taskId: task?.id, threadId: session_id, source: .hook, kind: "hook.\(name)", payload: turn_id ?? ""))
@@ -46,6 +53,14 @@ public struct ClaudeHookEvent: Codable, Sendable {
     public let session_id: String
     public let hook_event_name: String
     public let notification_type: String?
+    public var tool_input: JSONValue? = nil
+
+    public func memoryContext(in store: FaciendaStore) throws -> JSONValue? {
+        guard hook_event_name == "PreToolUse", let session = try store.claudeSession(cliSessionId: session_id),
+              let context = try store.memoryHookContext(threadID: session.threadId, input: tool_input ?? .null) else { return nil }
+        try? store.recordMemoryDelivery(taskID: session.taskId, kind: "Tool context", text: context)
+        return .object(["hookSpecificOutput": .object(["hookEventName": .string("PreToolUse"), "additionalContext": .string(context)])])
+    }
 
     /// What the event says about the session, or nil when it says nothing Facienda tracks.
     public var status: String? {

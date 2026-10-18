@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hindsight's text-only inference contract. Memory always uses hidden Luna threads.
+/// The text-only contract for the configured background memory worker.
 public struct MemoryInferenceRequest: Sendable {
     public static let model = "gpt-6-luna"
     public static let reasoningEffort = "high"
@@ -16,7 +16,7 @@ public struct MemoryInferenceRequest: Sendable {
                 throw StoreError.invalid("Memory inference requires text-only messages.")
             }
         }
-        self.request = request
+        self.request = MemoryRedaction.redact(request)
     }
     public var outputSchema: JSONValue { request["response_format"]["json_schema"]["schema"] }
     public func validate(_ content: String) throws {

@@ -20,6 +20,10 @@ do {
     if args.contains("--claude") {
         // Claude reads a hook's output as its answer, so this prints nothing: the user decides the prompt in Claude.
         let event = try JSONDecoder().decode(ClaudeHookEvent.self, from: data)
+        if event.hook_event_name == "PreToolUse" {
+            if let response = try event.memoryContext(in: store) { print(response.json) }
+            exit(0)
+        }
         guard event.status != nil else { exit(0) }
         try event.apply(to: store)
     } else {

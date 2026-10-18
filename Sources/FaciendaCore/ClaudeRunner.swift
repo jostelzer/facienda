@@ -23,6 +23,9 @@ public struct ClaudeRunnerState: Codable, FetchableRecord, Equatable, Sendable {
     public static let awakeWindow: TimeInterval = 180
     /// The runner session's title and folder name, apart from the Codex runner's.
     public static let name = "facienda-claude-runner"
+    /// The runner only passes work on, and each step rereads its whole conversation. Sonnet or Haiku does that as well
+    /// as Opus or Fable for far less; the task sessions it starts keep the model each task asked for.
+    public static func isCostly(model: String) -> Bool { ["opus", "fable"].contains { model.lowercased().contains($0) } }
 }
 
 /// A Claude session carrying a task, as it reported itself when it linked.
@@ -50,8 +53,9 @@ public struct ClaudeSession: Codable, FetchableRecord, PersistableRecord, Equata
 
 /// One thing for the Claude runner to do.
 public enum ClaudeWork: Sendable {
-    /// Apply the task's model, reasoning and title to a session that just linked.
-    case configure(ClaudeSession)
+    /// Apply the task's model, reasoning and title to a session that just linked. A session Facienda had the app adopt
+    /// comes with its start already begun, so the runner sends it straight after the settings rather than in a job of its own.
+    case configure(ClaudeSession, start: NativeDispatch?)
     /// Send a reply, answer or scheduled check to the task's existing session.
     case deliver(NativeDispatch)
     /// Start a new session. Offered only when the runner can start sessions itself.
@@ -148,6 +152,8 @@ extension FaciendaStore {
                 """, arguments: [sessionId, now, sessionId, canStartSessions, now, now, challenge])
             if let previous = state.sessionId, previous != sessionId {
                 try db.execute(sql: "UPDATE dispatches SET state = 'queued', runnerId = NULL, availableAt = NULL WHERE state = 'claimed' AND runnerId = ?", arguments: [previous])
+                // A message the old runner began may have gone out already; the new one looks for its marker before sending.
+                try db.execute(sql: "UPDATE dispatches SET runnerId = ?, availableAt = NULL WHERE provider = 'claude' AND state = 'dispatching' AND threadId IS NOT NULL AND runnerId = ?", arguments: [sessionId, previous])
                 try db.execute(sql: "UPDATE claudeSessions SET configureState = 'pending', configureClaimedAt = NULL WHERE configureState = 'configuring'")
             }
             try TaskEvent(source: .app, kind: "claude.runner.bound", payload: sessionId, verified: false, at: now).insert(db)
@@ -269,7 +275,7 @@ extension FaciendaStore {
             if var session = try ClaudeSession.fetchOne(db, sql: "SELECT * FROM claudeSessions WHERE configureState = 'pending' ORDER BY linkedAt LIMIT 1") {
                 session.configureState = "configuring"; session.configureClaimedAt = now
                 try session.update(db)
-                return .configure(session)
+                return .configure(session, start: try claimClaudeStart(db, for: session, runnerId: runnerId, now: now))
             }
             if var existing = try NativeDispatch.fetchOne(db, sql: """
                 SELECT * FROM dispatches WHERE provider = 'claude' AND runnerId = ? AND state IN ('claimed', 'dispatching')
@@ -287,6 +293,33 @@ extension FaciendaStore {
             item.state = "claimed"; item.runnerId = runnerId
             try item.update(db)
             return item.threadId == nil ? .create(item) : .deliver(item)
+        }
+    }
+
+    /// The start waiting for this session, claimed and begun with its settings. Every runner step reads the runner's
+    /// whole conversation, so a start in its own job cost five more steps before the session heard anything.
+    /// It stays leased for two minutes: if the runner stops before sending, it comes back as a delivery already begun.
+    func claimClaudeStart(_ db: Database, for session: ClaudeSession, runnerId: String, now: Date) throws -> NativeDispatch? {
+        guard var item = try NativeDispatch.fetchOne(db, sql: """
+            SELECT * FROM dispatches WHERE provider = 'claude' AND state = 'queued' AND threadId = ? AND taskId = ?
+            AND (kind IS NULL OR kind = 'start') AND (availableAt IS NULL OR availableAt <= ?) ORDER BY requestedAt LIMIT 1
+            """, arguments: [session.threadId, session.taskId, now]),
+              let task = try FaciendaTask.fetchOne(db, key: item.taskId), task.state.isOpen else { return nil }
+        // A start still held by its prerequisites goes the usual way, where beginning it says why.
+        do { try validateStart(db, item: item, now: now) } catch { return nil }
+        item.state = "dispatching"; item.runnerId = runnerId; item.availableAt = now.addingTimeInterval(120)
+        try item.update(db)
+        return item
+    }
+
+    /// A start this runner took with a session's settings and has not yet acknowledged. A runner that set up from older
+    /// instructions, or lost them in a compaction, hears about it when it reports the settings.
+    public func claudeStartToSend(threadId: String, runnerId: String) throws -> NativeDispatch? {
+        try db.read { db in
+            try NativeDispatch.fetchOne(db, sql: """
+                SELECT * FROM dispatches WHERE provider = 'claude' AND state = 'dispatching' AND threadId = ? AND runnerId = ?
+                AND (kind IS NULL OR kind = 'start') ORDER BY requestedAt LIMIT 1
+                """, arguments: [threadId, runnerId])
         }
     }
 

@@ -39,6 +39,8 @@ struct GroupBoard: View {
     /// Where the user put "Unsorted".
     @State private var looseSlot: BoardSlot?
     private var looseSlotKey: String { "dashboardLoosePlace:" + model.storageKey }
+    /// The cards folded to their title, by group ID or looseKey for "Unsorted". Kept per workspace.
+    @State private var folded: Set<String> = []
     /// True while a released card glides into its slot.
     @State private var settling = false
     /// The group that just landed, for a brief confirming pulse.
@@ -145,12 +147,10 @@ struct GroupBoard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The legend stays put; the board below can grow tall.
-            legend.padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 4).frame(maxWidth: .infinity, alignment: .leading)
             ScrollViewReader { proxy in
                 ScrollView {
                     // The top inset lives inside the scroll view, so a fresh card's glow in the first row isn't clipped.
-                    board.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 24).frame(maxWidth: .infinity, alignment: .leading)
+                    board.padding(.horizontal, IslandFrame.inset).padding(.top, 8).padding(.bottom, IslandFrame.inset).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .alert("Delete this task?", isPresented: Binding(presenting: $deleting), presenting: deleting) { task in
                     Button("Delete", role: .destructive) { model.deleteTask(task); deleting = nil }
@@ -167,7 +167,8 @@ struct GroupBoard: View {
                 }
             }
             // The File menu, the shortcut and the command bar all press the board's +.
-            .onAppear { if model.newGroupRequested { beginNewGroup() }; openRequested() }
+            // The folded cards come first, so a task asked for on arrival can open its card.
+            .onAppear { folded = FoldedCards.load(model.storageKey); if model.newGroupRequested { beginNewGroup() }; openRequested() }
             .onChange(of: model.boardOpenRequest) { _, _ in openRequested() }
             .onChange(of: model.newGroupRequested) { _, requested in if requested { beginNewGroup() } }
             // A group made on the board's + may land below the fold; its sheet folds into it there.
@@ -204,6 +205,7 @@ struct GroupBoard: View {
             .onAppear {
                 if let saved = UserDefaults.standard.array(forKey: looseSlotKey) as? [Int], saved.count == 2 { looseSlot = BoardSlot(lane: saved[0], row: saved[1]) }
             }
+            .onChange(of: folded) { _, now in FoldedCards.save(now, for: model.storageKey) }
             .coordinateSpace(.named(Self.boardSpace))
             .overlay(alignment: .topLeading) {
                 // The lifted card follows the pointer while its slot stays in the layout and the others make room.
@@ -296,21 +298,22 @@ struct GroupBoard: View {
         livePlaces = nil; drag = nil; settling = false; landed = id
     }
 
-    /// Explains each glyph and doubles as the filter. The Plan view shows the same one.
-    /// The board's own + ends the row: as the island's + adds a workspace, it adds a group, in line with the cards' own +.
-    private var legend: some View {
-        HStack(alignment: .top, spacing: 8) {
-            StateLegend(model: model, scope: .board, tasks: model.boardTasks(in: nil) + model.groups.flatMap { model.boardTasks(in: $0.id) },
-                        plannedCount: model.groups.reduce(0) { $0 + model.plannedLines(in: $1.id).count })
-            Spacer(minLength: 0)
-            PlusButton(help: "New group (⇧⌘G)", label: "New group") { beginNewGroup() }
-                // Where the new group's sheet grows out of and, if let go, folds back into.
-                .anchorPreference(key: GroupCardKey.self, value: .bounds) { [AppModel.newGroupSheet: $0] }
-                .padding(.trailing, Self.plusInset).padding(.top, -3)
-        }
+    /// Whether a card shows only its title.
+    private func isFolded(_ key: String) -> Bool { folded.contains(key) }
+
+    /// Folds the card to its title, or shows its tasks again. With ⌥ held it does the same to every card on the board, as in Finder.
+    private func toggleFold(_ key: String) {
+        let every = NSEvent.modifierFlags.contains(.option)
+        setFolded(every ? Set(shownKeys(visibleLists).filter { $0 != Self.newKey }) : [key], !isFolded(key))
     }
+
+    /// The card's rows and its cover's height change in one move, and the columns close up or open with them.
+    private func setFolded(_ keys: Set<String>, _ fold: Bool) {
+        withAnimation(Motion.move) { if fold { folded.formUnion(keys) } else { folded.subtract(keys) } }
+    }
+
     /// How far a + sits in from the edge of the board or of its card, so every + on the board lines up.
-    private static let plusInset: CGFloat = cardInset - 6
+    static let plusInset: CGFloat = cardInset - 6
 
     private func card(_ id: String?, name: String, group: TaskGroup?, tasks: [FaciendaTask]) -> some View {
         let key = id ?? Self.looseKey, lifted = drag?.id == key
@@ -329,6 +332,9 @@ struct GroupBoard: View {
             // Where the card's sheet grows out of and folds back into.
             .anchorPreference(key: GroupCardKey.self, value: .bounds) { [key: $0] }
             .contentShape(RoundedRectangle(cornerRadius: 12))
+            // A click anywhere on the card folds or opens it. Rows, buttons and the grace around them keep their own clicks.
+            // A resting card has nothing to open, so a click leaves it as it is.
+            .onTapGesture { if renaming != key && !isResting(group, tasks: arranged(tasks, in: key)) { toggleFold(key) } }
             .onHover { inside in if inside { hover.card = key } else if hover.card == key { hover.card = nil } }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { cardFrames[key] = $0 }
             .contextMenu {
@@ -341,6 +347,12 @@ struct GroupBoard: View {
                             ForEach(model.otherWorkspaces) { workspace in Button(workspace.name) { model.moveGroup(group, to: workspace) } }
                         }
                     }
+                }
+                Divider()
+                Button(isFolded(key) ? "Show tasks" : "Fold tasks") { setFolded([key], !isFolded(key)) }
+                let every = Set(shownKeys(visibleLists).filter { $0 != Self.newKey })
+                Button(every.isSubset(of: folded) ? "Show every card" : "Fold every card") { setFolded(every, !every.isSubset(of: folded)) }
+                if let group {
                     if showCovers, model.coverPainter != nil {
                         let painting = model.paintingCovers.contains(group.id)
                         Divider()
@@ -368,69 +380,102 @@ struct GroupBoard: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { cardFrames[key] = $0 }
     }
 
+    /// Nothing to show under the card's title: no tasks and no planned lines, as the card draws them.
+    private func isResting(_ group: TaskGroup?, tasks: [FaciendaTask]) -> Bool {
+        tasks.isEmpty && (group.map { arrangedPlanned(visiblePlannedLines(in: $0.id), in: $0.id).isEmpty } ?? true)
+    }
+
     /// `hoverKey` names the card whose rim firms up under the pointer; nil keeps the rim as it is.
     private func cardContent(_ id: String?, name: String, group: TaskGroup?, tasks: [FaciendaTask], hoverKey: String? = nil) -> some View {
         // Tasks planned and not started follow the group's tasks. They are never new, so New and a search leave them out.
         let planned = group.map { arrangedPlanned(visiblePlannedLines(in: $0.id), in: $0.id) } ?? []
-        let resting = tasks.isEmpty && planned.isEmpty
+        let resting = isResting(group, tasks: tasks)
+        // A resting card has nothing to show under its title, so it rests as a folded band that says since when.
+        let shut = isFolded(id ?? Self.looseKey) || resting
+        // A painted cover carries the name on its fade; without one the name has its own row.
+        let banner = showCovers && group.map { model.coverImages[$0.id] != nil } == true
         return VStack(alignment: .leading, spacing: 0) {
-            // A painted cover carries the name on its fade; without one the name has its own row.
-            let banner = showCovers && group.map { model.coverImages[$0.id] != nil } == true
-            if showCovers, let group { cover(group, resting: resting) { titleRow(id, name: name, group: group, resting: resting, size: 15) } }
-            if !banner { titleRow(id, name: name, group: group, resting: resting).padding(.bottom, 6) }
-            if resting {
-                Text(group == nil ? "Nothing here right now." : Self.resting(since: model.lastActive(in: group?.id)))
-                    .font(.system(size: 11)).foregroundStyle(Palette.muted).padding(.bottom, 2)
-            }
-            ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
-                // The dragged task's own slot stays open where it will land.
-                let lifted = rowDrag?.planned == false && rowDrag?.id == task.id
-                row(task, in: id, among: tasks, at: index)
-                    .opacity(lifted ? 0 : 1)
-                    .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
-            }
-            ForEach(Array(planned.enumerated()), id: \.element.id) { index, line in
-                // A planned row moves like a task: its slot stays open where it will land.
-                let lifted = rowDrag?.planned == true && rowDrag?.id == line.id
-                PlannedRow(model: model, line: line, hover: hover,
-                           above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true,
-                           carrying: rowDrag != nil)
-                    .opacity(lifted ? 0 : 1)
-                    .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[Self.plannedKey(line.id)] = $0 }
+            let fold = CardFoldState(folded: shut, tasks: tasks, planned: planned.count)
+            if showCovers, let group { cover(group, resting: resting, folded: shut) { titleRow(id, name: name, group: group, resting: resting, fold: fold, banner: true, size: 15) } }
+            if !banner { titleRow(id, name: name, group: group, resting: resting, fold: fold, banner: false).padding(.bottom, shut ? 0 : 6) }
+            // Folded, the card is its title alone; what it holds shows as counts in the title.
+            if !shut {
+                VStack(alignment: .leading, spacing: 0) { cardRows(id, group: group, tasks: tasks, planned: planned) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // The rows keep their clicks out to the card's edges and its foot, so a near miss on a row never folds the card.
+                    .padding(.horizontal, Self.cardInset).padding(.bottom, 8).contentShape(Rectangle()).onTapGesture {}
+                    .padding(.horizontal, -Self.cardInset).padding(.bottom, -8)
             }
         }
-        .padding(.horizontal, Self.cardInset).padding(.top, 12).padding(.bottom, 8)
+        // A folded card is one 44 pt band: the cover's own, or the title row's with even padding.
+        .padding(.horizontal, Self.cardInset).padding(.top, shut && !banner ? 11 : 12).padding(.bottom, shut ? (banner ? 0 : 11) : 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(resting ? Color.clear : Palette.card, in: RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay { CardEdge(hover: hover, key: hoverKey) }
     }
 
-    /// The group's name with its sources, set on the cover's fade or on a row of its own.
-    private func titleRow(_ id: String?, name: String, group: TaskGroup?, resting: Bool, size: CGFloat = 13) -> some View {
-        HStack(spacing: 8) {
-            if let group, renaming == group.id {
+    /// The card's tasks and planned lines, below its title.
+    @ViewBuilder private func cardRows(_ id: String?, group: TaskGroup?, tasks: [FaciendaTask], planned: [PlanLine]) -> some View {
+        ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+            // The dragged task's own slot stays open where it will land.
+            let lifted = rowDrag?.planned == false && rowDrag?.id == task.id
+            row(task, in: id, among: tasks, at: index)
+                .opacity(lifted ? 0 : 1)
+                .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
+        }
+        ForEach(Array(planned.enumerated()), id: \.element.id) { index, line in
+            // A planned row moves like a task: its slot stays open where it will land.
+            let lifted = rowDrag?.planned == true && rowDrag?.id == line.id
+            PlannedRow(model: model, line: line, hover: hover,
+                       above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true,
+                       carrying: rowDrag != nil)
+                .opacity(lifted ? 0 : 1)
+                .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[Self.plannedKey(line.id)] = $0 }
+        }
+    }
+
+    /// The group's name with its sources, set on the cover's fade or on a row of its own. Folded, the counts take the sources' place;
+    /// resting, the line that says since when. The whole row folds and unfolds the card, out to the card's edges and its padding,
+    /// so the click never has to find the arrow. A resting card has nothing to unfold, so it has no arrow and the click does nothing.
+    /// Renaming is in the card's menu.
+    private func titleRow(_ id: String?, name: String, group: TaskGroup?, resting: Bool, fold: CardFoldState, banner: Bool, size: CGFloat = 13) -> some View {
+        let key = id ?? Self.looseKey, editing = group != nil && renaming == group?.id
+        // How far the row's click reaches past its text: to the card's sides, and up and down through the padding around it.
+        // Folded, a cover's whole band is its title, so the click reaches up to the band's top edge.
+        let top: CGFloat = banner ? (fold.folded ? Self.bandHeight - 22 - 10 : 12) : (fold.folded ? 11 : 12)
+        let reach = EdgeInsets(top: top, leading: Self.cardInset, bottom: banner ? 10 : (fold.folded ? 11 : 6), trailing: Self.cardInset)
+        let verb = fold.folded ? "show its tasks" : "fold its tasks"
+        return HStack(spacing: 8) {
+            if let group, editing {
                 TextField("Group name", text: $draftName).textFieldStyle(.plain).font(.system(size: size, weight: .semibold))
                     .focused($nameFocused).onSubmit { commitRename(group) }.onExitCommand { renaming = nil }
                     .onChange(of: nameFocused) { _, focused in if !focused { commitRename(group) } }
-            } else if let group {
-                Button { beginRename(group) } label: {
-                    Text(name).font(.system(size: size, weight: .semibold)).foregroundStyle(resting ? Palette.muted : Palette.ink)
-                        .lineLimit(1).contentShape(Rectangle())
-                }.buttonStyle(.plain).help("Click to rename. Drag to move the group.").accessibilityLabel("Rename " + name)
             } else {
-                Text(name).font(.system(size: size, weight: .semibold)).foregroundStyle(Palette.muted).lineLimit(1)
-                    .help("Tasks without a group. Drag to move.")
+                Text(name).font(.system(size: size, weight: .semibold)).foregroundStyle(resting || group == nil ? Palette.muted : Palette.ink).lineLimit(1)
             }
             Spacer(minLength: 0)
-            if let group { SourcesButton(model: model, group: group) }
+            if resting {
+                Text(group == nil ? "Nothing here right now" : RestingLine.text(since: model.lastActive(in: group?.id)))
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).transition(.opacity)
+            } else if fold.folded { FoldTally(model: model, tasks: fold.tasks, planned: fold.planned).transition(.opacity) }
+            else if let group { SourcesButton(model: model, group: group).background(GraceZone()).transition(.opacity) }
             // The island's +, in the same corner of every card, Unsorted's too: a task in this group, or in the pile.
             PlusButton(help: "New task in " + name, label: "New task in " + name) { newTask(in: group) }
                 .padding(.trailing, -6).padding(.vertical, -2)
-        }.frame(minHeight: 22).contentShape(Rectangle())
-            .simultaneousGesture(dragCard(id ?? Self.looseKey))
+        }
+        .frame(minHeight: 22)
+        .overlay(alignment: .leading) { if !resting { FoldArrow(hover: hover, key: key, folded: fold.folded).offset(x: Self.foldArrowOffset) } }
+        .padding(reach).contentShape(Rectangle()).padding(EdgeInsets(top: -reach.top, leading: -reach.leading, bottom: -reach.bottom, trailing: -reach.trailing))
+        .help((group == nil ? "Tasks without a group. " : "") + (resting ? "Nothing to show until a task joins. Drag to move." : "Click to \(verb), ⌥-click to do it to every card. Drag to move."))
+        .onTapGesture { if !editing && !resting { toggleFold(key) } }
+        .simultaneousGesture(dragCard(key))
+        .accessibilityElement(children: .contain)
+        .accessibilityActions { if !resting { Button(fold.folded ? "Show tasks" : "Fold tasks") { toggleFold(key) } } }
     }
+    /// Where the fold arrow sits, in the card's margin just left of the name.
+    private static let foldArrowOffset: CGFloat = -19
 
     /// While a task is dragged, each card shows its rows as they will be once it lands.
     private func arranged(_ tasks: [FaciendaTask], in key: String) -> [FaciendaTask] {
@@ -475,7 +520,9 @@ struct GroupBoard: View {
                 let centre = CGPoint(x: value.location.x - current.grab.width + current.size.width / 2, y: value.location.y - current.grab.height + current.size.height / 2)
                 // Over the New group card, the row will start a group of its own.
                 current.newGroup = cardFrames[Self.newKey]?.contains(centre) == true
-                dropTarget = current.newGroup ? Self.newKey : nil
+                // A folded card has no rows to slide aside, so its edge lights instead.
+                let shut = (current.planned ? livePlanned : liveRows)?.keys.first { isFolded($0) && cardFrames[$0]?.contains(centre) == true }
+                dropTarget = current.newGroup ? Self.newKey : shut
                 rowDrag = current
                 guard !current.newGroup, let lists = current.planned ? livePlanned : liveRows,
                       let moved = carry(current.id, in: lists, to: centre, frame: { rowFrames.rows[current.planned ? Self.plannedKey($0) : $0] }),
@@ -491,8 +538,11 @@ struct GroupBoard: View {
                     makeGroup(named: AppModel.newGroupName, holding: current.planned ? [] : [current.id], planning: current.planned ? [current.id] : [])
                     return
                 }
-                guard let lists = current.planned ? livePlanned : liveRows,
-                      let slot = rowFrames.rows[current.planned ? Self.plannedKey(current.id) : current.id] else { finishRowDrag(); return }
+                guard let lists = current.planned ? livePlanned : liveRows else { finishRowDrag(); return }
+                // Into a folded card the row glides onto its title band, where the card takes it in; elsewhere into its open slot.
+                let into = lists.first { $0.value.contains(current.id) }?.key
+                let band = into.flatMap { isFolded($0) ? cardFrames[$0] : nil }.map { CGRect(origin: CGPoint(x: $0.minX + Self.cardInset, y: $0.minY), size: current.size) }
+                guard let slot = band ?? rowFrames.rows[current.planned ? Self.plannedKey(current.id) : current.id] else { finishRowDrag(); return }
                 // Glide from the pointer into the open slot, then save the order the board already shows.
                 withAnimation(Motion.move) {
                     rowSettling = true
@@ -510,6 +560,8 @@ struct GroupBoard: View {
                         }
                     }
                     finishRowDrag()
+                    // A folded card shows it took the row with the landing ripple, since no row of its own appears.
+                    if band != nil { landed = into }
                     NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
                 }
             }
@@ -521,7 +573,8 @@ struct GroupBoard: View {
         guard let card = lists.keys.first(where: { cardFrames[$0]?.contains(centre) == true }) else { return nil }
         var moved = lists
         for key in moved.keys { moved[key]?.removeAll { $0 == id } }
-        let above = moved[card, default: []].filter { (frame($0)?.midY ?? .infinity) < centre.y }.count
+        // A folded card takes it at the top: its rows aren't there to aim between.
+        let above = isFolded(card) ? 0 : moved[card, default: []].filter { (frame($0)?.midY ?? .infinity) < centre.y }.count
         moved[card, default: []].insert(id, at: above)
         return (moved, lists[card]?.contains(id) != true)
     }
@@ -532,47 +585,67 @@ struct GroupBoard: View {
 
     /// The painted banner across the top of a group's card, or its placeholder while Codex paints. A resting group's banner is dimmed down and darkened.
     /// It darkens into the card's colour as the workspace banner does, with the group's name on the fade.
-    @ViewBuilder private func cover<Title: View>(_ group: TaskGroup, resting: Bool, @ViewBuilder title: () -> Title) -> some View {
+    /// Folded, it rolls up into a shorter band, as bright as when open, with the title on a deeper fade at its foot.
+    @ViewBuilder private func cover<Title: View>(_ group: TaskGroup, resting: Bool, folded: Bool, @ViewBuilder title: () -> Title) -> some View {
         if let image = model.coverImages[group.id] {
             let painting = model.paintingCovers.contains(group.id)
-            Color.clear.frame(height: Self.coverHeight)
+            // The card's own colour; a resting card has none, so its banner sinks into the board.
+            let ground = resting ? Palette.paper : Palette.card
+            Color.clear.frame(height: folded ? Self.bandHeight : Self.coverHeight)
                 .overlay {
                     Image(nsImage: image).resizable().scaledToFill()
                         .saturation(resting ? 0.6 : 1).brightness(resting ? -0.4 : 0)
                         .animation(Motion.move, value: resting)
+                        // Only the picture is hidden from VoiceOver. Hiding the banner that carries the help keeps the banner from taking a drag.
+                        .accessibilityHidden(true)
                 }
                 .clipped().opacity(painting ? 0.5 : 1)
                 .overlay {
-                    // The card's own colour; a resting card has none, so its banner sinks into the board.
-                    let ground = resting ? Palette.paper : Palette.card
                     LinearGradient(stops: [.init(color: ground.opacity(0), location: 0.3), .init(color: ground.opacity(0.55), location: 0.7),
                                            .init(color: ground, location: 1)], startPoint: .top, endPoint: .bottom)
+                        .opacity(folded ? 0 : 1)
+                        .animation(Motion.move, value: resting)
+                }
+                // Folded, the fade is measured up from the band's foot: the title sits on nearly plain card,
+                // and the band above it is the picture at full brightness.
+                .overlay {
+                    LinearGradient(stops: Self.foldedFade.map { .init(color: ground.opacity($0.opacity), location: $0.location) }, startPoint: .top, endPoint: .bottom)
+                        .opacity(folded ? 1 : 0)
                         .animation(Motion.move, value: resting)
                 }
                 .help(group.coverStyle?.isEmpty == false ? "Cover: " + group.coverStyle! : "Group cover")
-                .accessibilityHidden(true)
                 .simultaneousGesture(dragCard(group.id))
                 // The name has its own drag and its own help, so it goes on after the picture's.
                 .overlay(alignment: .bottom) { title().padding(.horizontal, Self.cardInset).padding(.bottom, 10) }
                 .overlay(alignment: .topTrailing) {
-                    if painting {
-                        ProgressView().controlSize(.small).padding(8)
-                    } else {
+                    // A folded band has no room for the cover's controls; they wait until the card opens.
+                    if painting, !folded {
+                        // It only shows the work; a press on it still lifts the card.
+                        ProgressView().controlSize(.small).padding(8).allowsHitTesting(false)
+                    } else if !folded {
                         CoverHover(hover: hover, id: group.id, pinned: adjusting == group.id) { coverControls(group) }
                     }
                 }
                 .onHover { inside in if inside { hover.cover = group.id } else if hover.cover == group.id { hover.cover = nil } }
                 // Out through the card's padding to its edges, where the card's clip rounds the top corners.
-                .padding(.horizontal, -Self.cardInset).padding(.top, -12).padding(.bottom, 2)
-        } else if model.paintingCovers.contains(group.id) {
+                .padding(.horizontal, -Self.cardInset).padding(.top, -12).padding(.bottom, folded ? 0 : 2)
+        } else if model.paintingCovers.contains(group.id), !folded {
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
+                ProgressView().controlSize(.small).allowsHitTesting(false)
                 Text("Painting a cover…").font(.system(size: 11)).foregroundStyle(Palette.muted)
             }.frame(maxWidth: .infinity).frame(height: Self.coverHeight).background(Palette.sidebar)
+                // The card moves by its band while the first cover is painted, as it will by the picture.
+                .contentShape(Rectangle())
+                .simultaneousGesture(dragCard(group.id))
                 .padding(.horizontal, -Self.cardInset).padding(.top, -12).padding(.bottom, 10)
         }
     }
     private static let coverHeight: CGFloat = 112
+    /// A folded cover's height: the title at its foot, and room above it for enough of the picture to know the group by.
+    private static let bandHeight: CGFloat = 84
+    /// The folded band's fade, as distances up from its foot: clear above the title, nearly the card's colour behind it.
+    private static let foldedFade: [(opacity: Double, location: CGFloat)] =
+        ([(0, 45), (0.62, 31), (0.92, 20), (1, 11)] as [(Double, CGFloat)]).map { (opacity: $0.0, location: (bandHeight - $0.1) / bandHeight) }
 
     /// Appears over the banner on hover: a wish for this picture, and a way back. A plain repaint is only in the card's menu.
     private func coverControls(_ group: TaskGroup) -> some View {
@@ -585,7 +658,7 @@ struct GroupBoard: View {
                     adjustPopover(group)
                 }
         }
-        .padding(3).background(.ultraThinMaterial, in: Capsule()).padding(6)
+        .padding(3).background(.ultraThinMaterial, in: Capsule()).background(GraceZone()).padding(6)
         .transition(.opacity)
     }
 
@@ -610,11 +683,6 @@ struct GroupBoard: View {
         wish = ""; adjusting = nil
     }
 
-    /// A resting group's line: when its tasks last moved.
-    private static func resting(since date: Date?) -> String {
-        guard let date else { return "Resting" }
-        return "Resting · last active " + date.formatted(.relative(presentation: .named))
-    }
     /// A planned line's key among the rows the pointer can be over, apart from task IDs.
     static func plannedKey(_ id: String) -> String { "planned:" + id }
 
@@ -688,6 +756,8 @@ struct GroupBoard: View {
         // The wash takes the slip's shape; the rules either side give way to it.
         .background { RowWash(hover: hover, id: task.id, slip: unread) }
         .background { UnreadSlip(on: unread, since: model.cameBack(task)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
+        // The task the top bar's reading acts on, in the slip's own shape.
+        .overlay { ReadingRing(on: model.readingTarget == task.id).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
         // A lifted slip stands a little apart from its neighbours, so two in a row read as two.
         .padding(.vertical, unread ? 3 : 0)
         .overlay(alignment: .top) { RowRule(hover: hover, id: task.id, above: previous?.id, lifted: unread || previous.map(model.isUnread) == true) }
@@ -718,7 +788,10 @@ struct GroupBoard: View {
         guard let id = model.boardOpenRequest else { return }
         model.boardOpenRequest = nil
         if !visibleLists.values.contains(where: { $0.contains { $0.id == id } }) { hiddenStates = LegendScope.board.defaultHidden; onlyNew = false }
-        scrollTarget = model.groupMembers[id].flatMap { group in model.groups.contains { $0.id == group } ? group : nil } ?? Self.looseKey
+        let card = model.groupMembers[id].flatMap { group in model.groups.contains { $0.id == group } ? group : nil } ?? Self.looseKey
+        // Its card opens if it was folded, so the row is there for its choices.
+        if isFolded(card) { setFolded([card], false) }
+        scrollTarget = card
         // The choices wait for the scroll, so they open on the row where it lands.
         Task { try? await Task.sleep(for: .milliseconds(400)); choosing = id }
     }
@@ -824,7 +897,7 @@ struct RowDrag: Equatable {
 
 /// The island's +, as the board uses it: a bare glyph in muted ink that adds one thing inside what it sits on.
 /// Under the pointer it only deepens; nothing grows or moves.
-private struct PlusButton: View {
+struct PlusButton: View {
     let help: String
     let label: String
     let action: () -> Void
@@ -840,6 +913,8 @@ private struct PlusButton: View {
         .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(label)
+        // On a card a click folds the card, so a near miss on the + must not.
+        .background(GroupBoard.GraceZone())
     }
 
     private struct PressFade: ButtonStyle {

@@ -18,19 +18,22 @@ enum LegendScope {
     static var current: LegendScope { UserDefaults.standard.string(forKey: "dashboardMode") == DashboardMode.plan.rawValue ? .plan : .board }
 }
 
-/// The filters of one view: New, a divider, then Planned and the task states with their counts.
+/// The filters of one view: New, then Planned and the task states with their counts.
 struct StateLegend: View {
     @Bindable var model: AppModel
     /// The tasks the counts are taken from.
     let tasks: [FaciendaTask]
     let plannedCount: Int
+    /// Glyph and count alone, for a row too narrow for the names; each name stays in its chip's tooltip.
+    var compact = false
     @AppStorage private var hiddenStates: String
     @AppStorage private var onlyNew: Bool
 
-    init(model: AppModel, scope: LegendScope, tasks: [FaciendaTask], plannedCount: Int) {
+    init(model: AppModel, scope: LegendScope, tasks: [FaciendaTask], plannedCount: Int, compact: Bool = false) {
         self.model = model
         self.tasks = tasks
         self.plannedCount = plannedCount
+        self.compact = compact
         _hiddenStates = AppStorage(wrappedValue: scope.defaultHidden, scope.hiddenKey)
         _onlyNew = AppStorage(wrappedValue: false, scope.onlyNewKey)
     }
@@ -41,7 +44,7 @@ struct StateLegend: View {
         let hidden = StateLegend.hidden(hiddenStates)
         // Chips keep their one line and move to the next row when the board is narrow, as beside a task's panel.
         return WrapLayout(spacing: 6) {
-            // New cuts across the states, so it sits apart and narrows instead of hiding.
+            // New cuts across the states, so it narrows instead of hiding.
             Button { onlyNew.toggle() } label: {
                 HStack(spacing: 5) {
                     Text("New").font(.system(size: 11, weight: .semibold)).foregroundStyle(onlyNew ? Palette.green : Palette.ink)
@@ -53,7 +56,6 @@ struct StateLegend: View {
             }.buttonStyle(.plain)
                 .help(onlyNew ? "Show all tasks" : "Show only new tasks")
                 .accessibilityLabel("Only new").accessibilityValue(onlyNew ? "on" : "off")
-            Rectangle().fill(Palette.line).frame(width: 1, height: 14).frame(width: 9, height: 20)
             ForEach(TaskDot.Kind.legendOrder, id: \.self) { kind in
                 stateChip(kind, count: kind == .notStarted ? plannedCount : counts[kind] ?? 0, hidden: hidden)
             }
@@ -65,9 +67,9 @@ struct StateLegend: View {
         return Button { toggle(kind) } label: {
             HStack(spacing: 5) {
                 TaskDot(kind: kind, animated: false)
-                Text(kind.label).font(.system(size: 11, weight: .medium))
+                if !compact { Text(kind.label).font(.system(size: 11, weight: .medium)) }
                 if count > 0 { Text("\(count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.muted) }
-            }.padding(.leading, 5).padding(.trailing, 10).padding(.vertical, 3)
+            }.padding(.leading, 5).padding(.trailing, compact ? 8 : 10).padding(.vertical, 3)
                 .background(on ? Palette.card : Color.clear, in: Capsule())
                 .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
                 .opacity(on ? 1 : 0.45).contentShape(Capsule())

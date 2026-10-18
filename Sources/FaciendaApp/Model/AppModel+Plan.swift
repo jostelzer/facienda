@@ -23,6 +23,15 @@ extension AppModel {
             && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted { $0.position < $1.position }
     }
+    /// What the Plan view's filters count for a group: the tasks its plan holds and the group's other tasks,
+    /// and the lines still to start.
+    func planLegend(for group: TaskGroup) -> (tasks: [FaciendaTask], planned: Int) {
+        let lines = planLines.filter { $0.groupId == group.id }
+        let held = lines.compactMap(\.launchedTaskId).compactMap { tasksByID[$0] }
+        let heldIDs = Set(held.map(\.id))
+        let planned = lines.filter { $0.launchedTaskId == nil && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        return (held + boardTasks(in: group.id).filter { !heldIDs.contains($0.id) }, planned)
+    }
     func setPlanText(_ id: String, _ text: String) { perform(undo: "Typing") { try store.setPlanText(id, text: text); refresh() } }
     func deletePlanLine(_ id: String) { perform(undo: "Delete Line") { try store.deletePlanLine(id); refresh() } }
     func indentPlanLine(_ id: String) { perform(undo: "Indent") { try store.indentPlanLine(id); refresh() } }

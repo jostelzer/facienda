@@ -46,13 +46,15 @@ try:
     request(1, 'initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='ReplacementTest', version='1')))
     process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
     process.stdin.flush()
+    tools_before = request(2, 'tools/list', {})['tools']
+    assert tools_before, 'The prior MCP process must expose tools before replacement'
     before = {name: (root / name).stat().st_ino for name in ('facienda-mcp', 'facienda-hook')}
     install_helpers()
     for name, inode in before.items():
         assert (root / name).stat().st_ino != inode, f'{name} was overwritten in place'
     subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name('integration_smoke.py')),
                     '--helpers', str(root), '--workspace'], check=True)
-    assert len(request(2, 'tools/list', {})['tools']) == 21
+    assert request(3, 'tools/list', {})['tools'] == tools_before
     print('PASS: fresh helper inodes; replacement handshake and all tools pass; prior MCP process still responds.')
 finally:
     process.stdin.close()

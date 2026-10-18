@@ -45,34 +45,42 @@ enum RunnerCommand {
             return try await payload(item, store: store, base: base, includePrompt: false).json
         case "memory-sync":
             try await WorkspaceMemoryService(store: store).synchronize()
+        case "memory-understand":
+            let space = try store.memorySpace(arguments.required("--space"))
+            guard let inference = HelperMemoryInference.bundled() else { throw StoreError.invalid("The background memory worker is unavailable.") }
+            return try await JSONValue.encoded(MemoryReasoner(store: store, inference: inference).learn(spaceID: space.id,
+                batches: Int(arguments.value("--batches") ?? "4") ?? 4,
+                parallelism: Int(arguments.value("--parallelism") ?? "4") ?? 4)).json
+        case "memory-reflect":
+            let space = try store.memorySpace(arguments.required("--space"))
+            guard let inference = HelperMemoryInference.bundled() else { throw StoreError.invalid("The background memory worker is unavailable.") }
+            return try await JSONValue.encoded(MemoryReflector(store: store, inference: inference).reflect(arguments.required("--query"), spaceID: space.id)).json
         case "memory-configure":
-            try store.saveMemorySettings(endpoint: arguments.value("--endpoint") ?? store.memorySettings().endpoint, enabled: arguments.value("--enabled").map { $0 == "true" } ?? store.memorySettings().enabled, workerModel: arguments.value("--worker-model") ?? store.memorySettings().workerModel, workerReasoningEffort: arguments.value("--worker-reasoning") ?? store.memorySettings().workerReasoningEffort, engine: arguments.value("--engine"))
+            guard arguments.value("--engine") == nil, arguments.value("--endpoint") == nil else { throw StoreError.invalid("Memory services are no longer supported.") }
+            try store.saveMemorySettings(enabled: arguments.value("--enabled").map { $0 == "true" } ?? store.memorySettings().enabled, workerModel: arguments.value("--worker-model") ?? store.memorySettings().workerModel, workerReasoningEffort: arguments.value("--worker-reasoning") ?? store.memorySettings().workerReasoningEffort)
             return try JSONValue.encoded(store.memorySettings()).json
         case "memory-import":
             let space = try store.memorySpace(arguments.required("--space"))
             let export = try HelperPolicy.folder(arguments.required("--export"), from: HelperPolicy.readableFolders(store))
             return try JSONValue.encoded(store.importHindsightMemory(spaceID: space.id, from: export)).json
+        case "memory-redact":
+            let space = try store.memorySpace(arguments.required("--space"))
+            return try JSONValue.encoded(store.redactStoredMemory(spaceID: space.id, apply: arguments.value("--apply") == "true")).json
+        case "memory-migrate":
+            let space = try store.memorySpace(arguments.required("--space"))
+            guard arguments.value("--apply") == "true" else { throw StoreError.invalid("Migration needs an explicit --apply true after user approval.") }
+            guard let inference = HelperMemoryInference.bundled() else { throw StoreError.invalid("The memory worker is unavailable.") }
+            return try await JSONValue.encoded(MemoryMigration(store: store, inference: inference).run(spaceID: space.id)).json
+        case "memory-migration-undo":
+            let space = try store.memorySpace(arguments.required("--space"))
+            guard arguments.value("--apply") == "true" else { throw StoreError.invalid("Undo needs an explicit --apply true.") }
+            try store.undoMemoryMigration(spaceID: space.id)
+            return JSONValue.object(["restored": .bool(true)]).json
         case "memory-recall":
             let space = try store.memorySpace(arguments.required("--space"))
             return try await MemoryRecall(store: store).recall(arguments.required("--query"), spaceID: space.id).json
-        case "memory-learn":
-            // Learns waiting sources with built-in memory through the bundled facienda-memory helper.
-            guard let inference = HelperMemoryInference.bundled() else { throw StoreError.invalid("facienda-memory was not found next to this helper.") }
-            let engine = NativeMemoryEngine(store: store, inference: inference)
-            let sources = Int(arguments.value("--sources") ?? "4") ?? 4, batches = Int(arguments.value("--batches") ?? "4") ?? 4
-            var learned = 0, consolidated = 0, errors: [JSONValue] = []
-            for _ in 0..<sources {
-                do { guard try await engine.retainNext() else { break }; learned += 1 } catch { errors.append(.string(error.localizedDescription)) }
-            }
-            for _ in 0..<batches { guard try await engine.consolidateNext() else { break }; consolidated += 1 }
-            return JSONValue.object(["learned": .number(Double(learned)), "consolidated": .number(Double(consolidated)), "errors": .array(errors)]).json
-        case "memory-classify":
-            guard let inference = HelperMemoryInference.bundled() else { throw StoreError.invalid("facienda-memory was not found next to this helper.") }
-            let engine = NativeMemoryEngine(store: store, inference: inference)
-            var total = 0
-            while true { let n = try await engine.classifyKinds(limit: 200); total += n; if n == 0 { break } }
-            try await engine.syncNotes()
-            return JSONValue.object(["classified": .number(Double(total))]).json
+        case "memory-learn", "memory-classify":
+            throw StoreError.invalid("The legacy memory learner is paused. Existing memory is still readable.")
         case "memory-recall-batch":
             // Evaluation: one line per query with the ranked unit IDs, cited sources and the time taken.
             let space = try store.memorySpace(arguments.required("--space"))

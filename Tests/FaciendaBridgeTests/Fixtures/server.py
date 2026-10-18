@@ -49,6 +49,15 @@ for line in sys.stdin:
         send({'id': request['id'], 'result': {'text': 'x' * (2 * 1024 * 1024)}})
     elif method == 'fixture/largeResponse':
         send({'id': request['id'], 'result': {'text': 'x' * (17 * 1024 * 1024)}})
+    elif method == 'thread/queue/list':
+        send({'id': request['id'], 'result': {'data': [], 'nextCursor': None}})
+    elif method == 'thread/turns/list':
+        thread_id = request['params']['threadId']
+        if thread_id in thread_responses:
+            turns = list(reversed(thread_responses[thread_id]['thread']['turns']))
+            send({'id': request['id'], 'result': {'data': turns, 'nextCursor': None}})
+        else:
+            send({'id': request['id'], 'error': {'code': -32000, 'message': 'Fixture chat unavailable'}})
     elif method == 'thread/read' and request['params']['includeTurns'] is False:
         # A details-only read, as setup uses to see whether the runner's chat still exists.
         thread_id = request['params']['threadId']

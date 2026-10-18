@@ -33,6 +33,8 @@ public struct MemoryUnit: Codable, FetchableRecord, PersistableRecord, Identifia
     public var memoryKind: String? = nil
     /// The Facienda task it was learned from, when there is exactly one.
     public var taskId: String? = nil
+    /// Set when the user forgot it: kept for Undo, shown nowhere, recalled never.
+    public var forgottenAt: Date? = nil
 
     public var vector: [Float] { MemoryVector.decode(embedding) }
     func with(kind: String?) -> MemoryUnit { var copy = self; copy.memoryKind = kind; return copy }
@@ -175,9 +177,32 @@ extension FaciendaStore {
 
     public func memoryUnits(spaceID: String, kinds: [MemoryUnit.Kind] = MemoryUnit.Kind.allCases) throws -> [MemoryUnit] {
         try db.read { db in
-            try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND kind IN (\(kinds.map { _ in "?" }.joined(separator: ",")))",
+            try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND forgottenAt IS NULL AND kind IN (\(kinds.map { _ in "?" }.joined(separator: ",")))",
                                     arguments: StatementArguments([spaceID] + kinds.map(\.rawValue)))
         }
+    }
+
+    /// What a memory learned, for reading through: its observations, newest first, those of one kind when asked.
+    /// Notes are left out, since they are shown as notes.
+    public func learnedObservations(spaceID: String, kind: MemoryKind? = nil, limit: Int = 300) throws -> [MemoryUnit] {
+        try db.read { db in
+            try MemoryUnit.fetchAll(db, sql: """
+                SELECT * FROM memoryUnits WHERE spaceId = ? AND kind = 'observation' AND forgottenAt IS NULL AND id NOT LIKE 'note-%'
+                \(kind == nil ? "" : "AND memoryKind = ?") ORDER BY eventDate DESC, updatedAt DESC LIMIT ?
+                """, arguments: StatementArguments([spaceID] + (kind.map { [$0.rawValue] } ?? []) + [limit]))
+        }
+    }
+
+    /// The user forgets a learned memory: it leaves every recall and list, but stays for Undo.
+    public func forgetMemoryUnit(_ id: String) throws {
+        try write { db in
+            try db.execute(sql: "UPDATE memoryUnits SET forgottenAt = ?, updatedAt = ? WHERE id = ? AND forgottenAt IS NULL", arguments: [Date(), Date(), id])
+            guard db.changesCount == 1 else { throw StoreError.notFound }
+        }
+    }
+
+    public func restoreMemoryUnit(_ id: String) throws {
+        try write { db in try db.execute(sql: "UPDATE memoryUnits SET forgottenAt = NULL, updatedAt = ? WHERE id = ?", arguments: [Date(), id]) }
     }
 
     public func memoryUnits(ids: [String]) throws -> [MemoryUnit] {
@@ -196,7 +221,7 @@ extension FaciendaStore {
     static func indexUnit(_ db: Database, _ unit: MemoryUnit, entities: [String]) throws {
         try db.execute(sql: "DELETE FROM memoryUnitSearch WHERE unitId = ?", arguments: [unit.id])
         let dates = [unit.occurredStart, unit.occurredEnd].compactMap { $0 }.map(MemoryText.spokenDate)
-        let body = ([unit.text, unit.context ?? ""] + entities + dates).joined(separator: " ")
+        let body = MemoryRedaction.redact(([unit.text, unit.context ?? ""] + entities + dates).joined(separator: " "))
         try db.execute(sql: "INSERT INTO memoryUnitSearch (unitId, body) VALUES (?, ?)", arguments: [unit.id, body])
     }
 
@@ -231,9 +256,9 @@ extension FaciendaStore {
                 """, arguments: [spaceID]) ?? 0
             let retained = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM memoryRetained WHERE spaceId = ? AND retainedAt IS NOT NULL", arguments: [spaceID]) ?? 0
             let error = try String.fetchOne(db, sql: "SELECT error FROM memoryRetained WHERE spaceId = ? AND error IS NOT NULL ORDER BY nextAttempt DESC LIMIT 1", arguments: [spaceID])
-            let counts = try Row.fetchAll(db, sql: "SELECT kind, COUNT(*) AS n FROM memoryUnits WHERE spaceId = ? GROUP BY kind", arguments: [spaceID])
+            let counts = try Row.fetchAll(db, sql: "SELECT kind, COUNT(*) AS n FROM memoryUnits WHERE spaceId = ? AND forgottenAt IS NULL GROUP BY kind", arguments: [spaceID])
             let byKind = Dictionary(uniqueKeysWithValues: counts.map { ($0["kind"] as String, $0["n"] as Int) })
-            let unconsolidated = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM memoryUnits WHERE spaceId = ? AND kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL", arguments: [spaceID]) ?? 0
+            let unconsolidated = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM memoryUnits WHERE spaceId = ? AND kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL AND forgottenAt IS NULL", arguments: [spaceID]) ?? 0
             return NativeMemoryStatus(waiting: waiting, retained: retained, facts: (byKind["world"] ?? 0) + (byKind["experience"] ?? 0),
                                       observations: byKind["observation"] ?? 0, unconsolidated: unconsolidated, error: error)
         }

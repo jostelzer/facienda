@@ -254,7 +254,7 @@ private struct GroupSheetContent: View {
         // A new group starts with its name.
         .task {
             try? await Task.sleep(for: .milliseconds(30)); if isNew { naming = true } else { focused = true }
-            try? await Task.sleep(for: .milliseconds(30)); selection = TextSelection(insertionPoint: omnibar.query.endIndex)
+            try? await Task.sleep(for: .milliseconds(30)); selection = TextSelection(insertionPoint: omnibar.sheetText.endIndex)
             ready()
         }
         // While the sheet is up, ⌘D dictates into it rather than the bar beneath.
@@ -282,7 +282,7 @@ private struct GroupSheetContent: View {
     private var side: some View {
         VStack(alignment: .leading, spacing: 0) {
             GeometryReader { proxy in
-                TextField(placeholder, text: $omnibar.query, selection: $selection, axis: .vertical)
+                TextField(placeholder, text: $omnibar.sheetText, selection: $selection, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 15))
                     // Fills the side, then scrolls.
                     .lineLimit(max(3, Int(proxy.size.height / 19)))
@@ -292,8 +292,10 @@ private struct GroupSheetContent: View {
                         return omnibar.handle(press)
                     }
                     .onSubmit { omnibar.submit() }
+                    // Typing while dictating keeps what is there and stops listening, as in the bar.
+                    .onChange(of: omnibar.sheetText) { _, text in omnibar.edited(text) }
                     .frame(width: proxy.size.width, alignment: .topLeading)
-                    .overlay { VoiceShapes(dictation: omnibar.dictation, text: omnibar.query.isEmpty ? placeholder : omnibar.query) }
+                    .overlay { VoiceShapes(dictation: omnibar.dictation, text: omnibar.sheetText.isEmpty ? placeholder : omnibar.sheetText) }
                     .accessibilityLabel(isNew ? "First task of the new group" : "What should happen in " + name)
             }
             .takesAttachments(omnibar, focus: $focused, dropping: $dropping)

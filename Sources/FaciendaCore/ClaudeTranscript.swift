@@ -114,9 +114,7 @@ public enum ClaudeTranscript {
         }
         if text.hasPrefix("Facienda dispatch: ") { return text }
         if let origin, origin != "human" { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        for machinery in ["<task-notification", "<system-reminder", "<local-command", "<command-name", "<bash-", "<cross-session"] where trimmed.hasPrefix(machinery) { return nil }
-        return text
+        return MemoryUserMessages.isEnvelope(text) ? nil : text
     }
 
     private static func crossSessionBody(_ text: String) -> String? {
@@ -185,7 +183,7 @@ extension ClaudeTranscript {
         let entry: [String: Any] = [
             "parentUuid": NSNull(), "isSidechain": false, "promptId": UUID().uuidString.lowercased(), "type": "user",
             "message": ["role": "user", "content": message], "uuid": UUID().uuidString.lowercased(), "timestamp": timestamp,
-            "permissionMode": permissionMode, "origin": ["kind": "human"], "promptSource": "sdk", "turnOrigin": "human",
+            "permissionMode": permissionMode, "origin": ["kind": "human"], "promptSource": "sdk", "turnOrigin": "human", "faciendaSource": "dispatch",
             "turnPosition": ["promptIndex": 1, "turnIndex": 1], "userType": "external", "entrypoint": "claude-desktop",
             "cwd": cwd, "sessionId": sessionId, "version": version, "gitBranch": ""
         ]

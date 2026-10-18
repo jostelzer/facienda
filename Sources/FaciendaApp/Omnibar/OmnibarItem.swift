@@ -69,7 +69,11 @@ enum OmnibarCommand: String, CaseIterable {
 
 struct OmnibarItem: Identifiable, Equatable {
     enum Kind: Equatable {
-        case start, remember(String), command(OmnibarCommand), task(FaciendaTask), chat(ChatResult), note(MemoryFact), enableChatSearch
+        case start, remember(String), command(OmnibarCommand), task(FaciendaTask), chat(ChatResult), note(MemoryFact)
+        /// A question answered from what Facienda holds, with what it came from.
+        case answer(BarReader.Reading)
+        /// A place new work could go, when Facienda was not sure which.
+        case place(BarPlace)
     }
     let id: String
     let kind: Kind

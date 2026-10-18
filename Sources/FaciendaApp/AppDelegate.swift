@@ -18,10 +18,6 @@ import FaciendaCore
         }
         ApplicationsMove.offerIfNeeded()
         _ = AppUpdater.shared
-        // Silent CloudKit changes must reach the running app, including while its window is closed.
-        if MobileCompanion.isCloudBuild && !CommandLine.arguments.contains("--demo") {
-            NSApp.registerForRemoteNotifications()
-        }
         var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let context, let event else { return noErr }

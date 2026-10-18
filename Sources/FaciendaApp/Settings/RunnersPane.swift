@@ -55,6 +55,10 @@ struct StatusPill: View {
 struct RunnersPane: View {
     @Bindable var model: AppModel
     @State private var guide: RunnerKind?
+    /// The Claude app's record of the runner session, for the model it is set to.
+    @State private var runnerSession: ClaudeDesktop.Session?
+    /// Sample data has no Claude app behind it.
+    private var runnerSessionId: String? { model.demo ? nil : model.claudeRunner?.sessionId }
 
     var body: some View {
         Group {
@@ -64,6 +68,14 @@ struct RunnersPane: View {
                 overview
             }
         }.modifier(ClaudeAccessPrompt(model: model))
+        // The model is switched in Claude, so it is read again while this page is open.
+        .task(id: runnerSessionId) {
+            guard let id = runnerSessionId else { runnerSession = nil; return }
+            while !Task.isCancelled {
+                runnerSession = await Task.detached { ClaudeDesktop.session(id: id) }.value
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
     }
 
     private var overview: some View {
@@ -103,6 +115,18 @@ struct RunnersPane: View {
         Text(text).font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
     }
 
+    /// The runner's model, and a warning when it costs far more than passing work on needs.
+    @ViewBuilder private func runnerModel(_ id: String, effort: String?) -> some View {
+        let name = TaskModelChoice.catalog.first { $0.id == id }?.name ?? id
+        let setting = "Runs on \(name)" + (effort.map { ", \(TaskModelChoice.effortName($0).lowercased()) effort" } ?? "") + "."
+        if ClaudeRunnerState.isCostly(model: id) {
+            Label(setting + " The runner only passes work on, so Sonnet does that as well for far less. Switch it in the runner’s session.", systemImage: "exclamationmark.circle")
+                .font(.system(size: 11)).foregroundStyle(Palette.accent).fixedSize(horizontal: false, vertical: true)
+        } else {
+            detail(setting)
+        }
+    }
+
     private var codexCard: some View {
         card(.codex, status: RunnerStatus.codex(model)) {
             detail("Facienda hands each task, reply and due check to Codex as soon as it is queued. Task chats open in \(model.store.nativeProjectName).")
@@ -133,6 +157,7 @@ struct RunnersPane: View {
                 let awake = runner.isAwake()
                 detail(runner.lastSeen.map { "Last seen \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting for the runner’s first check.")
                 detail(awake ? "New task sessions start on their own." : "Claude was closed, so the runner stopped. New Claude tasks wait here and start on their own once it wakes.")
+                if let current = runnerSession?.model, runnerSession?.id == session { runnerModel(current, effort: runnerSession?.effort) }
                 HStack(spacing: 8) {
                     if !awake {
                         Button(model.connectingClaude ? "Opening Claude…" : "Wake runner") { model.requestClaudeConnection(repair: true) }

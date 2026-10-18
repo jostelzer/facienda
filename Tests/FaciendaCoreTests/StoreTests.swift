@@ -205,7 +205,7 @@ private func rollout(_ reviewers: [String], trailing: Int = 0) throws -> URL {
 @Test func memoryToolsReachOnlyTheTasksOwnMemory() throws {
     let db = try store(), other = try store(), api = ToolService(store: db)
     let personal = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: try db.createMemorySpace(name: "Work").id)
+    let work = try db.createWorkspace(name: "Work")
     let home = try db.scoped(to: personal.id).create(FaciendaTask(title: "Origin"))
     let job = try db.scoped(to: work.id).create(FaciendaTask(title: "Quarterly plan"))
     let args: JSONValue = .object(["text": .string("Use Sardinia"), "source": .string("User request 2026-10-04"), "taskId": .string(try db.taskHandle(home.id))])
@@ -229,7 +229,7 @@ private func rollout(_ reviewers: [String], trailing: Int = 0) throws -> URL {
 @Test func chatSearchReadsOnlyTheChatsOfTheTasksMemory() throws {
     let db = try store()
     let personal = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: try db.createMemorySpace(name: "Work").id)
+    let work = try db.createWorkspace(name: "Work")
     let home = try db.scoped(to: personal.id).create(FaciendaTask(title: "Trip"))
     let job = try db.scoped(to: work.id).create(FaciendaTask(title: "Hire"))
     try db.link(ThreadLink(taskId: home.id, codexThreadId: "trip", role: "work", linkedBy: "user"), source: .user)

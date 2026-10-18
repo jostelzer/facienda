@@ -24,7 +24,7 @@ public enum ClaudePermissions {
 
     /// The hook events Facienda listens to, and the matcher each needs: a permission prompt, and the session moving on.
     static let hookEvents: [(event: String, matcher: String?)] = [
-        ("PermissionRequest", "*"), ("Notification", "permission_prompt"), ("PostToolUse", "*"), ("UserPromptSubmit", nil), ("Stop", nil)
+        ("PermissionRequest", "*"), ("Notification", "permission_prompt"), ("PreToolUse", "*"), ("PostToolUse", "*"), ("UserPromptSubmit", nil), ("Stop", nil)
     ]
     /// The hook's command line. The hook binary reads Facienda's own library, wherever the app keeps it.
     public static func hookCommand(hook: String) -> String { FaciendaStore.shellArgument(hook) + " --claude" }

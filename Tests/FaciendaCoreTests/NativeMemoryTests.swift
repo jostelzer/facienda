@@ -58,7 +58,7 @@ private let models = MemoryModels(cache: FileManager.default.temporaryDirectory.
 
 @Test func newLibrariesLearnInsideFacienda() throws {
     let (store, _) = try nativeStore()
-    #expect(try store.memorySettings().engine == "native")
+    #expect(try JSONValue.encoded(store.memorySettings())["engine"] == .null)
 }
 
 @Test func retainLearnsFactsEntitiesAndLinksAndOnlyRelearnsChangedChunks() async throws {
@@ -112,15 +112,14 @@ private let models = MemoryModels(cache: FileManager.default.temporaryDirectory.
     #expect(response["source_facts"].object?.count == 2)
 }
 
-@Test func memoryServiceUsesBuiltInRecallWithHindsightsShape() async throws {
-    let (store, space) = try nativeStore()
-    try store.saveMemorySettings(endpoint: try store.memorySettings().endpoint, enabled: true, workerModel: nil)
-    try store.enqueueMemoryDocument(id: "a", content: "fact: Example server lost a power supply | entities: Example server, power supply", source: "Facienda task 1", at: Date(), spaceID: space)
-    let service = WorkspaceMemoryService(store: store, inference: ScriptedLuna())
+@Test func memoryServicePausesLegacyExtractionAndKeepsRecall() async throws {
+    let (store, space) = try nativeStore(), worker = ScriptedLuna()
+    try store.saveMemorySettings(enabled: true, workerModel: nil)
+    try store.enqueueMemoryDocument(id: "a", content: "Use oak floors", source: "fixture", at: Date(), spaceID: space)
+    let service = WorkspaceMemoryService(store: store, inference: worker)
     try await service.synchronize()
-    let context = try await service.context(query: "why is the example server throttled", spaceID: space)
-    #expect(context["status"].string?.hasPrefix("Learned context") == true)
-    #expect(context["learned"]["results"].array?.isEmpty == false)
+    #expect(worker.extractions == 0 && worker.consolidations == 0)
+    let context = try await service.context(query: "floors", spaceID: space)
     #expect(context["userConfirmed"].array != nil)
 }
 
@@ -160,12 +159,17 @@ private let models = MemoryModels(cache: FileManager.default.temporaryDirectory.
     try store.db.write { db in try reply.insert(db); try report.insert(db) }
     let decision = try store.requestDecision(Decision(taskId: task.id, question: "License?", recommendation: "Apache-2.0", options: ["Apache-2.0", "MIT"]))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "thread-abc"))
+    for (id, kind) in [("task-" + task.id, MemorySourceKind.userRequest), ("event-" + reply.id, .userReply),
+                       ("decision-" + decision.id, .userDecision), ("thread-thread-abc-turn-1-item-2", .codexUser)] {
+        try store.enqueueMemoryDocument(id: id, content: "Recorded source", source: "fixture", at: Date(), spaceID: try store.memorySpace(forTask: task.id).id,
+                                        sourceKind: kind, taskID: task.id)
+    }
     let sources = try store.db.read { db in
         try [("task-" + task.id, "User's original request: x"), ("event-" + reply.id, "User statement: x"), ("event-" + report.id, "Assistant report: x"),
              ("decision-" + decision.id, "Question: x"), ("thread-thread-abc-turn-1-item-2", "User statement: x"), ("thread-other-turn-1-item-2", "Assistant report: x")]
             .map { try FaciendaStore.memorySource(db, documentID: $0.0, content: $0.1) }
     }
-    #expect(sources.map(\.taskID) == [task.id, task.id, task.id, task.id, task.id, nil])
+    #expect(sources.map(\.taskID) == [task.id, task.id, nil, task.id, task.id, nil])
     #expect(sources.map(\.level) == [.user, .user, .assistant, .decision, .user, .assistant])
 }
 
@@ -173,7 +177,7 @@ private let models = MemoryModels(cache: FileManager.default.temporaryDirectory.
     let (store, space) = try nativeStore(), luna = ScriptedLuna()
     let task = try store.create(FaciendaTask(title: "Ship the release"))
     try store.enqueueMemoryDocument(id: "task-" + task.id, content: "User's original request:\nfact: User prefers HTML mocks for design questions | entities: user",
-                                    source: "Facienda task", at: Date(), spaceID: space)
+                                    source: "Facienda task", at: Date(), spaceID: space, sourceKind: .userRequest, taskID: task.id)
     try await NativeMemoryEngine(store: store, inference: luna, models: models).synchronize()
     let fact = try #require(try store.memoryUnits(spaceID: space, kinds: [.world]).first)
     #expect(fact.level == "user" && fact.taskId == task.id && fact.memoryKind == "preference")
@@ -209,7 +213,7 @@ private let models = MemoryModels(cache: FileManager.default.temporaryDirectory.
     try store.enqueueMemoryDocument(id: "event-" + report.id, content: "Assistant report, not independently verified:\nfact: Assistant reported the portal deploy should use port 8443 | entities: portal",
                                     source: "Facienda event", at: Date(), spaceID: space)
     try store.enqueueMemoryDocument(id: "task-" + mine.id, content: "User's original request:\nfact: The portal deploy must use port 8443 | entities: portal",
-                                    source: "Facienda task", at: Date(), spaceID: space)
+                                    source: "Facienda task", at: Date(), spaceID: space, sourceKind: .userRequest, taskID: mine.id)
     let engine = NativeMemoryEngine(store: store, inference: luna, models: models)
     while try await engine.retainNext() {}
     var options = MemoryRecallOptions()

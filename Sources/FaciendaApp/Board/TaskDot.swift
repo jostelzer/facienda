@@ -101,3 +101,18 @@ struct TaskDot: View {
         }.frame(width: 16, height: 16).help(kind.label).accessibilityLabel(kind.label)
     }
 }
+
+extension TaskDot.Kind {
+    /// A task's glyph from its state alone, for a task in a workspace that is not open, whose chats and waits are not
+    /// loaded. Nil for a task let go.
+    init?(state: TaskState) {
+        switch state {
+        case .running: self = .running
+        case .needsMe: self = .review
+        case .waiting, .scheduled: self = .waiting
+        case .done: self = .done
+        case .inbox: self = .notStarted
+        case .dropped: return nil
+        }
+    }
+}

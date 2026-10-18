@@ -115,8 +115,7 @@ public enum LibraryHome {
             try store.renameWorkspace(store.defaultWorkspace().id, to: workspaceName)
             // Finished tasks' files go to the Trash after a month unless the user chooses otherwise in Settings.
             try store.setArtifactRetentionDays(30)
-            let settings = try store.memorySettings()
-            try store.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "high")
+            try store.saveMemorySettings(enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "high")
         }
         if let pointer {
             try FileManager.default.createDirectory(at: pointer.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

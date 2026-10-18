@@ -13,7 +13,7 @@ struct WorkspaceMenuItems: View {
                 if workspace.id == workspaces.current?.id {
                     Label(workspace.name, systemImage: "checkmark")
                 } else { Text(workspace.name) }
-            }.help(workspaces.memoryName(for: workspace) + " memory")
+            }
         }
         Divider()
         if includeQuickActions {

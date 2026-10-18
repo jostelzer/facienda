@@ -44,6 +44,12 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(sol.choosing("claude-sonnet-5-5", remembered: stale) == TaskModelChoice(model: "claude-sonnet-5-5", effort: "high", fast: false))
 }
 
+@Test func onlyTheLargestModelsAreCostlyForTheRunner() {
+    #expect(ClaudeRunnerState.isCostly(model: "claude-opus-5-5") && ClaudeRunnerState.isCostly(model: "claude-fable-5-1"))
+    #expect(ClaudeRunnerState.isCostly(model: "Claude-Opus-4-1"))
+    #expect(!ClaudeRunnerState.isCostly(model: "claude-sonnet-5-5") && !ClaudeRunnerState.isCostly(model: "claude-haiku-5-5"))
+}
+
 @Test func claudeStartsNeverReachTheCodexRunnerAndOpenInTheComposer() throws {
     let store = try claudeStore()
     try store.bindRunner(threadId: "codex-runner", automationId: nil)
@@ -141,8 +147,10 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(session.configureState == "pending" && session.model == "claude-sonnet-5-5" && session.effort == "medium")
     #expect(try store.settledClaudeSession("local_worker") == nil)
     #expect(try store.hasClaudeWork(runnerId: "local_runner"))
-    guard case .configure(let claimed) = try #require(try store.claimClaudeWork(runnerId: "local_runner")) else { Issue.record("Expected a configure job"); return }
+    guard case .configure(let claimed, let start) = try #require(try store.claimClaudeWork(runnerId: "local_runner")) else { Issue.record("Expected a configure job"); return }
     #expect(claimed.threadId == "local_worker" && claimed.configureState == "configuring")
+    // The user sent this session's start themselves, so there is none to send.
+    #expect(start == nil)
     #expect(try store.claimClaudeWork(runnerId: "local_runner") == nil)
     try store.nameTask(task.id, runnerID: "local_runner", expectedTitle: task.title, displayTitle: "Venue email", context: "test")
     try store.finishClaudeConfigure(threadId: "local_worker", runnerId: "local_runner", applied: true, note: "Sonnet 5.5, medium")
@@ -293,6 +301,7 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(server["mcpServers"]["facienda"]["args"].array?.last?.string == store.url.path)
     let settings = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: folder.appending(path: ".claude/settings.local.json")))
     #expect(settings["enabledMcpjsonServers"].array == [.string("facienda")])
+    #expect(settings["autoCompactWindow"] == .null)
     // Only Facienda's tools and exactly the helper commands a task session's instructions name, pinned to this library.
     let base = "/Apps/facienda-mcp --database \(store.url.path)"
     #expect(settings["permissions"]["allow"].array == ["mcp__facienda", "Bash(\(base) --call *)", "Bash(\(base) --tools)", "Bash(\(base) --claude attach --dispatch-id *)",
@@ -325,6 +334,9 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     let runnerSettings = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: URL(fileURLWithPath: firstFolder + "/.claude/settings.local.json")))
     #expect(runnerSettings["permissions"]["allow"].array?.contains(.string("mcp__ccd_session_mgmt__set_session_model")) == true)
     #expect(runnerSettings["permissions"]["allow"].array?.contains(.string("SendMessage")) == true)
+    // The runner compacts long before a million tokens, so its steps stay quick; a task session keeps Claude's own window.
+    #expect(runnerSettings["autoCompactWindow"].number == Double(FaciendaStore.claudeRunnerContext))
+    #expect(try String(contentsOf: URL(fileURLWithPath: firstFolder + "/.claude/settings.local.json"), encoding: .utf8).contains("\"autoCompactWindow\" : 150000"))
     // Reopening the same setup keeps its folder; a repair gets a new one.
     #expect(try store.claudeSetupURL(helper: "/Apps/facienda-mcp", runnerFolder: runners) == first)
     try store.prepareClaudeSetup(repair: true)
@@ -422,16 +434,54 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(try store.claimClaudeWork(runnerId: "local_runner") == nil)
     #expect(throws: StoreError.self) { try store.importClaudeSession(dispatchId: item.id, helper: "/Apps/facienda-mcp", permissionMode: "auto", cliVersion: "2.1.289", transcripts: transcripts) }
     try store.confirmClaudeImport(dispatchId: item.id)
-    guard case .configure(let session) = try #require(try store.claimClaudeWork(runnerId: "local_runner")) else { Issue.record("Expected a configure job"); return }
+    // The start comes with the settings, already begun, so the runner sends it as soon as they are applied.
+    guard case .configure(let session, let folded) = try #require(try store.claimClaudeWork(runnerId: "local_runner")) else { Issue.record("Expected a configure job"); return }
     #expect(session.threadId == imported.threadId && session.model == "claude-sonnet-5-5")
-    try store.finishClaudeConfigure(threadId: imported.threadId, runnerId: "local_runner", applied: true, note: nil)
-    guard case .deliver(let start) = try #require(try store.claimClaudeWork(runnerId: "local_runner")) else { Issue.record("Expected the start delivery"); return }
-    #expect(start.id == item.id && start.threadId == imported.threadId && start.kind == "start")
-    _ = try store.beginClaudeDelivery(item.id, runnerId: "local_runner")
+    let start = try #require(folded)
+    #expect(start.id == item.id && start.threadId == imported.threadId && start.kind == "start" && start.state == "dispatching" && start.runnerId == "local_runner")
     #expect(try store.claudeDelivery(item.id, sessionId: imported.threadId).id == item.id)
+    // Nothing else waits: the start is not offered a second time while the runner sends it.
+    #expect(try store.claimClaudeWork(runnerId: "local_runner") == nil)
+    #expect(try store.hasClaudeWork(runnerId: "local_runner") == false)
+    try store.finishClaudeConfigure(threadId: imported.threadId, runnerId: "local_runner", applied: true, note: nil)
+    // Reporting the settings reminds a runner on older instructions that the start is still its to send.
+    #expect(try store.claudeStartToSend(threadId: imported.threadId, runnerId: "local_runner")?.id == item.id)
+    #expect(try store.claudeStartToSend(threadId: imported.threadId, runnerId: "local_other") == nil)
     try store.acknowledgeDispatch(item.id, runnerId: "local_runner", threadId: imported.threadId)
     #expect(try store.dispatches().first { $0.id == item.id }?.state == "started")
+    #expect(try store.claudeStartToSend(threadId: imported.threadId, runnerId: "local_runner") == nil)
     #expect(try store.links(taskId: task.id).count == 1)
+    #expect(try store.claimClaudeWork(runnerId: "local_runner") == nil)
+}
+
+@Test func aStartTheRunnerDidNotSendComesBackAsADeliveryAlreadyBegun() throws {
+    let store = try claudeStore()
+    try bindClaude(store)
+    let task = try claudeTask(store)
+    let item = try store.enqueueDispatch(taskId: task.id)
+    let transcripts = FileManager.default.temporaryDirectory.appending(path: "claude-transcripts-\(UUID().uuidString)")
+    let imported = try store.importClaudeSession(dispatchId: item.id, helper: "/Apps/facienda-mcp", permissionMode: "auto", cliVersion: "2.1.289", transcripts: transcripts)
+    try store.confirmClaudeImport(dispatchId: item.id)
+    let now = Date()
+    guard case .configure(_, let folded) = try #require(try store.claimClaudeWork(runnerId: "local_runner", now: now)) else { Issue.record("Expected a configure job"); return }
+    #expect(folded?.id == item.id)
+    // The runner stopped before sending. Two minutes on the start comes back marked as begun, so the runner checks the session first.
+    #expect(try store.claimClaudeWork(runnerId: "local_runner", now: now.addingTimeInterval(60)) == nil)
+    guard case .deliver(let again) = try #require(try store.claimClaudeWork(runnerId: "local_runner", now: now.addingTimeInterval(121))) else { Issue.record("Expected the start again"); return }
+    #expect(again.id == item.id && again.state == "dispatching" && again.threadId == imported.threadId)
+    // A new runner takes over a start the old one began, rather than leaving it to nobody.
+    let repair = try store.prepareClaudeSetup(repair: true)
+    try store.bindClaudeRunner(sessionId: "local_next", challenge: repair.challenge, canStartSessions: false)
+    let moved = try #require(try store.dispatches().first { $0.id == item.id })
+    #expect(moved.runnerId == "local_next" && moved.state == "dispatching")
+    // The session's settings come first again, without the start, which was begun before.
+    guard case .configure(_, let none) = try #require(try store.claimClaudeWork(runnerId: "local_next")) else { Issue.record("Expected the settings again"); return }
+    #expect(none == nil)
+    try store.finishClaudeConfigure(threadId: imported.threadId, runnerId: "local_next", applied: true, note: nil)
+    guard case .deliver(let taken) = try #require(try store.claimClaudeWork(runnerId: "local_next")) else { Issue.record("Expected the start for the new runner"); return }
+    #expect(taken.id == item.id)
+    try store.acknowledgeDispatch(item.id, runnerId: "local_next", threadId: imported.threadId)
+    #expect(try store.dispatches().first { $0.id == item.id }?.state == "started")
 }
 
 @Test func anImportTheAppIgnoresIsRevertedForTheComposer() throws {

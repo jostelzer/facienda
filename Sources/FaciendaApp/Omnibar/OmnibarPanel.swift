@@ -18,7 +18,13 @@ struct OmnibarPanel: View {
                     VStack(alignment: .leading, spacing: 1) {
                         ForEach(omnibar.sections) { section in
                             if let title = section.title {
-                                Eyebrow(text: title).padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
+                                // Facienda's own question reads as a question, not as a label.
+                                if section.id == "ask" {
+                                    Label(title, systemImage: "questionmark.bubble").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.amber)
+                                        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
+                                } else {
+                                    Eyebrow(text: title).padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
+                                }
                             }
                             ForEach(section.items) { item in row(item).id(item.id) }
                             if let footnote = section.footnote {
@@ -56,27 +62,66 @@ struct OmnibarPanel: View {
         var hints: [(key: String, label: String)] = []
         if omnibar.items.count > 1 && !omnibar.wraps { hints.append(("↑↓", "move")) }
         switch item?.kind {
-        case .start, nil: hints.append(TaskLookup.asksForEarlier(omnibar.trimmed) ? ("↵", "find it") : ("↵", "start task"))
+        case .start, nil:
+            let reading = omnibar.defaultReading
+            switch reading.verb {
+            case .start, .trackChat, .ask, .answered: hints.append(("↵", "start task"))
+            case .find: hints.append(("↵", "find it"))
+            case .already: hints.append(("↵", "open it"))
+            default: hints.append(("↵", reading.verbLabel.lowercased()))
+            }
         case .remember: hints.append(("↵", "remember"))
         case .command: hints.append(("↵", "go"))
         case let .task(task):
-            hints.append(("↵", "bring back"))
+            if item?.id.hasPrefix(OmnibarModel.askPrefix) == true { hints.append(("↵", omnibar.reading?.verbLabel.lowercased() ?? "choose")) }
+            else { hints.append(("↵", task.state.isOpen ? "open" : "bring back")) }
             if model.canOpen(task) { hints.append(("⌥↵", "open in \(model.agent(for: task).name)")) }
         case let .chat(chat): hints += [("↵", "choose"), ("⌥↵", "open in \(chat.provider.name)")]
         case .note: hints.append(("↵", "show in Memory"))
-        case .enableChatSearch: hints.append(("↵", "turn on"))
+        case .answer: hints.append(("↵", "close"))
+        case .place: hints.append(("↵", "start it there"))
         }
         // Asking for an earlier task finds it on Return, so starting it as new moves to ⌘↵ too.
-        if item.map({ $0.kind != .start }) ?? false || TaskLookup.asksForEarlier(omnibar.trimmed) { hints.append(("⌘↵", "start task")) }
+        if item.map({ $0.kind != .start }) ?? false || omnibar.defaultReading.verb != .start { hints.append(("⌘↵", "start task")) }
         hints.append(("esc", "close"))
         return hints
     }
 
+    /// The first row is what Return does with nothing picked, said as the bar says it.
     private var startTitle: String {
-        if OmnibarModel.codexThreadID(omnibar.trimmed) != nil { return "Add Codex chat as task" }
-        if ClaudeDesktop.sessionID(inLink: omnibar.trimmed) != nil { return "Add Claude session as task" }
-        if TaskLookup.asksForEarlier(omnibar.trimmed) && omnibar.followUp == nil { return omnibar.finding ? "Finding the task…" : "Find the earlier task" }
-        return "Start task"
+        let reading = omnibar.defaultReading
+        switch reading.verb {
+        case .trackChat: return OmnibarModel.codexThreadID(omnibar.trimmed) != nil ? "Add Codex chat as task" : "Add Claude session as task"
+        case .already: return "Open “\(reading.target)”"
+        case .find: return omnibar.finding ? "Finding the task…" : "Find the earlier task"
+        case .start:
+            if omnibar.awaitingRead { return omnibar.routes ? "Finding where it goes…" : "Reading…" }
+            guard let place = reading.place else { return "Start task" }
+            return reading.alternative == nil ? "Start task in \(place.label)" : "Start task"
+        // Above, Facienda asks or answers; this row is the way out of both.
+        case .ask: return "None of these: start a new task"
+        case .answered: return "Ask an agent instead"
+        default: return reading.label
+        }
+    }
+
+    /// Under the first row: what it would send or set, and how to start a task instead.
+    private var startNote: String? {
+        let reading = omnibar.defaultReading
+        switch reading.verb {
+        case .start:
+            // Existing tasks the words match are below; the start row says so, so they are not missed.
+            let found = omnibar.items.filter { $0.id.hasPrefix("task:") }.count
+            return found == 0 ? nil : found == 1 ? "1 existing task matches below. ↓ to open it." : "\(found) existing tasks match below. ↓ to open one."
+        case .trackChat, .ask: return nil
+        case .answered: return "Starts a task whose agent looks further than what Facienda holds."
+        case .already: return "Already on the board. ⌘↵ starts a second one."
+        case .find: return omnibar.followUp == nil ? "Brings back the task you mean. ⌘↵ starts a new one." : nil
+        case .remember: return "Kept in this workspace's memory. ⌘↵ starts it as a task."
+        default:
+            let detail = reading.detail()
+            return (detail.isEmpty ? "" : detail + ". ") + "⌘↵ starts a new task instead."
+        }
     }
 
     private func row(_ item: OmnibarItem) -> some View {
@@ -99,14 +144,14 @@ struct OmnibarPanel: View {
         case .start:
             icon("arrow.up.circle.fill", tint: Palette.ink)
             VStack(alignment: .leading, spacing: 2) {
-                Text(startTitle).font(.system(size: 13, weight: .semibold))
-                if TaskLookup.asksForEarlier(omnibar.trimmed) && omnibar.followUp == nil {
-                    Text("Brings back the task you mean. ⌘↵ starts a new one.").font(.system(size: 10)).foregroundStyle(Palette.muted)
+                Text(startTitle).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                if let note = startNote {
+                    Text(note).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(2)
                 }
                 if let chat = omnibar.followUp { Text("Continues from “\(chat.title)”").font(.system(size: 10)).foregroundStyle(Palette.blue) }
             }
             Spacer(minLength: 8)
-            if showActions && OmnibarModel.codexThreadID(omnibar.trimmed) == nil { action("Add files…", "paperclip") { omnibar.perform(.composer) } }
+            if showActions && omnibar.defaultReading.verb == .start { action("Add files…", "paperclip") { omnibar.perform(.composer) } }
         case let .remember(text):
             icon("book.closed", tint: Palette.green)
             VStack(alignment: .leading, spacing: 2) {
@@ -119,13 +164,25 @@ struct OmnibarPanel: View {
             Text(command.title).font(.system(size: 13))
             Spacer(minLength: 8)
         case let .task(task):
-            TaskDot(kind: TaskDot.Kind(model: model, task: task), animated: false).frame(width: 18).padding(.top, 2)
+            // A task in another workspace is drawn from its own state; the open workspace knows its chats.
+            let elsewhere = omnibar.isElsewhere(task), place = omnibar.taskPlaces[task.id]
+            PlaceThumb(place: place, workspaces: omnibar.workspaces, elsewhere: elsewhere)
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.displayName).font(.system(size: 13)).fullTextOnHover(task.displayName)
-                Text(model.taskStatus(task)).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
+                HStack(spacing: 0) {
+                    if let place {
+                        Text(place.label).foregroundStyle(elsewhere ? Palette.blue : Palette.muted)
+                        Text(" · ").foregroundStyle(Palette.muted)
+                    }
+                    Text(elsewhere ? task.state.label : model.taskStatus(task)).foregroundStyle(Palette.muted)
+                }
+                .font(.system(size: 11)).lineLimit(1)
             }
+            .frame(minHeight: 40)
             Spacer(minLength: 8)
-            if showActions {
+            TaskDot(kind: elsewhere ? TaskDot.Kind(state: task.state) ?? .notStarted : TaskDot.Kind(model: model, task: task), animated: false)
+                .frame(width: 18).padding(.top, 12)
+            if showActions && !elsewhere {
                 if task.state.isOpen { action("Mark done", "checkmark") { model.complete(task); Task { await omnibar.refresh() } } }
                 if model.links.contains(where: { $0.taskId == task.id }) { action("Open in \(model.agent(for: task).name)", "arrow.up.right") { omnibar.runSecondary(item) } }
             }
@@ -154,18 +211,30 @@ struct OmnibarPanel: View {
                 Text(fact.confirmedAt == nil ? "Unconfirmed note" : "Confirmed by you").font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
             Spacer(minLength: 8)
-        case .enableChatSearch:
-            icon("text.magnifyingglass", tint: Palette.blue)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Search inside your Codex chats").font(.system(size: 13, weight: .semibold))
-                Text("Facienda keeps a private index on this Mac of your messages and Codex’s final replies, never tool output. Turn it off any time in Settings.")
-                    .font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Button("Turn on") { omnibar.run(item) }.buttonStyle(QuietButton(prominent: true, compact: true))
-                    Button("Titles only") { model.setChatSearch(false); Task { await omnibar.refresh() } }.buttonStyle(QuietButton(compact: true))
-                }.padding(.top, 2)
+        case let .answer(read):
+            icon("text.bubble", tint: Palette.green)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(read.answer).font(.system(size: 14, design: .serif)).foregroundStyle(Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                let notes = read.notes.map(\.text)
+                if !notes.isEmpty {
+                    ForEach(notes, id: \.self) { note in
+                        Label(note, systemImage: "book.closed").font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2)
+                    }
+                }
+                Text("From what Facienda already holds. ⌘↵ asks an agent to look further.").font(.system(size: 10)).foregroundStyle(Palette.muted)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+        case let .place(place):
+            icon(place.groupID == nil ? "tray" : "rectangle.stack", tint: Palette.muted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(place.label).font(.system(size: 13))
+                if !place.examples.isEmpty {
+                    Text("With " + place.examples.prefix(2).map { "“\($0)”" }.joined(separator: ", "))
+                        .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
         }
     }
 

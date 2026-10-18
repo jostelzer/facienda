@@ -245,14 +245,14 @@ import FaciendaBridge
     try store.bindRunner(threadId: "runner", automationId: nil)
     let task = try store.create(FaciendaTask(title: "Hear back from the lawyer", state: .needsMe))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
-    try store.park(task.id, plan: WaitPlan(conditions: [.observed("Lourival", source: "Mail", criterion: "A reply arrives")]))
+    try store.park(task.id, plan: WaitPlan(conditions: [.observed("Robin", source: "Mail", criterion: "A reply arrives")]))
     try store.enqueueDueChecks(runnerId: "runner")
     let check = try #require(try store.claimDispatch(runnerId: "runner"))
     try store.deferDispatch(check.id, runnerId: "runner", reason: "The chat is busy.")
     let model = try AppModel(store: store)
     // Put off: still parked, and still saying what the agent watches for.
     #expect(model.belongs(try store.task(task.id), to: .waiting))
-    #expect(model.taskStatus(try store.task(task.id)).hasPrefix("Until Lourival"))
+    #expect(model.taskStatus(try store.task(task.id)).hasPrefix("Until Robin"))
     _ = try store.beginDispatch(check.id, runnerId: "runner")
     try store.acknowledgeDispatch(check.id, runnerId: "runner", threadId: "owner")
     model.refresh()
@@ -675,6 +675,16 @@ private struct FakePainter: CoverPainting {
     #expect(model.tasks.isEmpty)
 }
 
+@MainActor @Test func thePlanFiltersCountAGroupsTasksAndItsLinesStillToStart() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "plan-legend-\(UUID().uuidString)/tasks.sqlite"))
+    let lamp = try store.create(FaciendaTask(title: "Fix the lamp"))
+    let model = try AppModel(store: store)
+    let home = try #require(model.createGroup(name: "Home", holding: [lamp.id]))
+    #expect(model.planTask("Hang the panels", in: home.id) && model.planTask("Sort the cables", in: home.id))
+    let counted = model.planLegend(for: home)
+    #expect(counted.tasks.map(\.id) == [lamp.id] && counted.planned == 2)
+}
+
 @MainActor @Test func claudeTasksOpenInClaudeAndRelayRepliesThroughItsRunner() async throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-claude-\(UUID().uuidString)/facienda.sqlite"))
     let model = try AppModel(store: store) { _ in }
@@ -832,7 +842,7 @@ private struct FakePainter: CoverPainting {
 @MainActor @Test func aClaudeTaskWaitingInAnotherWorkspaceStartsToo() async throws {
     let library = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-claude-elsewhere-\(UUID().uuidString)/facienda.sqlite"))
     let home = try library.defaultWorkspace()
-    let work = try library.createWorkspace(name: "Work", memorySpaceID: try library.createMemorySpace(name: "Work").id)
+    let work = try library.createWorkspace(name: "Work")
     let model = try AppModel(store: library.scoped(to: home.id)) { _ in }
     var opened: [URL] = []
     model.openURL = { opened.append($0); return true }
@@ -923,4 +933,19 @@ private struct FakePainter: CoverPainting {
     #expect(model.plannedLines(in: desk.id).map(\.text) == ["Order a monitor arm that fits the Studio Display"])
     // New groups join the board wherever there is room, after the others.
     #expect(model.groups.map(\.name) == ["Studio", "monitor arm"])
+}
+
+@MainActor @Test func movingABarTaskToAnotherGroupTeachesTheBarWhereSuchWorkGoes() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "bar-learns-\(UUID().uuidString)/tasks.sqlite"))
+    let model = try AppModel(store: store) { _ in }
+    let rings = try #require(model.createGroup(name: "Lunar rings"))
+    let typed = try store.create(FaciendaTask(title: "Another idea for lunar rings", nextAction: "Think"))
+    let planned = try store.create(FaciendaTask(title: "Written on the card", nextAction: "Think"))
+    try store.recordIntake(text: "another idea for lunar rings", reading: "New task", decidedBy: .model, taskId: typed.id)
+    model.refresh()
+    model.move(taskID: typed.id, to: rings.id)
+    model.move(taskID: planned.id, to: rings.id)
+    let learned = try store.routeCorrections()
+    #expect(learned.map(\.text) == ["another idea for lunar rings"])
+    #expect(learned.first?.groupID == rings.id && learned.first?.workspaceID == model.workspaceID)
 }

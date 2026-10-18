@@ -5,7 +5,7 @@ import FaciendaCore
 
 @Test func threadCaptureRequiresWorkspaceLinkAndExcludesInternalContent() throws {
     let db = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "FaciendaCaptureTests/\(UUID().uuidString)/test.sqlite"))
-    try db.saveMemorySettings(endpoint: "https://localhost:8888", enabled: true, workerModel: nil)
+    try db.saveMemorySettings(enabled: true, workerModel: nil)
     let response = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"thread":{"id":"chat","createdAt":100,"turns":[{"id":"turn","status":"completed","items":[{"id":"1","type":"userMessage","content":[{"type":"text","text":"Facienda dispatch: original generated prompt"}]},{"id":"2","type":"userMessage","content":[{"type":"text","text":"Prefer the local server"}]},{"id":"3","type":"agentMessage","phase":"commentary","text":"Working on it"},{"id":"4","type":"agentMessage","phase":"final_answer","text":"Saved the preference"},{"id":"5","type":"reasoning","text":"private"}]}]}}"#.utf8))
     try ThreadMemory.capture(response, threadId: "chat", store: db)
     #expect(try db.workspaceMemoryStatus().pending == 0)
@@ -13,7 +13,7 @@ import FaciendaCore
     try db.link(ThreadLink(taskId: task.id, codexThreadId: "chat"))
     try ThreadMemory.capture(response, threadId: "chat", store: db)
     try ThreadMemory.capture(response, threadId: "chat", store: db)
-    #expect(try db.workspaceMemoryStatus().pending == 2)
+    #expect(try db.workspaceMemoryStatus().pending == 0, "Public chat items without typed rollout provenance are not learned")
 }
 
 @Test func memoryInferenceIsAlwaysEphemeralLunaAndDisablesConfiguredTools() throws {

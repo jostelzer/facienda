@@ -10,17 +10,13 @@ private func memoryStore() throws -> FaciendaStore {
 
 private func spaceID(_ store: FaciendaStore) throws -> String { try store.resolvedMemorySpace(nil).id }
 
-@Test func memoryBankPersistsAndIsolatesWorkspaces() throws {
+@Test func memorySettingsHaveNoServerEndpoint() throws {
     let db = try memoryStore(), settings = try db.memorySettings()
     #expect(!settings.enabled)
-    #expect(settings.workerModel == "gpt-6-luna")
-    let bank = try db.resolvedMemorySpace(nil).bankId
-    #expect(try FaciendaStore(url: db.url).memorySpaces().first?.bankId == bank)
-    #expect(try memoryStore().resolvedMemorySpace(nil).bankId != bank)
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: " gpt-6-luna ", engine: "hindsight")
+    try db.saveMemorySettings(enabled: true, workerModel: " gpt-6-luna ")
     #expect(try db.memorySettings().workerModel == "gpt-6-luna")
-    #expect(throws: StoreError.self) { try db.saveMemorySettings(endpoint: "https://example.com", enabled: true, workerModel: nil, engine: "hindsight") }
-    #expect(throws: StoreError.self) { try db.saveMemorySettings(endpoint: "http://localhost@evil.example", enabled: true, workerModel: nil, engine: "hindsight") }
+    let json = try JSONValue.encoded(db.memorySettings())
+    #expect(json["endpoint"] == .null && json["engine"] == .null)
 }
 
 @Test func memoryOutboxRecoversLeaseAndIgnoresStaleAcknowledgement() throws {
@@ -40,81 +36,24 @@ private func spaceID(_ store: FaciendaStore) throws -> String { try store.resolv
     #expect(corrected.content == "Correction")
 }
 
-@Test func endpointChangeRequeuesSourcesAndCaptureIsIdempotent() throws {
-    let db = try memoryStore(), settings = try db.memorySettings()
-    _ = try db.create(FaciendaTask(title: "Remember my preference"))
+@Test func userSourceCaptureIsIdempotent() throws {
+    let db = try memoryStore()
+    _ = try db.create(FaciendaTask(title: "Use blue tiles"))
     try db.captureWorkspaceMemory()
     #expect(try db.workspaceMemoryStatus().pending == 0)
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: nil, engine: "hindsight")
+    try db.saveMemorySettings(enabled: true, workerModel: nil)
     try db.captureWorkspaceMemory(); try db.captureWorkspaceMemory()
     #expect(try db.workspaceMemoryStatus().pending == 1)
-    let doc = try #require(try db.claimMemoryDocument(now: Date().addingTimeInterval(1)))
-    try db.finishMemoryAttempt(doc, state: "completed")
-    try db.markSpaceConfigured(try spaceID(db), endpoint: settings.endpoint)
-    try db.saveMemorySettings(endpoint: "https://127.0.0.1:8889", enabled: true, workerModel: nil, engine: "hindsight")
-    try db.finishMemoryAttempt(doc, state: "completed")
-    #expect(try db.workspaceMemoryStatus().pending == 1)
-    // The bank was configured on the old service, so the new one configures it again.
-    #expect(try db.resolvedMemorySpace(nil).configuredEndpoint != db.memorySettings().endpoint)
 }
 
-private final class HindsightFixture: URLProtocol, @unchecked Sendable {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token" else {
-            client?.urlProtocol(self, didFailWithError: URLError(.userAuthenticationRequired))
-            return
-        }
-        let body: JSONValue
-        if request.url!.path.hasSuffix("recall") {
-            body = .object(["results": .array([.object(["text": .string("Use the workspace preference"), "type": .string("observation")])])])
-        } else if request.url!.path.hasSuffix("/memories") {
-            var data = request.httpBody ?? Data()
-            if let stream = request.httpBodyStream {
-                stream.open(); defer { stream.close() }
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let size = stream.read(&buffer, maxLength: buffer.count)
-                    if size <= 0 { break }; data.append(contentsOf: buffer.prefix(size))
-                }
-            }
-            let input = try! JSONDecoder().decode(JSONValue.self, from: data)
-            body = .object(["success": .bool(true), "bank_id": .string(request.url!.pathComponents[4]), "operation_id": .string(input["operation_id"].string!.lowercased())])
-        } else { body = .object([:]) }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(body.json.utf8))
-        client?.urlProtocolDidFinishLoading(self)
-    }
-    override func stopLoading() {}
-}
-
-@Test func recallSeparatesConfirmedNotesFromLearnedObservations() async throws {
-    let db = try memoryStore(), settings = try db.memorySettings()
-    var note = MemoryFact(text: "A confirmed preference", source: "user")
+@Test func recallKeepsConfirmedNotesAvailableWhenLearningIsOff() async throws {
+    let db = try memoryStore()
+    var note = MemoryFact(text: "Use blue tiles", source: "user")
     note.confirmedAt = Date()
     try db.remember(note, source: .user)
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: nil, engine: "hindsight")
-    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [HindsightFixture.self]
-    let session = URLSession(configuration: config)
-    defer { session.invalidateAndCancel() }
-    let context = try await WorkspaceMemoryService(store: db, session: session, apiToken: "fixture-token").context(query: "preference")
+    let context = try await WorkspaceMemoryService(store: db).context(query: "tiles")
     #expect(context["userConfirmed"].array?.count == 1)
-    #expect(context["learned"]["results"].array?.first?["type"].string == "observation")
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: false, workerModel: nil)
-    #expect(try await WorkspaceMemoryService(store: db, session: session, apiToken: "fixture-token").context(query: "test")["learned"] == .null)
-}
-
-@Test func retainAcceptsCanonicalizedUUIDAcknowledgements() async throws {
-    let db = try memoryStore(), settings = try db.memorySettings()
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: nil, engine: "hindsight")
-    try db.enqueueMemoryDocument(id: "test", content: "A durable source", source: "fixture", at: Date(), spaceID: try spaceID(db))
-    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [HindsightFixture.self]
-    let session = URLSession(configuration: config)
-    defer { session.invalidateAndCancel() }
-    try await WorkspaceMemoryService(store: db, session: session, apiToken: "fixture-token").synchronize(limit: 1)
-    #expect(try db.workspaceMemoryStatus().processing == 1)
-    #expect(try db.workspaceMemoryStatus().error == nil)
+    #expect(context["learned"] == .null)
 }
 
 @Test func memoryCredentialsRejectSharedPermissionsAndModelDefaultsAreExplicit() throws {
@@ -129,9 +68,9 @@ private final class HindsightFixture: URLProtocol, @unchecked Sendable {
     let store = try memoryStore()
     #expect(try store.memorySettings().workerModel == "gpt-6-luna")
     #expect(try store.memorySettings().workerReasoningEffort == "high")
-    try store.saveMemorySettings(endpoint: "https://127.0.0.1:8888", enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "medium")
+    try store.saveMemorySettings(enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "medium")
     #expect(try store.memorySettings().workerReasoningEffort == "medium")
-    #expect(throws: StoreError.self) { try store.saveMemorySettings(endpoint: "https://127.0.0.1:8888", enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "typo") }
+    #expect(throws: StoreError.self) { try store.saveMemorySettings(enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "typo") }
 }
 
 @Test func credentialsRejectSymlinksAndDatabaseFilesStayPrivate() throws {

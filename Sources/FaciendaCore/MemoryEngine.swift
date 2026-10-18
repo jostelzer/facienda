@@ -179,7 +179,7 @@ public struct NativeMemoryEngine: Sendable {
         let source = try FaciendaStore.memorySource(db, documentID: document.documentID, content: document.content)
         var resolver = try MemoryEntityResolver(db, spaceID: spaceID)
         let now = Date()
-        let existing = try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND kind != 'observation'", arguments: [spaceID])
+        let existing = try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND kind != 'observation' AND forgottenAt IS NULL", arguments: [spaceID])
             .filter { unit in !facts.contains { $0.id == unit.id } }
         let existingVectors = existing.map(\.vector)
         var units: [MemoryUnit] = []
@@ -264,9 +264,9 @@ public struct NativeMemoryEngine: Sendable {
     func unconsolidated(spaceID: String?) throws -> [MemoryUnit] {
         try store.db.read { db in
             try MemoryUnit.fetchAll(db, sql: """
-                SELECT * FROM memoryUnits WHERE kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL
+                SELECT * FROM memoryUnits WHERE kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL AND forgottenAt IS NULL
                 \(spaceID == nil ? "" : "AND spaceId = ?")
-                AND spaceId = (SELECT spaceId FROM memoryUnits WHERE kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL
+                AND spaceId = (SELECT spaceId FROM memoryUnits WHERE kind != 'observation' AND consolidatedAt IS NULL AND consolidationFailedAt IS NULL AND forgottenAt IS NULL
                                \(spaceID == nil ? "" : "AND spaceId = ?") ORDER BY createdAt LIMIT 1)
                 ORDER BY createdAt LIMIT 8
                 """, arguments: spaceID.map { [$0, $0] } ?? [])

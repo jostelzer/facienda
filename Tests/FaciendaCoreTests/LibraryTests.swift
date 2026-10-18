@@ -18,7 +18,7 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
 
 @Test func workspacesShowOnlyTheirOwnTasksAndGroups() throws {
     let db = try library(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let work = try db.createWorkspace(name: "Work")
     let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
     let errand = try personal.create(FaciendaTask(title: "Buy a lamp"))
     let report = try office.create(FaciendaTask(title: "Quarterly report"))
@@ -51,7 +51,7 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
 
 @Test func runnerFilesNewTasksInsideTheirOwnWorkspace() throws {
     let db = try library(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let work = try db.createWorkspace(name: "Work")
     try db.bindRunner(threadId: "runner", automationId: "beat")
     _ = try db.scoped(to: home.id).createGroup(name: "Travel")
     let trip = try db.scoped(to: work.id).create(FaciendaTask(title: "Conference trip"))
@@ -65,7 +65,7 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
 
 @Test func groupsMoveBetweenWorkspacesWithTheirHistory() throws {
     let db = try library(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: try db.createMemorySpace(name: "Work").id)
+    let work = try db.createWorkspace(name: "Work")
     let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
     _ = try office.createGroup(name: "Existing")
     let group = try personal.createGroup(name: "Taxes")
@@ -85,7 +85,7 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(try db.task(a.id).revision == a.revision)
     #expect(try db.latestEvent(taskId: a.id, kind: "task.moved")?.payload == "Work")
     #expect(try db.memorySpace(forTask: b.id).id == work.memorySpaceId)
-    let archive = try db.createWorkspace(name: "Archive", memorySpaceID: home.memorySpaceId)
+    let archive = try db.createWorkspace(name: "Archive")
     try db.removeWorkspace(archive.id)
     #expect(throws: StoreError.self) { try db.moveGroup(group.id, toWorkspace: archive.id) }
 }
@@ -93,7 +93,7 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
 @Test func removingAWorkspaceKeepsItsHistoryButNeverOpenWork() throws {
     let db = try library(), home = try db.defaultWorkspace()
     #expect(throws: StoreError.self) { try db.removeWorkspace(home.id) }
-    let side = try db.createWorkspace(name: "Side project", memorySpaceID: home.memorySpaceId)
+    let side = try db.createWorkspace(name: "Side project")
     let task = try db.scoped(to: side.id).create(FaciendaTask(title: "Sketch"))
     #expect(throws: StoreError.self) { try db.removeWorkspace(side.id) }
     _ = try db.update(task.id) { $0.state = .done }
@@ -103,21 +103,22 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(try db.task(task.id).state == .done)
 }
 
-@Test func memoriesStaySeparateFromCaptureToHindsight() async throws {
+@Test func memoriesStaySeparateFromCaptureToRecall() async throws {
     let db = try library(), home = try db.defaultWorkspace()
-    let workMemory = try db.createMemorySpace(name: "Work")
-    #expect(throws: StoreError.self) { try db.createMemorySpace(name: "work") }
-    let work = try db.createWorkspace(name: "Office", memorySpaceID: workMemory.id)
+    let work = try db.createWorkspace(name: "Office")
+    let workMemory = try db.memorySpace(work.memorySpaceId)
+    #expect(workMemory.name == "Office" && workMemory.id != home.memorySpaceId)
     let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
     let errand = try personal.create(FaciendaTask(title: "Book the dentist"))
     let report = try office.create(FaciendaTask(title: "Quarterly report"))
     var note = MemoryFact(text: "Dentist is Dr. Silva", source: "User"); note.confirmedAt = Date()
     try personal.remember(note, source: .user)
-    try office.remember(MemoryFact(text: "Reports go to Ana", taskId: report.id, source: "User"), source: .user)
+    var officeNote = MemoryFact(text: "Reports go to Ana", taskId: report.id, source: "User"); officeNote.confirmedAt = Date()
+    try office.remember(officeNote, source: .user)
     #expect(try personal.memory().map(\.text) == ["Dentist is Dr. Silva"])
     #expect(try office.memory().map(\.text) == ["Reports go to Ana"])
     let settings = try db.memorySettings()
-    try db.saveMemorySettings(endpoint: settings.endpoint, enabled: true, workerModel: nil, engine: "hindsight")
+    try db.saveMemorySettings(enabled: true, workerModel: nil)
     try db.captureWorkspaceMemory()
     let spaces = try documentSpaces(db)
     #expect(spaces["task-\(errand.id)"] == home.memorySpaceId)
@@ -126,40 +127,83 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(spaces["curated-notes-\(workMemory.id)"] == workMemory.id)
     #expect(try personal.workspaceMemoryStatus().pending == 2)
 
-    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [BankRecorder.self]
-    let session = URLSession(configuration: config)
-    defer { session.invalidateAndCancel() }
-    BankRecorder.reset()
-    try await WorkspaceMemoryService(store: db, session: session, apiToken: "fixture-token").synchronize(limit: 10)
-    let banks = BankRecorder.retained()
-    let personalBank = try db.memorySpace(home.memorySpaceId).bankId
-    #expect(banks["task-\(errand.id)"] == personalBank)
-    #expect(banks["task-\(report.id)"] == workMemory.bankId)
-    #expect(banks.values.allSatisfy { $0 == personalBank || $0 == workMemory.bankId })
-    // Each bank is configured once, on its own.
-    #expect(try db.memorySpaces().allSatisfy { $0.configuredEndpoint == settings.endpoint })
-    let context = try await WorkspaceMemoryService(store: office, session: session, apiToken: "fixture-token").context(query: "")
-    #expect(context["memory"].string == "Work")
-    #expect(context["bankId"].string == workMemory.bankId)
-    #expect(context["userConfirmed"].array?.isEmpty == true)
-    #expect(BankRecorder.recalled() == [workMemory.bankId])
+    let context = try await WorkspaceMemoryService(store: office).context(query: "")
+    #expect(context["memory"].string == "Office")
+    #expect(context["userConfirmed"].array?.count == 1)
+    #expect(context["userConfirmed"].json.contains("Reports go to Ana"))
+    #expect(!context["userConfirmed"].json.contains("Dentist"))
 
-    // A note saved in the wrong memory can move; its old memory's notes are resent without it.
+    // A note saved in the wrong workspace can move; its old memory's notes are resent without it.
     try db.moveMemory(note.id, toSpace: workMemory.id)
     #expect(try personal.memory().isEmpty)
     try db.captureWorkspaceMemory()
     let curated: String? = try value(db, "SELECT content FROM memoryDocuments WHERE id = ?", ["curated-notes-\(home.memorySpaceId)"])
     #expect(curated?.contains("no user-confirmed notes") == true)
-    // A workspace that switches memory learns into the new one; what it learned before stays.
-    try db.setMemorySpace(workspaceID: home.id, spaceID: workMemory.id)
-    #expect(try db.memorySpace(forTask: errand.id).id == workMemory.id)
+    // The memory follows the workspace's name.
+    try db.renameWorkspace(work.id, to: "Studio")
+    #expect(try db.memorySpace(forTask: report.id).name == "Studio")
+}
+
+/// A library from before every workspace had its own memory: two workspaces on one memory, with notes, learned units
+/// and task sources. Opening it copies the memory for the second workspace.
+@Test func aSharedMemoryIsCopiedForEachWorkspaceOnOpening() throws {
+    let db = try library(), home = try db.defaultWorkspace()
+    let work = try db.createWorkspace(name: "Work")
+    let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
+    let errand = try personal.create(FaciendaTask(title: "Buy a lamp")), report = try office.create(FaciendaTask(title: "Quarterly report"))
+    try db.saveMemorySettings(enabled: true, workerModel: nil)
     try db.captureWorkspaceMemory()
-    #expect(try documentSpaces(db)["task-\(errand.id)"] == home.memorySpaceId)
-    #expect(throws: StoreError.self) { try db.deleteMemorySpace(workMemory.id) }
-    try db.deleteMemorySpace(home.memorySpaceId)
-    #expect(try db.memorySpaces().map(\.id) == [workMemory.id])
-    let left: Int? = try value(db, "SELECT count(*) FROM memoryDocuments WHERE spaceId = ?", [home.memorySpaceId])
-    #expect(left == 0)
+    let shared = home.memorySpaceId
+    try db.db.write { database in
+        // Both workspaces on the first memory, as a library shared them before.
+        // Typed utterances did not exist in that old library.
+        try database.execute(sql: "DELETE FROM memoryUtterances")
+        try database.execute(sql: "UPDATE workspaces SET memorySpaceId = ? WHERE id = ?", arguments: [shared, work.id])
+        try database.execute(sql: "DELETE FROM memorySpaces WHERE id = ?", arguments: [work.memorySpaceId])
+        try database.execute(sql: "UPDATE memoryDocuments SET spaceId = ?", arguments: [shared])
+        try database.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'own_memories'")
+    }
+    var note = MemoryFact(kind: "preference", text: "Oak, not pine", source: "User"); note.confirmedAt = Date()
+    try personal.remember(note, source: .user)
+    try personal.correctMemory(note.id, text: "Oak, never pine")
+    let corrected = try #require(try personal.memory().first)
+    // A learned fact and the observation drawn from it, with an entity, a link and a search row.
+    try db.db.write { database in
+        let vector = MemoryVector.encode([Float](repeating: 0.05, count: MemoryModels.dimensions))
+        for (id, kind, sources) in [("fact-1", "world", nil), ("obs-1", "observation", "[\"fact-1\"]")] {
+            try database.execute(sql: """
+                INSERT INTO memoryUnits (id, spaceId, documentId, kind, text, eventDate, embedding, proofCount, sourceIds, createdAt, updatedAt, level, memoryKind, taskId)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'user', 'decision', ?)
+                """, arguments: [id, shared, "task-\(errand.id)", kind, "Lamps come from the corner shop", Date(), vector, sources, Date(), Date(), errand.id])
+            try database.execute(sql: "INSERT INTO memoryUnitSearch (unitId, body) VALUES (?, ?)", arguments: [id, "Lamps come from the corner shop"])
+        }
+        try database.execute(sql: "INSERT INTO memoryEntities (id, spaceId, name, mentionCount, firstSeen, lastSeen) VALUES ('ent-1', ?, 'corner shop', 1, ?, ?)", arguments: [shared, Date(), Date()])
+        try database.execute(sql: "INSERT INTO memoryUnitEntities (unitId, entityId) VALUES ('fact-1', 'ent-1')")
+        try database.execute(sql: "INSERT INTO memoryLinks (fromId, toId, kind, weight) VALUES ('obs-1', 'fact-1', 'semantic', 0.9)")
+    }
+    let reopened = try FaciendaStore(url: db.url)
+    let workNow = try reopened.workspace(work.id), homeNow = try reopened.workspace(home.id)
+    #expect(homeNow.memorySpaceId == shared && workNow.memorySpaceId != shared)
+    #expect(try reopened.memorySpaces().map(\.name).sorted() == ["Work", homeNow.name].sorted())
+    // Both keep the whole memory, under their own identities.
+    let homeNotes = try reopened.scoped(to: home.id).memory(), workNotes = try reopened.scoped(to: work.id).memory()
+    #expect(homeNotes.map(\.text) == ["Oak, never pine"] && workNotes.map(\.text) == ["Oak, never pine"])
+    #expect(workNotes.first?.id != corrected.id && workNotes.first?.confirmedAt != nil)
+    let copiedSpace = workNow.memorySpaceId
+    let units = try reopened.memoryUnits(spaceID: copiedSpace)
+    #expect(units.count == 2 && Set(units.map(\.id)).isDisjoint(with: ["fact-1", "obs-1"]))
+    let observation = try #require(units.first { $0.kind == .observation })
+    #expect(observation.sources == units.filter { $0.kind == .world }.map(\.id))
+    let searchable: Int? = try value(reopened, "SELECT count(*) FROM memoryUnitSearch WHERE unitId IN (?, ?)", [units[0].id, units[1].id])
+    #expect(searchable == 2)
+    let entities: Int? = try value(reopened, "SELECT count(*) FROM memoryUnitEntities ue JOIN memoryEntities e ON e.id = ue.entityId WHERE e.spaceId = ?", [copiedSpace])
+    #expect(entities == 1)
+    let links: Int? = try value(reopened, "SELECT count(*) FROM memoryLinks l JOIN memoryUnits u ON u.id = l.fromId WHERE u.spaceId = ?", [copiedSpace])
+    #expect(links == 1)
+    #expect(try reopened.memoryUnits(spaceID: shared).count == 2)
+    // Each workspace's own task sources go with it.
+    let docs = try documentSpaces(reopened)
+    #expect(docs["task-\(errand.id)"] == shared && docs["task-\(report.id)"] == copiedSpace)
 }
 
 private final class BankRecorder: URLProtocol, @unchecked Sendable {
@@ -197,8 +241,8 @@ private final class BankRecorder: URLProtocol, @unchecked Sendable {
 }
 
 @Test func workspacePicturesSitWithTheCoversAndKeepTheirPreviousOneUntilTheWorkspaceGoes() throws {
-    let db = try library(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let db = try library()
+    let work = try db.createWorkspace(name: "Work")
     #expect(try db.workspace(work.id).coverPaintedAt == nil)
     try db.saveCover(workspaceId: work.id, image: Data([1]), style: "Precisionism")
     try db.saveCover(workspaceId: work.id, image: Data([2]), style: "Precisionism at dusk", note: " at dusk\n")
@@ -224,7 +268,7 @@ private final class BankRecorder: URLProtocol, @unchecked Sendable {
 
 @Test func reviewCountsLeaveOutClosedAndRunningWork() throws {
     let db = try library(), home = try db.defaultWorkspace()
-    let work = try db.createWorkspace(name: "Work", memorySpaceID: home.memorySpaceId)
+    let work = try db.createWorkspace(name: "Work")
     let scoped = db.scoped(to: work.id)
     _ = try scoped.create(FaciendaTask(title: "Open"))
     _ = try scoped.update(try scoped.create(FaciendaTask(title: "Asks")).id) { $0.state = .needsMe }

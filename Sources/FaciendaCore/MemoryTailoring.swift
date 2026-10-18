@@ -121,22 +121,9 @@ public struct MemoryRecallContext: Sendable {
 extension FaciendaStore {
     /// The task and voice of a captured source, from Facienda's own records.
     static func memorySource(_ db: Database, documentID: String, content: String) throws -> (taskID: String?, level: MemoryLevel) {
-        let voice: MemoryLevel = content.hasPrefix("User statement") || content.hasPrefix("User's original request") ? .user : .assistant
-        if documentID.hasPrefix("task-") { return (String(documentID.dropFirst(5)), .user) }
-        if documentID.hasPrefix("decision-") {
-            return (try String.fetchOne(db, sql: "SELECT taskId FROM decisions WHERE id = ?", arguments: [String(documentID.dropFirst(9))]), .decision)
-        }
-        if documentID.hasPrefix("event-") {
-            let row = try Row.fetchOne(db, sql: "SELECT taskId, kind FROM events WHERE id = ?", arguments: [String(documentID.dropFirst(6))])
-            let level: MemoryLevel = (row?["kind"] as String?) == "user.reply" ? .user : (row?["kind"] as String?) == "codex.result" ? .assistant : voice
-            return (row?["taskId"], level)
-        }
-        if documentID.hasPrefix("thread-"), let end = documentID.range(of: "-turn-") {
-            let thread = String(documentID[documentID.index(documentID.startIndex, offsetBy: 7)..<end.lowerBound])
-            return (try String.fetchOne(db, sql: "SELECT taskId FROM threadLinks WHERE codexThreadId = ? ORDER BY rowid LIMIT 1", arguments: [thread]), voice)
-        }
-        if documentID.hasPrefix("curated-notes-") || documentID == "curated-workspace-notes" { return (nil, .mixed) }
-        return (nil, voice)
+        guard let row = try Row.fetchOne(db, sql: "SELECT taskId, sourceKind FROM memoryDocuments WHERE id = ? OR externalId = ? LIMIT 1", arguments: [documentID, documentID]),
+              let kind = MemorySourceKind(rawValue: row["sourceKind"]) else { return (nil, .assistant) }
+        return (row["taskId"], kind.level)
     }
 
     /// Fills in level and task for units that lack them (imported from Hindsight), from their sources.
@@ -174,7 +161,8 @@ extension NativeMemoryEngine {
 
     func noteChanges() throws -> (changed: [(MemoryFact, MemoryLevel)], stale: [String]) {
         try store.db.read { db in
-            let notes = try MemoryFact.fetchAll(db, sql: "SELECT * FROM memoryFacts WHERE supersededBy IS NULL AND spaceId IS NOT NULL")
+            // Rules reach every task word for word; recall has nothing to add to them.
+            let notes = try MemoryFact.fetchAll(db, sql: "SELECT * FROM memoryFacts WHERE supersededBy IS NULL AND spaceId IS NOT NULL AND kind != ?", arguments: [FaciendaStore.ruleKind])
             let existing = try Row.fetchAll(db, sql: "SELECT id, text, level, spaceId FROM memoryUnits WHERE id LIKE 'note-%'")
             let current = Dictionary(uniqueKeysWithValues: existing.map { ($0["id"] as String, $0) })
             var wanted = Set<String>(), changed: [(MemoryFact, MemoryLevel)] = []
@@ -281,9 +269,20 @@ public enum MemoryPromptFormat {
         return lines.isEmpty ? "(nothing relevant learned yet)" : lines.joined(separator: "\n")
     }
 
-    /// Confirmed and unconfirmed notes, one per line.
+    /// The workspace's rules, word for word, within `limit` characters. The first rules win when there are too many.
+    public static func rules(_ rules: [MemoryFact], limit: Int = 4_000) -> String {
+        var lines: [String] = [], total = 0
+        for rule in rules {
+            let line = "- " + rule.text.replacingOccurrences(of: "\n", with: " ")
+            guard total + line.count <= limit else { break }
+            lines.append(line); total += line.count + 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Confirmed and unconfirmed notes, one per line. Rules are sent as rules, not as notes.
     public static func notes(_ notes: [MemoryFact]) -> String {
-        let current = notes.filter { $0.supersededBy == nil }.sorted { ($0.confirmedAt != nil) && ($1.confirmedAt == nil) }
+        let current = notes.filter { $0.supersededBy == nil && $0.kind != FaciendaStore.ruleKind }.sorted { ($0.confirmedAt != nil) && ($1.confirmedAt == nil) }
         guard !current.isEmpty else { return "(none)" }
         return current.map { note in
             "- [\(note.confirmedAt != nil ? MemoryLevel.note.label : MemoryLevel.agentNote.label) · \(MemoryKind(noteKind: note.kind).rawValue)] " + note.text.replacingOccurrences(of: "\n", with: " ")

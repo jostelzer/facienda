@@ -36,7 +36,7 @@ public enum HelperPolicy {
     public static let runnerCommands: Set<String> = [
         "tick", "wait", "instructions", "context", "prepare", "begin", "ack", "defer", "unreported", "missed-report", "name", "confirm-name",
         "bind", "bind-dispatcher", "prepare-setup", "status", "approvals",
-        "memory-sync", "memory-configure", "memory-import", "memory-recall", "memory-recall-batch", "memory-learn", "memory-classify", "memory-status"
+        "memory-sync", "memory-configure", "memory-import", "memory-recall", "memory-recall-batch", "memory-learn", "memory-classify", "memory-status", "memory-redact", "memory-migrate", "memory-migration-undo", "memory-understand", "memory-reflect"
     ]
 
     /// Flags followed by a value, each at most once, and the given switches. Anything else is refused.
@@ -109,7 +109,7 @@ public enum HelperPolicy {
     /// the system temp folder and the folders chosen for open tasks.
     public static func readableFolders(_ store: FaciendaStore) -> [URL] {
         let chosen = ((try? store.library.tasks()) ?? []).filter { $0.state.isOpen }.compactMap(\.cwd).filter { $0.hasPrefix("/") && $0 != "/" }
-        return [store.workFolder] + temporaryFolders + chosen.map { URL(fileURLWithPath: $0) }
+        return [store.workFolder, LibraryHome.supportDirectory.appending(path: "TaskFiles")] + temporaryFolders + chosen.map { URL(fileURLWithPath: $0) }
     }
 
     /// Reads a file a session named: a regular file, symlinks resolved, inside one of `folders`, at most `limit` bytes.

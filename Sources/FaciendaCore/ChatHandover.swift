@@ -155,6 +155,9 @@ extension ClaudeDesktop {
         public var cwd: String
         public var lastActivityAt: Date
         public var archived: Bool
+        /// What the session is set to now in the Claude app, such as `claude-sonnet-5-5` and `medium`.
+        public var model: String? = nil
+        public var effort: String? = nil
         public var chat: ChatCandidate { ChatCandidate(threadId: id, provider: .claude, title: title, cwd: cwd, cliSessionId: cliSessionId) }
     }
 
@@ -206,7 +209,8 @@ extension ClaudeDesktop {
         let activity = (root["lastActivityAt"] as? Double) ?? (root["createdAt"] as? Double) ?? 0
         return Session(id: id, cliSessionId: cli, title: (root["title"] as? String) ?? "", cwd: cwd,
                        lastActivityAt: Date(timeIntervalSince1970: activity / 1000),
-                       archived: (root["isArchived"] as? Bool) == true || archived.contains(id))
+                       archived: (root["isArchived"] as? Bool) == true || archived.contains(id),
+                       model: root["model"] as? String, effort: root["effort"] as? String)
     }
 
     private static func archivedSessions(in organisation: URL) -> Set<String> {

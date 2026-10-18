@@ -79,6 +79,7 @@ import FaciendaCore
                 Button("New Group") { delegate.reopenWindow?(); model?.requestNewGroup() }.keyboardShortcut("g", modifiers: [.command, .shift]).disabled(model == nil || demo)
                 Button("Find or Ask…") { delegate.reopenWindow?(); model?.omnibarFocusRequest += 1 }.keyboardShortcut("k").disabled(model == nil)
                 Button("Dictate") { delegate.reopenWindow?(); model?.dictationRequest += 1 }.keyboardShortcut("d").disabled(model == nil)
+                Button("History") { delegate.reopenWindow?(); workspaces.feed.toggle() }.keyboardShortcut("k", modifiers: [.command, .shift]).disabled(model == nil)
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { EditHistory.undo(model) }.keyboardShortcut("z")

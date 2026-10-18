@@ -122,7 +122,7 @@ public enum GroupCoverPainter {
         return (threadId, style)
     }
 
-    /// Downsizes Codex's original to a JPEG the dashboard and iCloud can carry cheaply.
+    /// Downsizes Codex's original to a small JPEG for the dashboard.
     static func jpeg(from file: URL, maxPixel: Int = 1280) -> Data? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [

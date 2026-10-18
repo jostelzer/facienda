@@ -18,6 +18,9 @@ public struct NativeDispatch: Codable, FetchableRecord, PersistableRecord, Ident
     public var availableAt: Date?
     /// The app that delivers this entry. Filled by the database from the owning chat, else the task's choice.
     public var provider: AgentProvider?
+    /// Accepted desktop queue entry, retained after the native turn starts for recovery and status reads.
+    public var codexQueueId: String?
+    public var codexQueuePreparedAt: Date?
     public var agent: AgentProvider { provider ?? .codex }
     /// A new Claude session waiting for the user to press Send in the Claude app.
     public var awaitsClaudeSend: Bool { state == "dispatching" && runnerId == FaciendaStore.claudeComposer }
@@ -200,11 +203,11 @@ extension FaciendaStore {
     }
 
     /// Only explicit UI starts/answers enqueue work. The runner never sweeps tasks.
-    @discardableResult public func enqueueDispatch(taskId: String, triggerKey: String? = nil, message: String? = nil) throws -> NativeDispatch {
+    @discardableResult public func enqueueDispatch(taskId: String, triggerKey: String? = nil, message: String? = nil, userAuthored: Bool = true) throws -> NativeDispatch {
         let dispatch = try write { db in
             // Starting or answering a parked task by hand takes it back from its wait.
             if var wait = try TaskWait.fetchOne(db, key: taskId), wait.isActive { try cancel(db, &wait, now: Date()) }
-            return try queueDispatch(db, taskId: taskId, triggerKey: triggerKey, message: message, source: .user)
+            return try queueDispatch(db, taskId: taskId, triggerKey: triggerKey, message: message, source: .user, userAuthored: userAuthored)
         }
         signalRunners(dispatch.id)
         return dispatch
@@ -226,7 +229,7 @@ extension FaciendaStore {
         try? Data(note.utf8).write(to: url.deletingLastPathComponent().appending(path: "runner.signal"), options: .atomic)
     }
 
-    func queueDispatch(_ db: Database, taskId: String, triggerKey: String?, message: String?, source: EventSource) throws -> NativeDispatch {
+    func queueDispatch(_ db: Database, taskId: String, triggerKey: String?, message: String?, source: EventSource, userAuthored: Bool = true) throws -> NativeDispatch {
         do {
             guard let task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen else { throw StoreError.notFound }
             if let triggerKey, let existing = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE triggerKey = ?", arguments: [triggerKey]) { return existing }
@@ -243,7 +246,7 @@ extension FaciendaStore {
             let previous = try String.fetchOne(db, sql: "SELECT d.threadId FROM dispatches d JOIN threadLinks l ON l.codexThreadId = d.threadId AND l.taskId = d.taskId WHERE d.taskId = ? AND d.state = 'started' ORDER BY d.requestedAt DESC LIMIT 1", arguments: [taskId]) ?? Self.workThreadID(db, taskId: taskId)
             let item = NativeDispatch(id: UUID().uuidString, taskId: taskId, state: "queued", requestedAt: Date(), threadId: previous, triggerKey: triggerKey, kind: message == nil ? "start" : "reply", message: message)
             try item.insert(db)
-            if let message { try TaskEvent(taskId: taskId, source: source, kind: source == .user ? "user.reply" : "wait.message", payload: message).insert(db) }
+            if let message { try TaskEvent(taskId: taskId, source: source, kind: source == .user ? (userAuthored ? "user.reply" : "suggestion.used") : "wait.message", payload: message).insert(db) }
             try TaskEvent(taskId: taskId, source: source, kind: "dispatch.queued", payload: item.id).insert(db)
             try reconcileBlockers(db, now: Date())
             try arrangeBlockerCheck(db, taskId: taskId, threadId: nil, reset: false, now: Date())
@@ -278,7 +281,7 @@ extension FaciendaStore {
             try db.execute(sql: "UPDATE dispatches SET state = 'cancelled' WHERE provider IS NOT 'claude' AND state IN ('queued', 'claimed') AND taskId IN (SELECT id FROM tasks WHERE state IN ('done', 'dropped'))")
             // An uncertain delivery must be reconciled, never silently retried. The runner gets one look at an
             // interrupted one; once it defers it, the delivery is parked for recovery in Facienda and stays there.
-            if let existing = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE provider IS NOT 'claude' AND ((state = 'claimed' AND (availableAt IS NULL OR availableAt <= ?)) OR (state = 'dispatching' AND availableAt IS NULL)) ORDER BY requestedAt LIMIT 1", arguments: [Date()]) { return existing }
+            if let existing = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE provider IS NOT 'claude' AND ((state = 'claimed' AND (availableAt IS NULL OR availableAt <= ?)) OR (state = 'dispatching' AND availableAt IS NULL AND codexQueueId IS NULL)) ORDER BY requestedAt LIMIT 1", arguments: [Date()]) { return existing }
             guard var item = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE provider IS NOT 'claude' AND state = 'queued' AND (availableAt IS NULL OR availableAt <= ?) ORDER BY requestedAt LIMIT 1", arguments: [Date()]) else { return nil }
             item.state = "claimed"; item.runnerId = runnerId
             try item.update(db)
@@ -342,7 +345,7 @@ extension FaciendaStore {
                   let task = try FaciendaTask.fetchOne(db, key: item.taskId), task.state.isOpen,
                   try TaskEvent.fetchOne(db, sql: "SELECT * FROM events WHERE taskId = ? AND kind = 'dispatch.blocked' ORDER BY at DESC LIMIT 1", arguments: [task.id]) != nil else { throw StoreError.conflict }
             guard item.kind != "check" else { throw StoreError.invalid("This check was paused after delivery failed. Reconcile its owning chat and review the saved check plan instead of retrying a stale check.") }
-            item.state = "queued"; item.runnerId = nil; item.availableAt = nil
+            item.state = "queued"; item.runnerId = nil; item.availableAt = nil; item.codexQueueId = nil; item.codexQueuePreparedAt = nil
             try item.update(db)
             try TaskEvent(taskId: task.id, source: .user, kind: "dispatch.recovery", payload: "\(id): \(evidence)").insert(db)
         }
@@ -351,7 +354,7 @@ extension FaciendaStore {
 
     /// `markerEvidence` is the chat message that holds this delivery's exact marker. A parked delivery, one the
     /// runner deferred as uncertain, is acknowledged only with it: an empty search must never become a delivery.
-    public func acknowledgeDispatch(_ id: String, runnerId: String, threadId: String, markerEvidence: String? = nil) throws {
+    public func acknowledgeDispatch(_ id: String, runnerId: String, threadId: String, markerEvidence: String? = nil, status: String = "active") throws {
         guard !threadId.isEmpty else { throw StoreError.invalid("A confirmed native chat ID is required.") }
         try write { db in
             guard let item = try NativeDispatch.fetchOne(db, key: id), item.runnerId == runnerId else { throw StoreError.conflict }
@@ -361,7 +364,7 @@ extension FaciendaStore {
                     throw StoreError.invalid("This delivery was parked as uncertain. Acknowledge it only with --marker-file holding the chat message with its exact marker, Facienda dispatch: \(id). Without one, leave it to recovery in Facienda.")
                 }
             }
-            try confirmDelivery(db, item, threadId: threadId, status: "active")
+            try confirmDelivery(db, item, threadId: threadId, status: status)
             if parked { try TaskEvent(taskId: item.taskId, threadId: threadId, source: .app, kind: "dispatch.recovery", payload: "\(id): runner found the delivery marker in this chat", verified: false).insert(db) }
         }
     }

@@ -13,9 +13,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
-import threading
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime, timedelta, timezone
 
 parser = argparse.ArgumentParser()
@@ -73,7 +71,8 @@ try:
     process.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n')
     process.stdin.flush()
     tools = request('tools/list', {})['tools']
-    assert len(tools) == 21
+    assert len(tools) == 25
+    assert {"facienda_memory_find", "facienda_memory_open", "facienda_memory_propose", "facienda_memory_reflect"} <= {tool["name"] for tool in tools}
     assert next(tool for tool in tools if tool['name'] == 'facienda_current_task')['annotations']['readOnlyHint'] is True
     assert next(tool for tool in tools if tool['name'] == 'facienda_task_update')['annotations']['readOnlyHint'] is False
     task = call('task_create', {'title': 'Isolated smoke task', 'nextAction': 'Check the report', 'returnAt': '2030-01-01T12:00:00Z'})
@@ -97,14 +96,24 @@ try:
     assert not memory.get('confirmedAt') and memory['taskId'] == task_id
     # Current chats name their task; memory is limited to that task's memory.
     assert len(call('memory_recall', {'taskId': task_handle, 'query': ''})) == 1
+    proposal = call('memory_propose', {'taskId': task_handle, 'shelf': 'rules', 'text': 'Ask before publishing', 'why': 'Invented user preference'})
+    assert proposal['state'] == 'proposed'
+    assert call('memory_find', {'taskId': task_handle, 'text': 'publishing'}) == []
+    assert call('memory_open', {'taskId': task_handle, 'id': proposal['id']})['entry']['state'] == 'proposed'
+    call('memory_propose', {'taskId': task_handle, 'shelf': 'status', 'text': 'Tests passed', 'why': 'A report'}, error=True)
     assert 'taskId' in next(tool for tool in tools if tool['name'] == 'facienda_memory_recall')['description']
     call('memory_recall', {'workspace': str(directory / 'wrong.sqlite'), 'query': ''}, error=True)
     call('memory_recall', {'query': ''}, error=True)
     call('memory_recall', {'taskId': 'no-such-task', 'query': ''}, error=True)
+    call('memory_reflect', {'taskId': task_id, 'question': 'What is our process?'}, error=True)
+    call('memory_reflect', {'taskId': task_handle, 'question': ''}, error=True)
     call('request_decision', {'taskId': task_handle, 'question': 'Continue?', 'recommendation': 'Review first', 'options': ['Review first', 'Continue']})
     call('schedule_followup', {'taskId': task_handle, 'nextAction': 'Review tomorrow', 'returnAt': '2030-01-02T12:00:00Z'})
     call('propose_completion', {'taskId': task_handle, 'evidence': 'Prepared; user sign-off needed'})
 
+    # The actual stdio helper owns no TCP listener; memory needs no server.
+    listening = subprocess.run(['/usr/sbin/lsof', '-nP', '-a', '-p', str(process.pid), '-iTCP', '-sTCP:LISTEN'], capture_output=True, text=True, timeout=5)
+    assert listening.returncode == 1 and not listening.stdout, listening.stdout
     timings = []
     for event in ['SessionStart', 'UserPromptSubmit', 'Stop']:
         before = time.monotonic()
@@ -113,7 +122,7 @@ try:
         assert hook.returncode == 0
         if event != 'Stop':
             context = json.loads(hook.stdout)['hookSpecificOutput']['additionalContext']
-            assert task_handle in context and f'taskId {task_handle}' in context and 'facienda_memory_recall' in context
+            assert task_handle in context and f'taskId {task_handle}' in context and 'facienda_memory_find' in context
     for bad in ['not json', '{}']:
         hook = subprocess.run([str(args.helpers / 'facienda-hook'), *helper_arguments], input=bad, text=True, capture_output=True, timeout=2)
         assert hook.returncode == 0 and hook.stdout == ''
@@ -203,46 +212,19 @@ try:
     unpathed = re.sub(r"'/[^']*'", "'PATH'", instructions)
     assert len(unpathed.encode()) < 11000 and '--prepared-file' in instructions, (len(unpathed.encode()), len(instructions.encode()))
     assert 'limit 100' not in instructions
-    memory_requests = []
+    # No configurable network memory service remains; queue wakeup stays independent of learning.
+    assert 'no longer supported' in refused(*base, '--runner', 'memory-configure', '--engine', 'hindsight')
+    before = time.monotonic()
+    delivery = helper('--runner', 'wait', '--runner-id', 'memory-smoke-runner', '--seconds', '1')
+    queue_ms = round((time.monotonic() - before) * 1000, 2)
+    assert queue_ms < 2000, queue_ms
 
-    class MemoryFixture(BaseHTTPRequestHandler):
-        def do_POST(self):
-            memory_requests.append(self.path)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{}')
-        do_PUT = do_POST
-        do_PATCH = do_POST
-        do_GET = do_POST
-        def log_message(self, *args):
-            pass
-
-    class MemoryServer(HTTPServer):
-        def get_request(self):
-            connection = super().get_request()
-            memory_requests.append("TCP connection")
-            return connection
-
-    # Queue wakeup must not even initiate a TLS connection to memory.
-    server = MemoryServer(('127.0.0.1', 0), MemoryFixture)
-    serving = threading.Thread(target=server.serve_forever, daemon=True)
-    serving.start()
-    try:
-        helper('--runner', 'memory-configure', '--engine', 'hindsight', '--endpoint', f'https://127.0.0.1:{server.server_port}', '--enabled', 'true')
-        before = time.monotonic()
-        delivery = helper('--runner', 'wait', '--runner-id', 'memory-smoke-runner', '--seconds', '1')
-        queue_ms = round((time.monotonic() - before) * 1000, 2)
-        assert queue_ms < 2000 and not memory_requests, (queue_ms, memory_requests)
-    finally:
-        helper('--runner', 'memory-configure', '--enabled', 'false')
-        server.shutdown()
-        serving.join(timeout=2)
-        server.server_close()
     assert 'workerPrompt' not in delivery and len(json.dumps(delivery)) < 4000
     _, prepared = prepare(delivery)
     prompt = prepared['workerPrompt']
     assert str(database) in prompt and 'facienda_memory_recall' in prompt and 'facienda_memory_remember' in prompt and f'TASK HANDLE: {task_handle}' in prompt
-    assert 'Use an isolated test database' in prompt and 'CONFIRMED PERSONAL MEMORY SNAPSHOT' in prompt and 'MEMORY: Personal' in prompt
+    assert 'MEMORY INDEX:' in prompt and 'MEMORY SNAPSHOT:' not in prompt and 'with a memory of its own' in prompt
+    assert 'Use an isolated test database' not in prompt  # An unconfirmed suggestion cannot become prompt context.
     arguments_file = directory / 'recall.json'
     arguments_file.write_text(json.dumps({'taskId': task_handle, 'query': ''}))
     assert len(helper('--call', 'facienda_memory_recall', '--arguments-file', str(arguments_file))) == 1
@@ -362,7 +344,7 @@ try:
         assert f'Working folder: {expected_folder}.' in prepared['workerPrompt']
         assert prepared['targetProject']['id'] == 'routing-fixture'
         helper('--runner', 'ack', '--runner-id', 'memory-smoke-runner', '--dispatch-id', delivery['dispatch']['id'], '--thread-id', 'routing-' + routing_id)
-    print(json.dumps({'sharedWorkspace': args.workspace, 'mcpTools': len(tools), 'stdioProtocol': 'passed', 'agentCompletionRejected': True, 'workspaceMemory': 'passed', 'contextualDispatch': 'passed', 'workingFolderRouting': 'passed', 'compactHandoff': 'passed', 'queuedDispatchMilliseconds': queue_ms, 'queueMemoryRequests': len(memory_requests), 'timedChecks': 'passed', 'dependencyGate': 'passed', 'hookMilliseconds': timings, 'lockedDatabaseHookMilliseconds': locked_ms, 'database': str(database)}, indent=2))
+    print(json.dumps({'sharedWorkspace': args.workspace, 'mcpTools': len(tools), 'stdioProtocol': 'passed', 'agentCompletionRejected': True, 'workspaceMemory': 'passed', 'contextualDispatch': 'passed', 'workingFolderRouting': 'passed', 'compactHandoff': 'passed', 'queuedDispatchMilliseconds': queue_ms, 'networkMemoryOptionRemoved': True, 'timedChecks': 'passed', 'dependencyGate': 'passed', 'hookMilliseconds': timings, 'lockedDatabaseHookMilliseconds': locked_ms, 'database': str(database)}, indent=2))
 finally:
     process.stdin.close()
     try:

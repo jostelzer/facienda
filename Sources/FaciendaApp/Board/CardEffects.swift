@@ -37,6 +37,18 @@ struct FreshRim: View {
     }
 }
 
+/// The ring round the row the top bar's reading acts on: what Return will open, bring back or reply to. It comes and
+/// goes in place with the reading, on the fade.
+struct ReadingRing: View {
+    let on: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.blue, lineWidth: 1.5)
+            .opacity(on ? 1 : 0).animation(Motion.fade, value: on)
+            .allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
 /// The unread dot. While the work waits, a thin ring leaves it every few seconds and fades, so a task that came back
 /// is seen from across the board. Every dot reads the same clock, so several on a board ring together.
 /// It keeps ringing under Reduce Motion, like the running arc: it grows in place and never travels.

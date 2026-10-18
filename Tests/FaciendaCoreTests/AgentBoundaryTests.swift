@@ -44,7 +44,7 @@ private let helper = "/Apps/facienda-mcp"
 
 @Test func taskSearchStaysInsideTheHandlesMemoryAndNeverPassesOnHandles() throws {
     let store = try library()
-    let work = try store.createWorkspace(name: "Work", memorySpaceID: try store.createMemorySpace(name: "Work").id)
+    let work = try store.createWorkspace(name: "Work")
     let home = try store.scoped(to: try store.defaultWorkspace().id).create(FaciendaTask(title: "Trip"))
     let job = try store.scoped(to: work.id).create(FaciendaTask(title: "Hire"))
     let sibling = try store.scoped(to: work.id).create(FaciendaTask(title: "Onboard"))
@@ -96,7 +96,7 @@ private let helper = "/Apps/facienda-mcp"
     let handle = try store.taskHandle(task.id)
     let item = try store.enqueueDispatch(taskId: task.id)
     let prompt = try await DispatchPrompt.payload(item, store: store, base: "facienda-mcp --database DB")["workerPrompt"].string ?? ""
-    #expect(prompt.contains("TASK HANDLE: \(handle)") && prompt.contains("facienda_memory_recall with taskId \(handle)") && prompt.contains("fromTaskId \(handle)"))
+    #expect(prompt.contains("TASK HANDLE: \(handle)") && prompt.contains("facienda_memory_find(text, taskId: \(handle))") && prompt.contains("fromTaskId \(handle)"))
     #expect(!prompt.contains("--runner rules"))
     #expect(!prompt.replacingOccurrences(of: handle, with: "HANDLE").contains("taskId \(task.id)"))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "chat", role: "work", linkedBy: "user"))
@@ -254,4 +254,16 @@ private let helper = "/Apps/facienda-mcp"
     let narrowed = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: old.appending(path: ".claude/settings.local.json")))
     #expect(narrowed["permissions"]["allow"].array == store.claudeTaskRules(helper: helper).map(JSONValue.string))
     #expect(narrowed["permissions"]["additionalDirectories"].array == [.string("/Users/me/site")])
+    #expect(narrowed["autoCompactWindow"] == .null)
+    // The runner already running gets its bound from the folder it works in.
+    let runnerFolder = store.workFolder.appending(path: "claude/runner-old")
+    try FileManager.default.createDirectory(at: runnerFolder.appending(path: ".claude"), withIntermediateDirectories: true)
+    let unbounded: JSONValue = .object(["enabledMcpjsonServers": .array([.string("facienda")]),
+                                        "permissions": .object(["allow": .array(runner.map(JSONValue.string))])])
+    try Data(unbounded.json.utf8).write(to: runnerFolder.appending(path: ".claude/settings.local.json"))
+    try Data(store.url.path.utf8).write(to: runnerFolder.appending(path: FaciendaStore.claudeRunnerMarker))
+    store.narrowClaudeFolders(helper: helper, runnerBase: store.workFolder.appending(path: "claude"))
+    let bounded = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: runnerFolder.appending(path: ".claude/settings.local.json")))
+    #expect(bounded["autoCompactWindow"].number == Double(FaciendaStore.claudeRunnerContext))
+    #expect(bounded["permissions"]["allow"].array == runner.map(JSONValue.string))
 }

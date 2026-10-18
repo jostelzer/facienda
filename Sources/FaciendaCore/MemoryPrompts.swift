@@ -312,9 +312,14 @@ public enum MemoryPrompts {
 /// One hidden model call: a system prompt, a user message and a JSON schema. Returns the reply text.
 public protocol MemoryInference: Sendable {
     func complete(system: String, user: String, schema: JSONValue) async throws -> String
+    func complete(system: String, user: String, schema: JSONValue, priority: MemoryInferencePriority) async throws -> String
 }
 
 extension MemoryInference {
+    public func complete(system: String, user: String, schema: JSONValue, priority: MemoryInferencePriority) async throws -> String {
+        try await complete(system: system, user: user, schema: schema)
+    }
+
     /// The request shape the `facienda-memory` helper and the gateway accept.
     public static func request(system: String, user: String, schema: JSONValue) throws -> MemoryInferenceRequest {
         try MemoryInferenceRequest(.object([
@@ -332,7 +337,11 @@ extension MemoryInference {
 /// Runs each call through the bundled `facienda-memory` helper, for processes without a warm Luna (the MCP helper).
 public struct HelperMemoryInference: MemoryInference {
     public let executable: URL
-    public init(executable: URL) { self.executable = executable }
+    private let pool: MemoryInferencePool
+    public init(executable: URL) {
+        self.executable = executable
+        pool = MemoryInferencePool(workers: (0..<MemoryInferencePool.parallelism).map { _ in MemoryHelperWorker(executable: executable) })
+    }
 
     /// `facienda-memory` next to this binary, or in the installed app's Helpers.
     public static func bundled() -> HelperMemoryInference? {
@@ -347,6 +356,17 @@ public struct HelperMemoryInference: MemoryInference {
     }
 
     public func complete(system: String, user: String, schema: JSONValue) async throws -> String {
+        try await complete(system: system, user: user, schema: schema, priority: .background)
+    }
+
+    public func complete(system: String, user: String, schema: JSONValue, priority: MemoryInferencePriority) async throws -> String {
+        try await pool.complete(system: system, user: user, schema: schema, priority: priority)
+    }
+}
+
+private struct MemoryHelperWorker: MemoryInference {
+    let executable: URL
+    func complete(system: String, user: String, schema: JSONValue) async throws -> String {
         let request = try Self.request(system: system, user: user, schema: schema)
         let executable = executable
         let output: Data = try await withCheckedThrowingContinuation { continuation in
@@ -362,13 +382,13 @@ public struct HelperMemoryInference: MemoryInference {
                     try input.fileHandleForWriting.close()
                     let data = output.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
-                    guard process.terminationStatus == 0 else { throw StoreError.invalid("Luna could not process this memory request.") }
+                    guard process.terminationStatus == 0 else { throw StoreError.invalid("The background worker could not process this memory request.") }
                     continuation.resume(returning: data)
                 } catch { continuation.resume(throwing: error) }
             }
         }
         let receipt = try JSONDecoder().decode(JSONValue.self, from: output)
-        guard let content = receipt["content"].string else { throw StoreError.invalid("Luna returned no memory response.") }
+        guard let content = receipt["content"].string else { throw StoreError.invalid("The background worker returned no memory response.") }
         try request.validate(content)
         return content
     }

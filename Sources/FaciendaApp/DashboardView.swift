@@ -9,17 +9,26 @@ struct DashboardView: View {
     var sidebar = true
     @Environment(\.openWindow) private var openWindow
     @Environment(\.undoManager) private var undoManager
-    @Environment(\.besideLights) private var besideLights
-    @State private var omnibar: OmnibarModel
-    /// The empty space either side of the top bar's field, which it may take while you type.
-    @State private var gaps: [CGFloat] = [0, 0]
+    /// The window's bar when `WorkspaceWindow` draws it above the panels; on its own the board draws one in its top bar.
+    private let shared: OmnibarModel?
+    @State private var own: OmnibarModel
+    private var omnibar: OmnibarModel { shared ?? own }
     /// The window's height, which long text in the bar may take most of.
     @State private var pageHeight: CGFloat = 0
     @State private var pageWidth: CGFloat = 0
 
-    init(model: AppModel, appDelegate: AppDelegate? = nil, workspaces: WorkspaceController? = nil, sidebar: Bool = true) {
+    /// `query` and `sheetDraft` put text in the bar or an open group's sheet, as if typed; the demo snapshots use them.
+    init(model: AppModel, appDelegate: AppDelegate? = nil, workspaces: WorkspaceController? = nil, sidebar: Bool = true, omnibar: OmnibarModel? = nil,
+         query: String = "", sheetDraft: String? = nil) {
         _model = Bindable(model); self.appDelegate = appDelegate; self.workspaces = workspaces; self.sidebar = sidebar
-        _omnibar = State(initialValue: OmnibarModel(model: model, workspaces: workspaces))
+        shared = omnibar
+        let own = omnibar ?? OmnibarModel(model: model, workspaces: workspaces)
+        // A bar shared with the window keeps its own text.
+        if omnibar == nil {
+            own.query = sheetDraft ?? query
+            if let sheetDraft, let group = model.omnibarGroup { own.seedDraft(sheetDraft, for: group) }
+        }
+        _own = State(initialValue: own)
     }
 
     /// A nearly full disk holds new task starts, so the board says why nothing starts and where to free space.
@@ -34,28 +43,28 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        @Bindable var bar = omnibar
         HStack(spacing: 0) {
             if sidebar {
                 WorkspaceSidebar(model: model, workspaces: workspaces)
                     .frame(width: min(max(pageWidth * 0.25, 220), 560) - IslandFrame.margin * 2).padding(IslandFrame.margin)
             }
-            VStack(spacing: 0) {
-                // Above the page, which the bar grows down over.
-                topBar.zIndex(1)
+            panel(VStack(spacing: 0) {
+                // Above the page, which the bar grows down over. In the window the bar is the window's, so a board has none.
+                if shared == nil || model.destination == .inbox { topBar.zIndex(1) }
                 if model.diskNearlyFull { lowSpaceBar }
                 if model.destination == .inbox && model.search.isEmpty { inbox }
                 // The task lists are the board with one state's chip on; a task opens in a panel over it.
                 // Beside the board rather than over it, so the board narrows and the task's row stays in view.
                 else {
-                    HStack(spacing: 0) {
-                        DashboardModes(model: model)
+                    DashboardModes(model: model) {
                         if let task = model.selectedTask {
                             TaskPanel(model: model, task: task) { model.select(nil) }
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
-                    }.animation(Motion.move, value: model.selection)
+                    }
                 }
-            }
+            })
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
@@ -65,27 +74,15 @@ struct DashboardView: View {
                 GroupSheetLayer(omnibar: omnibar, cards: cards.mapValues { proxy[$0] }, size: proxy.size)
             }
         }
+        // With the bar in the window, the window draws its results, so they can hang over the island too.
         .overlayPreferenceValue(OmnibarAnchorKey.self) { anchor in
-            if omnibar.isOpen, let anchor {
-                GeometryReader { proxy in
-                    let field = proxy[anchor]
-                    let width = min(max(field.width, 560), proxy.size.width - 32)
-                    ZStack(alignment: .topLeading) {
-                        // A click outside closes the results and keeps the board filtered. It lets a lit group go too.
-                        Color.black.opacity(0.001).padding(.top, field.maxY + 4)
-                            .contentShape(Rectangle()).onTapGesture { omnibar.dismissed = true; model.releaseSpotlight() }
-                        // The results take what is left beneath a tall bar.
-                        OmnibarPanel(omnibar: omnibar, tallest: proxy.size.height - field.maxY - 22).frame(width: width)
-                            .offset(x: min(max(16, field.midX - width / 2), proxy.size.width - width - 16), y: field.maxY + 6)
-                    }
-                }
-            }
+            if shared == nil, omnibar.isOpen, let anchor { OmnibarResults(omnibar: omnibar, model: model, anchor: anchor) }
         }
-        .background(Palette.paper).foregroundStyle(Palette.ink).tint(Palette.accent)
+        .background(sidebar ? Palette.sidebar : Palette.paper).foregroundStyle(Palette.ink).tint(Palette.accent)
         // Beside the island it asks no more than the island leaves it, so it never pushes past the window.
         .frame(minWidth: sidebar ? 680 : IslandFrame.board.width, minHeight: sidebar ? 520 : IslandFrame.board.height)
         .overlay(alignment: .bottom) { UndoOfferToast(model: model) }
-        .sheet(item: $omnibar.chosenChat) { chat in ChatChoice(omnibar: omnibar, chat: chat).foregroundStyle(Palette.ink) }
+        .sheet(item: $bar.chosenChat) { chat in ChatChoice(omnibar: omnibar, chat: chat).foregroundStyle(Palette.ink) }
         .sheet(isPresented: $model.showCapture) { CaptureView(model: model) }
         .sheet(isPresented: $model.showShortcuts) { ShortcutsCard() }
         .sheet(isPresented: $model.showSettings) { SettingsView(model: model, workspaces: workspaces) }
@@ -122,8 +119,14 @@ struct DashboardView: View {
         }
     }
 
-    /// Search owns the bar. The composer keeps a way back to the board; Memory, Chats and
-    /// Settings are reached from the sidebar.
+    /// With the island drawn here too, the board is a panel beside it, as `WorkspaceWindow` draws it.
+    @ViewBuilder private func panel(_ page: some View) -> some View {
+        if sidebar { page.background(Palette.paper).boardPanel().padding([.vertical, .trailing], IslandFrame.margin) } else { page }
+    }
+
+    /// In the window the bar is above the panels and the pages' switch is the board's own first row. On its own the board
+    /// keeps the field here, running out to its right edge, so the bar shares the cards' edges. The composer keeps a way
+    /// back to the board; Settings are reached from the sidebar.
     private var topBar: some View {
         HStack(spacing: 12) {
             if model.destination == .inbox {
@@ -132,18 +135,15 @@ struct DashboardView: View {
                 }.buttonStyle(QuietButton(compact: true)).accessibilityLabel("Back to dashboard")
                 Text(model.destination.rawValue).font(.system(size: 15, weight: .semibold)).lineLimit(1)
             }
-            Spacer(minLength: 0).onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gaps[0] = $0 }
-            HStack(spacing: 14) {
-                Image("BrandIcon").resizable().scaledToFit().frame(width: 26, height: 26).accessibilityLabel("Facienda")
-                if model.destination == .dashboard { DashboardModeSwitch() }
-                OmnibarField(omnibar: omnibar, spare: gaps[0] + gaps[1], reach: pageHeight)
-            }
-            Spacer(minLength: 0).onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gaps[1] = $0 }
+            if shared == nil {
+                OmnibarField(omnibar: omnibar, reach: pageHeight, widest: .infinity)
+                UpdatePill()
+            } else { Spacer(minLength: 0) }
         }
-        // Behind the bar, so a bar growing down over the page is not crossed by the line.
-        // Clear of the window's traffic lights when the island is not under them.
-        .padding(.leading, besideLights ? 84 : 24).padding(.trailing, 24).frame(height: 60).background(alignment: .bottom) { Divider() }
-        .overlay(alignment: .trailing) { UpdatePill().padding(.trailing, 20) }
+        // The field sits as far down from the panel's top as in from its sides, so its corners nest in the panel's.
+        // Without it the way back alone needs less.
+        .padding(.horizontal, IslandFrame.inset)
+        .frame(height: (shared == nil ? 40 : 28) + IslandFrame.inset * 2)
     }
 
     private var inbox: some View {

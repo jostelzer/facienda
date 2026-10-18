@@ -313,7 +313,7 @@ extension FaciendaStore {
     public func codexChatsToFollow(since: Date) throws -> [String] {
         try db.read { db in
             try String.fetchAll(db, sql: """
-                SELECT threadId FROM dispatches WHERE runnerId = ? AND state IN ('started', 'finished') AND threadId IS NOT NULL AND requestedAt >= ?
+                SELECT threadId FROM dispatches WHERE runnerId = ? AND state IN ('started', 'finished') AND codexQueuePreparedAt IS NULL AND threadId IS NOT NULL AND requestedAt >= ?
                 UNION SELECT threadId FROM codexApprovals WHERE closedAt IS NULL
                 """, arguments: [Self.codexDispatcherId, since])
         }

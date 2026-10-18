@@ -10,6 +10,7 @@ public actor MemoryModels {
     private var loaded: (tokenizer: MemoryTokenizer, embedder: MLModel, reranker: MLModel)?
     private let resources: URL?
     private let cache: URL
+    private var usingCPU = false
 
     public init(resources: URL? = MemoryModels.resourceFolder(), cache: URL = MemoryModels.defaultCache) {
         self.resources = resources
@@ -18,10 +19,10 @@ public actor MemoryModels {
 
     /// Unit-length embeddings, one per text.
     public func embed(_ texts: [String]) throws -> [[Float]] {
-        let (tokenizer, embedder, _) = try models()
+        let tokenizer = try models().tokenizer
         return try texts.map { text in
-            let ids = tokenizer.encode(text)
-            let output = try embedder.prediction(from: try Self.features(["input_ids": ids, "attention_mask": ids.map { _ in 1 }]))
+            let ids = tokenizer.encode(MemoryRedaction.redact(text))
+            let output = try prediction(embedder: true, input: Self.features(["input_ids": ids, "attention_mask": ids.map { _ in 1 }]))
             guard let array = output.featureValue(for: "embedding")?.multiArrayValue, array.count == Self.dimensions else {
                 throw StoreError.invalid("The memory embedder returned no vector.")
             }
@@ -35,8 +36,8 @@ public actor MemoryModels {
 
     /// Relevance logits for each document against the query; higher is more relevant.
     public func rerank(_ query: String, _ documents: [String]) throws -> [Float] {
-        let (tokenizer, _, reranker) = try models()
-        let pairs = documents.map { tokenizer.encodePair(query, $0) }
+        let tokenizer = try models().tokenizer
+        let pairs = documents.map { tokenizer.encodePair(MemoryRedaction.redact(query), MemoryRedaction.redact($0)) }
         // Similar lengths share a batch, so little padding is computed.
         let order = pairs.indices.sorted { pairs[$0].ids.count < pairs[$1].ids.count }
         var scores = [Float](repeating: 0, count: documents.count)
@@ -57,7 +58,7 @@ public actor MemoryModels {
                     idp[row * length + column] = pair.ids[column]; maskp[row * length + column] = 1; typep[row * length + column] = pair.types[column]
                 }
             }
-            let output = try reranker.prediction(from: try MLDictionaryFeatureProvider(dictionary: [
+            let output = try prediction(embedder: false, input: MLDictionaryFeatureProvider(dictionary: [
                 "input_ids": MLFeatureValue(multiArray: ids), "attention_mask": MLFeatureValue(multiArray: mask), "token_type_ids": MLFeatureValue(multiArray: types),
             ]))
             guard let array = output.featureValue(for: "score")?.multiArrayValue, array.count >= members.count else {
@@ -70,11 +71,23 @@ public actor MemoryModels {
 
     public func tokenizer() throws -> MemoryTokenizer { try models().tokenizer }
 
+    /// A stale macOS GPU compilation cache must not disable memory. Retry the same local model once on the CPU.
+    private func prediction(embedder: Bool, input: any MLFeatureProvider) throws -> any MLFeatureProvider {
+        let pair = try models()
+        do { return try (embedder ? pair.embedder : pair.reranker).prediction(from: input) }
+        catch {
+            guard !usingCPU, (error as NSError).domain == "com.apple.CoreML" else { throw error }
+            usingCPU = true; loaded = nil
+            let fallback = try models()
+            return try (embedder ? fallback.embedder : fallback.reranker).prediction(from: input)
+        }
+    }
+
     private func models() throws -> (tokenizer: MemoryTokenizer, embedder: MLModel, reranker: MLModel) {
         if let loaded { return loaded }
         guard let resources else { throw StoreError.invalid("Facienda's memory models are missing from this installation.") }
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .all
+        configuration.computeUnits = usingCPU ? .cpuOnly : .all
         let tokenizer = try MemoryTokenizer(vocabulary: resources.appendingPathComponent("vocab.txt"))
         let embedder = try MLModel(contentsOf: try compiled("MemoryEmbedder", in: resources), configuration: configuration)
         let reranker = try MLModel(contentsOf: try compiled("MemoryReranker", in: resources), configuration: configuration)

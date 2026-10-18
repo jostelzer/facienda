@@ -8,7 +8,6 @@ Facienda is a native Mac app in Swift 6 and SwiftUI, for macOS 26. These notes a
 - `Sources/FaciendaCore`: the library (SQLite through GRDB), memory, and what the app and the helpers share.
 - `Sources/FaciendaMCP`, `FaciendaHook`, `FaciendaDispatch`, `FaciendaMemory`: the command-line helpers bundled inside the app. Claude and Codex reach Facienda through them.
 - `Sources/FaciendaBridge`: the connection to Codex and Claude: the Codex app server, the dispatcher, setup and background model calls.
-- `Sources/FaciendaPhone`, `FaciendaCompanion`: the iPhone companion and the models it shares with the Mac.
 
 ## Build and test
 

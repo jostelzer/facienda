@@ -15,6 +15,6 @@ The conversion is reproducible with `scripts/convert_memory_models.py`.
 
 ## Full notices
 
-Full upstream license texts and dependency notices are retained in [Support/ThirdPartyNotices.txt](Support/ThirdPartyNotices.txt) and bundled with the Mac and iPhone apps.
+Full upstream license texts and dependency notices are retained in [Support/ThirdPartyNotices.txt](Support/ThirdPartyNotices.txt) and bundled with the Mac app.
 
 The conversion script pins the cached upstream model snapshots. The existing converted model weights are preserved unchanged; this source cleanup does not regenerate them.

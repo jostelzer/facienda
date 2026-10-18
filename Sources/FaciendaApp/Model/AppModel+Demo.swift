@@ -33,11 +33,29 @@ extension AppModel {
         try store.park(call.id, plan: reminder)
         _ = try store.create(FaciendaTask(title: "Revisit the reading list", area: "Personal", state: .scheduled, nextAction: "Choose the next book", returnAt: Date().addingTimeInterval(86400 * 3)))
         try store.remember(MemoryFact(kind: "preference", text: "Keep preparation separate from the final decision.", source: "Demo preference — illustrative data"))
+        for rule in ["Prices in euro, delivery included.", "Never book or pay; prepare it and ask."] {
+            var fact = MemoryFact(kind: FaciendaStore.ruleKind, text: rule, source: "Demo rule — illustrative data"); fact.confirmedAt = Date()
+            try store.remember(fact, source: .user)
+        }
         let office = try store.createGroup(name: "Home office"), trips = try store.createGroup(name: "Time away")
         _ = try store.createGroup(name: "Reading")
         for task in try store.tasks() {
             if task.title.contains("desk") || task.title.contains("office") || task.title.contains("tudio") { try store.assignGroup(taskId: task.id, groupId: office.id) }
             if task.title.contains("weekend") { try store.assignGroup(taskId: task.id, groupId: trips.id) }
+        }
+        // What came in through the bar, so the Feed has something to show: requests that became these tasks, a reply,
+        // an answer and a note remembered, spread over the last day.
+        let hour: TimeInterval = 3600
+        for (text, reading, by, task, ago) in [
+            ("measure the studio before we buy anything", "New task", IntakeEntry.Decider.rule, Optional(measured.id), 26 * hour),
+            ("remember prices in euro, delivery included", "Remember · prices in euro, delivery included", .rule, nil, 20 * hour),
+            ("call home before dinner", "New task", .rule, Optional(call.id), 7 * hour),
+            ("find two quiet places on the coast for a weekend", "New task", .rule, Optional(coast.id), 5 * hour),
+            ("tell the supplier the quote must include installation", "Reply · Studio lighting proposal", .model, Optional(waiting.id), 3 * hour),
+            ("prepare the autumn release", "New task", .rule, Optional(work.id), 2 * hour),
+            ("go with the oak desk", "Answer · A quieter home office", .model, Optional(first.id), 0.4 * hour),
+        ] as [(String, String, IntakeEntry.Decider, String?, TimeInterval)] {
+            try store.recordIntake(text: text, reading: reading, decidedBy: by, taskId: task, at: Date().addingTimeInterval(-ago))
         }
         connection = "Demo workspace"
     }

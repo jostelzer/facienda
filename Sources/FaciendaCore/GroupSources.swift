@@ -1,15 +1,19 @@
 import Foundation
 import GRDB
 
-/// Something a group's tasks read but never work inside: a Drive folder, a Sheet or Doc, a file or a web page.
-/// Folders the tasks work in stay in `groupFolders`. An agent can only propose a source; the user links it.
+/// Something tasks read but never work inside: a Drive folder, a Sheet or Doc, a file or a web page. A source belongs to
+/// one group, whose tasks are told about it, or to a workspace, whose every task is. Folders the tasks work in stay in
+/// `groupFolders`. An agent can only propose a source; the user links it, and says in a line what is inside.
 public struct GroupSource: Codable, FetchableRecord, PersistableRecord, Equatable, Identifiable, Sendable {
     public static let databaseTableName = "groupSources"
     public enum State: String, Codable, Sendable { case linked, proposed, dismissed }
     public var id: String
-    public var groupId: String
+    /// The group it belongs to, or nil for one of the workspace's own.
+    public var groupId: String?
+    /// The workspace it belongs to, for one every task in the workspace may read.
+    public var workspaceId: String?
     public var kind: SourceKind
-    /// An absolute path on this Mac or a web address. One per group.
+    /// An absolute path on this Mac or a web address. One per group or workspace.
     public var address: String
     public var title: String
     /// The Google account of a Drive item seen through Google Drive for desktop, when the path names it.
@@ -19,10 +23,18 @@ public struct GroupSource: Codable, FetchableRecord, PersistableRecord, Equatabl
     public var taskId: String?
     /// Why the agent proposed it.
     public var note: String?
+    /// What is inside and when to read it, in the user's words. Agents are told this with the address.
+    public var about: String?
     public var position: Int
     public var createdAt: Date
 
     public var isWeb: Bool { LinkedSource.webURL(address) != nil }
+    public var owner: SourceOwner { groupId.map(SourceOwner.group) ?? .workspace(workspaceId ?? "") }
+}
+
+/// Whose source it is: a group's, read by its tasks, or a workspace's, read by all of them.
+public enum SourceOwner: Equatable, Sendable {
+    case group(String), workspace(String)
 }
 
 public enum SourceKind: String, Codable, Sendable, CaseIterable {
@@ -204,55 +216,93 @@ extension FaciendaStore {
         }
     }
 
+    /// A source can belong to a workspace rather than a group, and carries a line on what is inside.
+    static func registerWorkspaceSources(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("workspace_sources") { db in
+            try db.execute(sql: """
+            CREATE TABLE groupSourcesNew (
+              id TEXT PRIMARY KEY NOT NULL, groupId TEXT REFERENCES taskGroups(id) ON DELETE CASCADE,
+              workspaceId TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+              kind TEXT NOT NULL, address TEXT NOT NULL, title TEXT NOT NULL, account TEXT, state TEXT NOT NULL,
+              taskId TEXT, note TEXT, about TEXT, position INTEGER NOT NULL, createdAt DATETIME NOT NULL,
+              CHECK ((groupId IS NULL) != (workspaceId IS NULL))
+            );
+            INSERT INTO groupSourcesNew (id, groupId, kind, address, title, account, state, taskId, note, position, createdAt)
+              SELECT id, groupId, kind, address, title, account, state, taskId, note, position, createdAt FROM groupSources;
+            DROP TABLE groupSources;
+            ALTER TABLE groupSourcesNew RENAME TO groupSources;
+            CREATE UNIQUE INDEX group_sources_group_address ON groupSources(groupId, address) WHERE groupId IS NOT NULL;
+            CREATE UNIQUE INDEX group_sources_workspace_address ON groupSources(workspaceId, address) WHERE workspaceId IS NOT NULL;
+            """)
+        }
+    }
+
     /// Each group's linked and proposed sources in order, for the scoped workspace or the whole library. Dismissed ones are left out.
     public func groupSources() throws -> [String: [GroupSource]] {
         try db.read { db in
             let rows = try workspaceID.map {
                 try GroupSource.fetchAll(db, sql: "SELECT s.* FROM groupSources s JOIN taskGroups g ON g.id = s.groupId WHERE g.workspaceId = ? AND s.state != 'dismissed' ORDER BY s.position", arguments: [$0])
-            } ?? GroupSource.fetchAll(db, sql: "SELECT * FROM groupSources WHERE state != 'dismissed' ORDER BY position")
-            return Dictionary(grouping: rows, by: \.groupId)
+            } ?? GroupSource.fetchAll(db, sql: "SELECT * FROM groupSources WHERE groupId IS NOT NULL AND state != 'dismissed' ORDER BY position")
+            return Dictionary(grouping: rows, by: { $0.groupId ?? "" })
         }
     }
-
     public func sources(groupId: String) throws -> [GroupSource] {
         try db.read { try GroupSource.fetchAll($0, sql: "SELECT * FROM groupSources WHERE groupId = ? AND state != 'dismissed' ORDER BY position", arguments: [groupId]) }
     }
-
-    /// The sources linked to a task's group, which its chats are told to read. A task without a group has none.
+    /// The scoped workspace's own sources, linked and proposed, in order.
+    public func workspaceSources() throws -> [GroupSource] {
+        guard let workspaceID else { throw StoreError.invalid("Choose a workspace.") }
+        return try workspaceSources(workspaceID: workspaceID)
+    }
+    public func workspaceSources(workspaceID: String) throws -> [GroupSource] {
+        try db.read { try GroupSource.fetchAll($0, sql: "SELECT * FROM groupSources WHERE workspaceId = ? AND state != 'dismissed' ORDER BY position", arguments: [workspaceID]) }
+    }
+    /// The sources a task's chats are told to read: its workspace's, then its group's. A task without a group has only the workspace's.
     public func linkedSources(forTask taskId: String) throws -> [GroupSource] {
         try db.read { db in
-            guard let group = try String.fetchOne(db, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) else { return [] }
-            return try GroupSource.fetchAll(db, sql: "SELECT * FROM groupSources WHERE groupId = ? AND state = 'linked' ORDER BY position", arguments: [group])
+            var sources: [GroupSource] = []
+            if let workspace = try String.fetchOne(db, sql: "SELECT workspaceId FROM tasks WHERE id = ?", arguments: [taskId]) {
+                sources += try GroupSource.fetchAll(db, sql: "SELECT * FROM groupSources WHERE workspaceId = ? AND state = 'linked' ORDER BY position", arguments: [workspace])
+            }
+            if let group = try String.fetchOne(db, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) {
+                sources += try GroupSource.fetchAll(db, sql: "SELECT * FROM groupSources WHERE groupId = ? AND state = 'linked' ORDER BY position", arguments: [group])
+            }
+            return sources
         }
     }
-
-    /// Links a source the user chose. One already proposed or dismissed is linked as it is.
+    /// Links a source the user chose to a group. One already proposed or dismissed is linked as it is.
     /// A Drive folder linked from this Mac also offers its newest Docs, Sheets and Slides.
     @discardableResult public func linkSource(_ address: String, title: String? = nil, groupId: String) throws -> GroupSource {
+        try linkSource(address, title: title, to: .group(groupId))
+    }
+    /// Links a source every task in the workspace may read.
+    @discardableResult public func linkWorkspaceSource(_ address: String, title: String? = nil, workspaceID: String? = nil) throws -> GroupSource {
+        guard let workspace = workspaceID ?? self.workspaceID else { throw StoreError.invalid("Choose a workspace.") }
+        return try linkSource(address, title: title, to: .workspace(workspace))
+    }
+    private func linkSource(_ address: String, title: String?, to owner: SourceOwner) throws -> GroupSource {
         let (address, account, name) = try Self.normalized(address)
         let title = title ?? name
         let source = try write { db -> GroupSource in
-            guard try TaskGroup.fetchOne(db, key: groupId) != nil else { throw StoreError.notFound }
-            if var existing = try GroupSource.filter(Column("groupId") == groupId && Column("address") == address).fetchOne(db) {
+            try Self.requireOwner(db, owner)
+            if var existing = try Self.source(db, owner: owner, address: address) {
                 existing.state = .linked
                 if let title, !title.isEmpty { existing.title = title }
                 try existing.update(db)
                 return existing
             }
-            return try Self.insertSource(db, address: address, title: title, groupId: groupId, state: .linked, taskId: nil, note: nil, account: account)
+            return try Self.insertSource(db, address: address, title: title, owner: owner, state: .linked, taskId: nil, note: nil, account: account)
         }
         if source.kind == .driveFolder, !source.isWeb { offerDriveDocuments(in: source, limit: 5) }
         return source
     }
-
-    /// An agent's suggestion for its task's group: a folder or something online. It waits for the user; one the user already
-    /// linked or dismissed stays as it is. Files on this Mac reach a group only when the user attaches or links them.
+    /// An agent's suggestion for its task's group, or its workspace when the task is in no group. It waits for the user; one
+    /// the user already linked or dismissed stays as it is. Files on this Mac reach a group only when the user attaches or links them.
     /// A folder on this Mac must be inside Facienda's data folder or the task's own working folder: an agent cannot point the
     /// user at arbitrary places on disk. Answers Facienda reads itself pass `anywhere`, since it found the folder there.
     @discardableResult public func proposeSource(_ address: String, title: String?, note: String?, taskId: String) throws -> GroupSource {
         try proposeSource(address, title: title, note: note, taskId: taskId, anywhere: false)
     }
-
     private func proposeSource(_ address: String, title: String?, note: String?, taskId: String, anywhere: Bool) throws -> GroupSource {
         let (address, account, name) = try Self.normalized(address)
         let title = title ?? name
@@ -265,26 +315,24 @@ extension FaciendaStore {
             }
         }
         return try write { db in
-            guard try FaciendaTask.fetchOne(db, key: taskId) != nil else { throw StoreError.notFound }
-            guard let group = try String.fetchOne(db, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) else {
-                throw StoreError.invalid("This task is not in a group, so there is no group to propose a source to. Mention the document in your answer instead.")
-            }
-            if let existing = try GroupSource.filter(Column("groupId") == group && Column("address") == address).fetchOne(db) { return existing }
-            if try String.fetchAll(db, sql: "SELECT path FROM groupFolders WHERE groupId = ?", arguments: [group]).contains(where: { address == $0 || address.hasPrefix($0 + "/") }) {
+            guard let owner = try Self.sourceOwner(db, taskId: taskId) else { throw StoreError.notFound }
+            if let existing = try Self.source(db, owner: owner, address: address) { return existing }
+            if case .group(let group) = owner,
+               try String.fetchAll(db, sql: "SELECT path FROM groupFolders WHERE groupId = ?", arguments: [group]).contains(where: { address == $0 || address.hasPrefix($0 + "/") }) {
                 throw StoreError.invalid("That is inside a folder the group already works in, so its tasks already have it.")
             }
-            return try Self.insertSource(db, address: address, title: title, groupId: group, state: .proposed, taskId: taskId, note: note, account: account)
+            return try Self.insertSource(db, address: address, title: title, owner: owner, state: .proposed, taskId: taskId, note: note, account: account)
         }
     }
-
     /// Proposes what an answer links to that the group could keep (Google Docs, Sheets, Slides and Drive items, and folders on
     /// this Mac), then the files the user attached to the task. Folders inside tasks' own folders or the folders the group works
     /// in are left out. Returns the answer's new proposals; what the group already has, or the user dismissed, is not offered again.
     @discardableResult public func proposeSources(fromAnswer text: String, taskId: String) throws -> [GroupSource] {
         let task = try self.task(taskId)
-        guard let group = try db.read({ try String.fetchOne($0, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) }) else { return [] }
-        let known = try db.read { db in Set(try String.fetchAll(db, sql: "SELECT address FROM groupSources WHERE groupId = ?", arguments: [group])) }
-        let worked = try folders(groupId: group)
+        guard let owner = try db.read({ try Self.sourceOwner($0, taskId: taskId) }) else { return [] }
+        let known = try db.read { db in Set(try Self.sources(db, owner: owner).map(\.address)) }
+        let worked: [String]
+        if case .group(let group) = owner { worked = try folders(groupId: group) } else { worked = [] }
         let inside = { (address: String, folder: String) in address == folder || address.hasPrefix(folder + "/") }
         var proposed: [GroupSource] = [], seen = known
         for found in LinkedSource.documents(in: text, relativeTo: task.cwd) where seen.insert(found.address).inserted {
@@ -297,47 +345,68 @@ extension FaciendaStore {
         offerAttachments(of: taskId)
         return proposed
     }
-
-    /// Offers the files the user attached to a task to its group. Returns how many were new.
+    /// Offers the files the user attached to a task to its group, or its workspace. Returns how many were new.
     @discardableResult public func offerAttachments(of taskId: String) -> Int {
         guard let task = try? self.task(taskId), let attachments = task.attachments, !attachments.isEmpty,
-              let group = try? db.read({ try String.fetchOne($0, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) }) else { return 0 }
+              let owner = try? db.read({ try Self.sourceOwner($0, taskId: taskId) }) else { return 0 }
         var offered = 0
         for file in attachments where FileManager.default.fileExists(atPath: file.path) {
-            if offer(file.path, title: file.name, note: "Attached to “\(task.displayName)”.", account: nil, groupId: group, taskId: taskId) { offered += 1 }
+            if offer(file.path, title: file.name, note: "Attached to “\(task.displayName)”.", account: nil, owner: owner, taskId: taskId) { offered += 1 }
         }
         return offered
     }
-
     /// Offers the Docs, Sheets and Slides that changed in a linked Drive folder since it was linked. Returns how many it offered.
     @discardableResult public func offerAutomaticSources() throws -> Int {
         var offered = 0
-        for source in try groupSources().values.flatMap({ $0 }) where source.state == .linked && source.kind == .driveFolder && !source.isWeb {
+        let linked = try db.read { try GroupSource.fetchAll($0, sql: "SELECT * FROM groupSources WHERE state = 'linked' AND kind = 'driveFolder'") }
+        for source in linked where !source.isWeb {
             offered += offerDriveDocuments(in: source, limit: 3, changedSince: source.createdAt)
         }
         return offered
     }
-
     /// Proposes the newest Docs, Sheets and Slides directly inside a linked Drive folder. Returns how many were new.
     @discardableResult func offerDriveDocuments(in folder: GroupSource, limit: Int, changedSince: Date? = nil) -> Int {
         var offered = 0
         for document in LinkedSource.driveDocuments(in: folder.address) where changedSince.map({ document.modified > $0 }) ?? true {
             let address = LinkedSource.webAddress(ofStub: document.path) ?? document.path
             if offer(address, title: LinkedSource.title(of: document.path, kind: SourceKind.of(document.path)), note: "In the Drive folder “\(folder.title)”.",
-                     account: folder.account, groupId: folder.groupId) { offered += 1 }
+                     account: folder.account, owner: folder.owner) { offered += 1 }
             if offered == limit { break }
         }
         return offered
     }
-
-    /// A proposal Facienda makes itself, not an agent. Anything the group already has, or the user dismissed, is left alone.
-    private func offer(_ address: String, title: String, note: String, account: String?, groupId: String, taskId: String? = nil) -> Bool {
+    /// A proposal Facienda makes itself, not an agent. Anything the owner already has, or the user dismissed, is left alone.
+    private func offer(_ address: String, title: String, note: String, account: String?, owner: SourceOwner, taskId: String? = nil) -> Bool {
         (try? write { db -> Bool in
-            guard try TaskGroup.fetchOne(db, key: groupId) != nil,
-                  try GroupSource.filter(Column("groupId") == groupId && Column("address") == address).fetchCount(db) == 0 else { return false }
-            _ = try Self.insertSource(db, address: address, title: title, groupId: groupId, state: .proposed, taskId: taskId, note: note, account: account)
+            guard (try? Self.requireOwner(db, owner)) != nil, try Self.source(db, owner: owner, address: address) == nil else { return false }
+            _ = try Self.insertSource(db, address: address, title: title, owner: owner, state: .proposed, taskId: taskId, note: note, account: account)
             return true
         }) ?? false
+    }
+
+    /// Where a task's proposals go: its group, else its workspace.
+    static func sourceOwner(_ db: Database, taskId: String) throws -> SourceOwner? {
+        if let group = try String.fetchOne(db, sql: "SELECT groupId FROM taskGroupMembers WHERE taskId = ?", arguments: [taskId]) { return .group(group) }
+        guard let task = try FaciendaTask.fetchOne(db, key: taskId) else { return nil }
+        return task.workspaceId.map(SourceOwner.workspace)
+    }
+    private static func requireOwner(_ db: Database, _ owner: SourceOwner) throws {
+        switch owner {
+        case .group(let id): guard try TaskGroup.fetchOne(db, key: id) != nil else { throw StoreError.notFound }
+        case .workspace(let id): _ = try Self.workspace(db, id)
+        }
+    }
+    private static func source(_ db: Database, owner: SourceOwner, address: String) throws -> GroupSource? {
+        switch owner {
+        case .group(let id): try GroupSource.filter(Column("groupId") == id && Column("address") == address).fetchOne(db)
+        case .workspace(let id): try GroupSource.filter(Column("workspaceId") == id && Column("address") == address).fetchOne(db)
+        }
+    }
+    private static func sources(_ db: Database, owner: SourceOwner) throws -> [GroupSource] {
+        switch owner {
+        case .group(let id): try GroupSource.filter(Column("groupId") == id).fetchAll(db)
+        case .workspace(let id): try GroupSource.filter(Column("workspaceId") == id).fetchAll(db)
+        }
     }
 
     /// Inside the data folder, or inside the task's working folder when that is a real project rather than the home folder or the disk.
@@ -372,6 +441,16 @@ extension FaciendaStore {
         }
     }
 
+    /// The user's line on what a source holds and when to read it. Blank clears it.
+    public func setSourceAbout(_ id: String, _ about: String) throws {
+        let about = about.trimmingCharacters(in: .whitespacesAndNewlines)
+        try write { db in
+            guard var source = try GroupSource.fetchOne(db, key: id) else { throw StoreError.notFound }
+            source.about = about.isEmpty ? nil : about
+            try source.update(db)
+        }
+    }
+
     /// The address a source is kept under, the Google account its path names, and a name when the address alone loses it:
     /// a Drive link file becomes its document's web address, but keeps its file name.
     private static func normalized(_ address: String) throws -> (address: String, account: String?, name: String?) {
@@ -390,15 +469,24 @@ extension FaciendaStore {
         return (web, LinkedSource.account(of: standard), LinkedSource.title(of: standard, kind: SourceKind.of(standard)))
     }
 
-    private static func insertSource(_ db: Database, address: String, title: String?, groupId: String, state: GroupSource.State,
+    private static func insertSource(_ db: Database, address: String, title: String?, owner: SourceOwner, state: GroupSource.State,
                                      taskId: String?, note: String?, account: String? = nil) throws -> GroupSource {
         let kind = SourceKind.of(address)
-        let position = (try Int.fetchOne(db, sql: "SELECT MAX(position) FROM groupSources WHERE groupId = ?", arguments: [groupId]) ?? -1) + 1
+        let position: Int
+        let groupId: String?, workspaceId: String?
+        switch owner {
+        case .group(let id):
+            groupId = id; workspaceId = nil
+            position = (try Int.fetchOne(db, sql: "SELECT MAX(position) FROM groupSources WHERE groupId = ?", arguments: [id]) ?? -1) + 1
+        case .workspace(let id):
+            groupId = nil; workspaceId = id
+            position = (try Int.fetchOne(db, sql: "SELECT MAX(position) FROM groupSources WHERE workspaceId = ?", arguments: [id]) ?? -1) + 1
+        }
         let name = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let source = GroupSource(id: UUID().uuidString, groupId: groupId, kind: kind, address: address,
+        let source = GroupSource(id: UUID().uuidString, groupId: groupId, workspaceId: workspaceId, kind: kind, address: address,
                                  title: name?.isEmpty == false ? name! : LinkedSource.title(of: address, kind: kind),
                                  account: account ?? LinkedSource.account(of: address), state: state, taskId: taskId,
-                                 note: note?.isEmpty == false ? note : nil, position: position, createdAt: Date())
+                                 note: note?.isEmpty == false ? note : nil, about: nil, position: position, createdAt: Date())
         try source.insert(db)
         return source
     }

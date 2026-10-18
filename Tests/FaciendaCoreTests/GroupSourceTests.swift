@@ -64,7 +64,16 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     #expect(try store.linkedSources(forTask: task.id).isEmpty)
     // Proposing it again changes nothing.
     #expect(try store.proposeSource(sheet, title: "Other name", note: nil, taskId: task.id).id == proposal.id)
-    #expect(throws: StoreError.self) { try store.proposeSource(sheet, title: "Ratings", note: nil, taskId: loose.id) }
+    // A task in no group proposes to its workspace, where every task is told about it once linked.
+    let forAll = try store.proposeSource(sheet, title: "Ratings", note: nil, taskId: loose.id)
+    #expect(forAll.groupId == nil && forAll.workspaceId == loose.workspaceId && forAll.state == .proposed)
+    #expect(try store.linkedSources(forTask: loose.id).isEmpty)
+    try store.setSourceState(forAll.id, .linked)
+    try store.setSourceAbout(forAll.id, " How each candidate scored. ")
+    #expect(try store.linkedSources(forTask: loose.id).map(\.about) == ["How each candidate scored."])
+    #expect(try store.linkedSources(forTask: task.id).map(\.address) == [sheet])
+    #expect(try store.groupSources()[group.id]?.map(\.title) == ["Interview ratings"])
+    try store.setSourceState(forAll.id, .dismissed)
     #expect(throws: StoreError.self) { try store.proposeSource("not a link", title: "Ratings", note: nil, taskId: task.id) }
 
     try store.setSourceState(proposal.id, .linked)
@@ -111,10 +120,11 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     try store.saveResult(taskId: task.id, text: "Still in [Budget](\(sheet)) and \(folder).")
     #expect(try store.sources(groupId: group.id).map(\.address) == [notes.path, folder])
 
-    // A task outside any group offers nothing, and its answer is still saved.
+    // A task outside any group offers to its workspace, and its answer is still saved.
     let loose = try store.create(FaciendaTask(title: "Loose"))
     try store.saveResult(taskId: loose.id, text: "[Budget](\(sheet))")
     #expect(try store.latestEvent(taskId: loose.id, kind: "codex.result")?.payload == "[Budget](\(sheet))")
+    #expect(try store.workspaceSources(workspaceID: try #require(loose.workspaceId)).map(\.address) == [sheet])
 }
 
 @Test func theProposeToolReachesTheTasksGroup() throws {

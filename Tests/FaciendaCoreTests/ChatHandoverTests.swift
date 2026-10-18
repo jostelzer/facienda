@@ -86,7 +86,7 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     let organisation = registry.appending(path: "account/org")
     try FileManager.default.createDirectory(at: organisation, withIntermediateDirectories: true)
     let record: [String: Any] = ["sessionId": sessionID, "cliSessionId": cliID, "cwd": "/Users/me/project", "title": "Venue email",
-                                 "lastActivityAt": 1_792_045_838_810.0, "isArchived": false]
+                                 "lastActivityAt": 1_792_045_838_810.0, "isArchived": false, "model": "claude-sonnet-5-5", "effort": "medium"]
     try JSONSerialization.data(withJSONObject: record).write(to: organisation.appending(path: sessionID + ".json"))
     let archived = "local_11111111-2222-4333-8444-555555555555"
     try JSONSerialization.data(withJSONObject: ["sessionId": archived, "cliSessionId": cliID, "cwd": "/", "title": "Old"]).write(to: organisation.appending(path: archived + ".json"))
@@ -96,6 +96,8 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     #expect(sessions.count == 2 && sessions.first { $0.id == archived }?.archived == true)
     let session = try #require(ClaudeDesktop.session(id: sessionID, registry: registry))
     #expect(session.title == "Venue email" && session.cwd == "/Users/me/project" && !session.archived)
+    #expect(session.model == "claude-sonnet-5-5" && session.effort == "medium")
+    #expect(sessions.first { $0.id == archived }?.model == nil)
     #expect(session.chat.provider == .claude && session.chat.cliSessionId == cliID)
 
     #expect(ClaudeDesktop.sessionID(inLink: sessionID) == sessionID)

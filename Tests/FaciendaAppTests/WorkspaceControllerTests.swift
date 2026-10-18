@@ -37,7 +37,7 @@ nonisolated(unsafe) private var scratchSuites: [String] = []
     home.refresh(); home.select(task.id)
     home.composerRequest = "Unsent intention"
     home.replyDrafts[task.id] = "Unsent reply"
-    #expect(controller.create(name: "Work", memorySpaceID: try #require(controller.memorySpaces.first).id))
+    #expect(controller.create(name: "Work"))
     #expect(controller.model?.tasks.isEmpty == true)
     #expect(controller.model?.composerRequest.isEmpty == true)
     // One library: the new workspace needs no Codex setup of its own.
@@ -59,7 +59,7 @@ nonisolated(unsafe) private var scratchSuites: [String] = []
     let (controller, _) = try controller()
     let home = try #require(controller.model)
     home.composerRequest = "Keep my draft"
-    #expect(controller.create(name: "Work", memorySpaceID: try #require(controller.memorySpaces.first).id))
+    #expect(controller.create(name: "Work"))
     let workModel = try #require(controller.model)
     let work = try #require(controller.current)
     _ = try workModel.store.create(FaciendaTask(title: "Still open"))
@@ -73,15 +73,16 @@ nonisolated(unsafe) private var scratchSuites: [String] = []
     #expect(!(await controller.remove(try #require(controller.current))))
 }
 
-@MainActor @Test func workspacesChooseTheirMemoryAndMovesCarryTasksAcross() throws {
+@MainActor @Test func workspacesOwnTheirMemoryAndMovesCarryTasksAcross() throws {
     let (controller, _) = try controller()
     let home = try #require(controller.model), homeWorkspace = try #require(controller.current)
-    let work = try #require(controller.createMemory(name: "Work"))
-    #expect(controller.createMemory(name: "work") == nil)
-    controller.error = nil
-    #expect(controller.create(name: "Office", memorySpaceID: work.id))
+    #expect(controller.create(name: "Office"))
     let office = try #require(controller.current)
-    #expect(controller.memoryName(for: office) == "Work")
+    // A new workspace's memory is its own, named after it, and follows a rename.
+    #expect(office.memorySpaceId != homeWorkspace.memorySpaceId)
+    #expect(controller.model?.memorySpace?.name == "Office")
+    #expect(controller.rename(office, to: "Studio"))
+    #expect(controller.model?.memorySpace?.name == "Studio")
     #expect(controller.open(homeWorkspace))
     let group = try #require(home.createGroup(name: "Taxes"))
     _ = try home.store.create(FaciendaTask(title: "Receipts"))
@@ -103,19 +104,14 @@ nonisolated(unsafe) private var scratchSuites: [String] = []
     #expect(home.tasks.isEmpty)
     #expect(controller.open(office))
     #expect(controller.model?.tasks.map(\.id) == [task.id])
-    #expect(controller.model?.memorySpace?.id == work.id)
-    #expect(controller.setMemory(office, to: homeWorkspace.memorySpaceId))
-    #expect(controller.model?.memorySpace?.id == homeWorkspace.memorySpaceId)
-    #expect(controller.deleteMemory(work))
-    #expect(controller.memorySpaces.count == 1)
+    #expect(controller.model?.memorySpace?.id == office.memorySpaceId)
 }
 
 @MainActor @Test func sidebarKeepsTheDraggedOrderAndCountsEveryWorkspace() throws {
     let defaults = scratchDefaults("WorkspaceOrder")
     let (controller, library) = try controller(defaults)
-    let memory = try #require(controller.memorySpaces.first).id
     try controller.rename(#require(controller.current), to: "A")
-    for name in ["B", "C", "D"] { #expect(controller.create(name: name, memorySpaceID: memory)) }
+    for name in ["B", "C", "D"] { #expect(controller.create(name: name)) }
     let saved = Dictionary(uniqueKeysWithValues: controller.workspaces.map { ($0.name, $0) })
     let a = try #require(saved["A"]), b = try #require(saved["B"]), d = try #require(saved["D"])
     controller.move(d, to: a, after: false)
@@ -162,7 +158,7 @@ private struct FakePicturePainter: CoverPainting {
 
 @MainActor @Test func workspacesArePaintedOneAtATimeOnceCodexIsReadyAndCanBeAdjustedAndUndone() async throws {
     let (controller, _) = try controller()
-    #expect(controller.create(name: "Garden", memorySpaceID: try #require(controller.memorySpaces.first).id))
+    #expect(controller.create(name: "Garden"))
     _ = try #require(controller.model).store.create(FaciendaTask(title: "Plant tulips"))
     let log = PictureLog()
     let pixel = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 3, bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)?.representation(using: .jpeg, properties: [:]))
@@ -195,65 +191,40 @@ private struct FakePicturePainter: CoverPainting {
 @MainActor @Test func workspacesKeepTheirPlacesOnTheIslandAndNewOnesNeverShiftThem() throws {
     let defaults = scratchDefaults("WorkspacePlaces")
     let (controller, library) = try controller(defaults)
-    let memory = try #require(controller.memorySpaces.first).id
-    for name in ["B", "C"] { #expect(controller.create(name: name, memorySpaceID: memory)) }
+    for name in ["B", "C"] { #expect(controller.create(name: name)) }
     // Every workspace gets a place of its own, clear of the others.
     let first = Dictionary(uniqueKeysWithValues: controller.ordered.map { ($0.id, controller.place(of: $0)) })
     #expect(first.count == 3 && Set(first.values.map { "\($0)" }).count == 3)
-    // A dragged place sticks, kept clear of the island's edge; a new workspace leaves everyone else where they are.
+    // A dragged place sticks, kept on the island; a new workspace leaves everyone else where they are.
     let moved = try #require(controller.ordered.last)
     controller.setPlace(moved, to: CGPoint(x: 1.4, y: -0.2))
-    #expect(controller.place(of: moved) == CGPoint(x: 0.88, y: 0.08))
-    #expect(controller.create(name: "D", memorySpaceID: memory))
+    #expect(controller.place(of: moved) == CGPoint(x: 1, y: 0))
+    #expect(controller.create(name: "D"))
     for workspace in controller.ordered where workspace.id != moved.id && first[workspace.id] != nil {
         #expect(controller.place(of: workspace) == first[workspace.id])
     }
     // Places outlast a restart; tidying puts everyone back into the zigzag.
     let reopened = WorkspaceController(libraryURL: library, defaults: defaults)
-    #expect(reopened.place(of: moved) == CGPoint(x: 0.88, y: 0.08))
+    #expect(reopened.place(of: moved) == CGPoint(x: 1, y: 0))
     reopened.arrangePlaces()
-    #expect(reopened.place(of: moved) != CGPoint(x: 0.88, y: 0.08))
+    #expect(reopened.place(of: moved) != CGPoint(x: 1, y: 0))
     #expect(Set(reopened.ordered.map { "\(reopened.place(of: $0))" }).count == 4)
 }
 
-@Test func theIslandLeansOnAWallAndTheBoardMakesRoomForIt() {
+@Test func theIslandRunsFromTheBarDownAndOnlyItsWidthChanges() {
     let window = CGSize(width: 1200, height: 800)
-    // A first island takes the old sidebar's place: a quarter of the width, all the way down the left. Only its free
-    // edge resizes it.
-    let first = IslandFrame.snap(IslandFrame.decode("", share: 0.25, in: window), in: window)
-    #expect(first == CGRect(x: 10, y: 10, width: 280, height: 780))
-    #expect(IslandFrame.room(for: first, in: window).leading == 290)
-    #expect(IslandFrame.freeEdges(first, in: window) == [.trailing])
-    // Carried into the middle, the nearest wall takes it; it never leaves the window or gets too small to hold planets.
-    let floating = IslandFrame.snap(CGRect(x: 820, y: 300, width: 300, height: 400), in: window)
-    #expect(floating.maxX == 1190 && floating.minY == 300)
-    #expect(IslandFrame.room(for: floating, in: window).trailing == 310)
-    let squeezed = IslandFrame.snap(CGRect(x: -500, y: 900, width: 20, height: 20), in: window)
-    #expect(squeezed.size == IslandFrame.smallest && squeezed.minX == 10 && squeezed.maxY == 790)
-    // It can be set down on the bottom too, where it stays, and the board goes above it.
-    let down = IslandFrame.snap(CGRect(x: 450, y: 520, width: 300, height: 300), in: window)
-    #expect(down == CGRect(x: 450, y: 490, width: 300, height: 300))
-    #expect(IslandFrame.room(for: down, in: window).bottom == 310)
-    // Near a corner, both walls pull it on.
-    let corner = IslandFrame.snap(CGRect(x: 35, y: 560, width: 300, height: 200), in: window)
-    #expect(IslandFrame.touching(corner, in: window) == [.leading, .bottom])
-    // A wide island along the bottom takes room from below.
-    let shelf = IslandFrame.snap(CGRect(x: 100, y: 560, width: 900, height: 230), in: window)
-    #expect(IslandFrame.touching(shelf, in: window) == [.bottom])
-    #expect(IslandFrame.room(for: shelf, in: window).bottom == 240)
-    // A dragged edge clicks onto its wall when it comes near.
-    #expect(IslandFrame.resized(CGRect(x: 10, y: 10, width: 280, height: 760), moving: .bottom, in: window).height == 780)
-    // A tall island let go against the top alone still leans on a side wall, so the board is never pushed off the window.
-    let window2 = CGSize(width: 1497, height: 949)
-    let topOnly = IslandFrame.snap(CGRect(x: 198, y: 0, width: 352, height: 928), in: window2)
-    #expect(topOnly.minX == 10)
-    #expect(IslandFrame.room(for: topOnly, in: window2).leading == 362)
-    // Whatever the island does, the board keeps room of its own, and a broken saved place falls back to the first one.
-    let huge = CGRect(x: 10, y: 10, width: 1100, height: 780)
-    #expect(IslandFrame.room(for: huge, in: window).leading == 840)
-    #expect(IslandFrame.decode("0.5,nan,2,0.3", share: 0.25, in: window) == IslandFrame.decode("", share: 0.25, in: window))
-    // Saved as fractions, so it keeps its wall when the window changes size.
+    // A first island takes the old sidebar's place: a quarter of the width, from under the bar all the way down the left.
+    let first = IslandFrame.frame(width: IslandFrame.width(share: 0, in: window), in: window)
+    #expect(first == CGRect(x: 10, y: 56, width: 280, height: 734))
+    // A width the user chose is kept as a share, so it grows and shrinks with the window but always fills its height.
     let wider = CGSize(width: 1600, height: 900)
-    let kept = IslandFrame.snap(IslandFrame.decode(IslandFrame.encode(floating, in: window), share: 0.25, in: wider), in: wider)
-    #expect(kept.maxX == 1590)
+    #expect(IslandFrame.width(share: 0.25, in: wider) == 400)
+    #expect(IslandFrame.frame(width: 400, in: wider).height == 834)
+    // Dragged too narrow it still holds its planets; dragged too wide the board keeps its room.
+    #expect(IslandFrame.clamped(40, in: window) == IslandFrame.narrowest)
+    #expect(IslandFrame.clamped(1100, in: window) == 1200 - IslandFrame.board.width - 30)
+    // An island saved before it was always full height keeps its width; anything unreadable is the first one.
+    #expect(IslandFrame.share(fromSavedFrame: "0.5,0.2,0.3,0.4") == 0.3)
+    #expect(IslandFrame.share(fromSavedFrame: "0.5,nan,2,0.3") == nil)
+    #expect(IslandFrame.width(share: .nan, in: window) == 280)
 }

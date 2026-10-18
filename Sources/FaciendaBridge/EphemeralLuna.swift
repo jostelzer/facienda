@@ -170,6 +170,8 @@ extension EphemeralLuna.Profile {
         developerInstructions: OwnStepReader.developerInstructions, reasoningEffort: OwnStepReader.reasoningEffort)
     public static let finder = Self(id: "facienda-finder", baseInstructions: TaskFinder.baseInstructions,
         developerInstructions: TaskFinder.developerInstructions, reasoningEffort: TaskFinder.reasoningEffort)
+    public static let reader = Self(id: "facienda-reader", baseInstructions: BarReader.baseInstructions,
+        developerInstructions: BarReader.developerInstructions, reasoningEffort: BarReader.reasoningEffort)
     public static let recap = Self(id: "facienda-recap", baseInstructions: RecapWriter.baseInstructions,
         developerInstructions: RecapWriter.developerInstructions, reasoningEffort: RecapWriter.reasoningEffort)
 }

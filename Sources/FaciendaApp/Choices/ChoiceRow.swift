@@ -10,8 +10,6 @@ struct ChoiceRow: View {
     var tint: Color? = nil
     /// The highlighted row's colour, so it matches its section.
     var accent: Color = Palette.blue
-    /// How many lines the detail may take; nil shows it whole, as for a message about to be sent.
-    var detailLines: Int? = 2
     let action: () -> Void
     @State private var hovering = false
 
@@ -22,7 +20,7 @@ struct ChoiceRow: View {
                     .foregroundStyle(highlighted ? accent : tint ?? Palette.ink)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 13)).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                    if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(detailLines).fixedSize(horizontal: false, vertical: detailLines == nil) }
+                    if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2) }
                 }
                 Spacer(minLength: 0)
                 if highlighted { Image(systemName: "return").font(.system(size: 10)).foregroundStyle(Palette.muted).padding(.top, 3) }

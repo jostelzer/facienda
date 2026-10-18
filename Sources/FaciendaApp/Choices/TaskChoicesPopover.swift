@@ -16,6 +16,14 @@ struct TaskChoicesPopover: View {
     @State private var stepText = ""
     @State private var suggestedStep = ""
     @State private var reading = false
+    @State private var moves: [MemoryMove] = []
+    @State private var situation = ""
+    @State private var routine: MemoryRoutine?
+    @State private var routineIndex = 0
+    @State private var availableRoutines: [MemoryRoutine] = []
+    @State private var reviewingRoutineStep = false
+    @State private var sentMove: MemoryMove?
+    @State private var checkingSentMove = false
     /// What the typed step was read as, and the text it was read from.
     @State private var readBack: (step: String, at: Date?, from: String)?
     @State private var note = ""
@@ -31,6 +39,15 @@ struct TaskChoicesPopover: View {
     private enum Field { case message, step, note }
     private enum Opened { case watch, need, notYet }
 
+    init(model: AppModel, task: FaciendaTask, done: @escaping () -> Void, parked: @escaping (FaciendaTask, String) -> Void, dismiss: @escaping () -> Void) {
+        self.model = model; self.task = task; self.done = done; self.parked = parked; self.dismiss = dismiss
+        if model.demo {
+            let suggestions = (try? model.store.suggestedMoves(taskID: task.id)) ?? []
+            _moves = State(initialValue: suggestions)
+            _situation = State(initialValue: suggestions.first.flatMap { try? model.store.situationName($0.situationId) } ?? "")
+        }
+    }
+
     private var agent: String { model.agent(for: task).name }
     private var hasChat: Bool { model.resultLink(for: task) != nil }
     /// A message already on its way; the chat takes one at a time.
@@ -42,6 +59,16 @@ struct TaskChoicesPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if let move = sentMove {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Reply sent. Keep it as a move?").font(.system(size: 12, weight: .medium))
+                    Text(move.text).font(.system(size: 12)).foregroundStyle(Palette.muted)
+                    HStack {
+                        Button("Keep") { if let space = try? model.store.memorySpace(forTask: task.id).id { model.perform { try model.store.acceptMove(move.id, spaceID: space) } }; dismiss() }
+                        Button("Not now") { dismiss() }
+                    }.buttonStyle(QuietButton())
+                }.padding(10)
+            } else if checkingSentMove { Text("Reply sent").font(.caption).foregroundStyle(Palette.muted).padding(10) }
             if !task.state.isOpen {
                 if hasChat { openRow(tint: nil) }
                 ChoiceRow(title: "Reopen", symbol: "arrow.uturn.backward") { model.reopen(task); dismiss() }
@@ -65,6 +92,13 @@ struct TaskChoicesPopover: View {
             }
         }.padding(6).frame(width: 300).background(Palette.paper)
             .task { await model.lookUpLinkedChatTitles(for: task) }
+            .task(id: model.learnedStatus) {
+                // A result that arrived since the last sweep is read now, rather than showing moves for the one before.
+                if !model.demo, model.memorySettings?.enabled == true { try? await MemoryMoveLearner(store: model.store).offerLatest(taskID: task.id) }
+                moves = (try? model.store.suggestedMoves(taskID: task.id)) ?? []
+                situation = moves.first.flatMap { try? model.store.situationName($0.situationId) } ?? ""
+            }
+            .task { loadRoutine() }
             .onDisappear { messageMic.cancel(); stepMic.cancel(); noteMic.cancel() }
     }
 
@@ -75,13 +109,51 @@ struct TaskChoicesPopover: View {
     // MARK: Continue: the agent keeps going
 
     @ViewBuilder private var continueChoices: some View {
-        // A model wrote this message, so it shows in full and is sent only by a click on it, never by Enter.
-        if let next = model.continuation(for: task), let label = next.label, let instruction = next.instruction {
-            ChoiceRow(title: CodexApproval.visible(label), detail: CodexApproval.visible(instruction), symbol: "arrow.turn.down.right", tint: Palette.green, accent: Palette.green, detailLines: nil) {
-                if model.tell(task, instruction) { dismiss() }
+        if let routine, routine.steps.indices.contains(routineIndex) {
+            let step = routine.steps[routineIndex]
+            Text("\(routine.name) · step \(routineIndex + 1) of \(routine.steps.count)").font(.system(size: 11)).foregroundStyle(Palette.muted).padding(.horizontal, 10)
+            ChoiceRow(title: step.text, detail: step.mode == .ask ? "Review this step" : "Your kept routine", symbol: step.action == .yourStep ? "person" : "arrow.right") {
+                if step.mode == .ask && !reviewingRoutineStep { reviewingRoutineStep = true }
+                else { runRoutineStep(step) }
+            }.disabled(queued || model.demo)
+            if reviewingRoutineStep {
+                Button(step.action == .message ? "Send these words" : "Confirm step") { runRoutineStep(step) }.buttonStyle(QuietButton()).padding(.horizontal, 10)
             }
-            .disabled(queued || model.demo)
-            .help(queued ? "A message is already on its way to \(agent)." : "Sends this to \(agent)")
+        } else if !availableRoutines.isEmpty {
+            Menu("Start a routine") {
+                ForEach(availableRoutines) { item in Button(item.name) { model.perform { try model.store.startMemoryRoutine(item.id, taskID: task.id) }; loadRoutine() } }
+            }.menuStyle(.borderlessButton).padding(.horizontal, 10)
+        }
+        if !moves.isEmpty {
+            Text("Your next move · \(situation)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted).padding(.horizontal, 10)
+            ForEach(Array(moves.enumerated()), id: \.element.id) { index, move in
+                ChoiceRow(title: shown(move.text), detail: move.stage == .accepted ? "\(move.seen) times · \(move.used) used" : "Keep this as a move? · seen \(move.seen) times", symbol: move.isYourStep ? "person" : "arrow.turn.down.right", tint: Palette.green) {
+                    if move.stage != .accepted {
+                        if let space = try? model.store.memorySpace(forTask: task.id).id {
+                            model.perform { try model.store.acceptMove(move.id, spaceID: space, isYourStep: move.isYourStep) }
+                            moves = (try? model.store.suggestedMoves(taskID: task.id)) ?? []
+                        }
+                    } else if move.isYourStep {
+                        suggestedStep = move.text; stepText = move.text; opened = .need
+                    } else if model.tell(task, move.text) {
+                        try? model.store.recordMoveUse(move.id, taskID: task.id); dismiss()
+                    }
+                }
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .option)
+                .disabled(queued || model.demo)
+                .help(move.stage == .accepted ? move.isYourStep ? "Your part; opens the step for you to confirm" : "Send your exact words" : "Keep this as a move; this click does not send it")
+            }
+            Text("Other suggestion").font(.system(size: 10)).foregroundStyle(Palette.muted).padding(.horizontal, 10)
+        }
+        // The label says what the agent will do; the whole message waits under the pointer, as it read like a page in the popover.
+        // A model wrote it, so it is sent only by a click on it, never by Enter.
+        if let next = model.continuation(for: task), let label = next.label, let instruction = next.instruction {
+            ChoiceRow(title: CodexApproval.visible(label), symbol: "arrow.turn.down.right", tint: Palette.green, accent: Palette.green) {
+                if model.reply(to: task, text: instruction, reveal: false, userAuthored: false) { dismiss() }
+            }
+            // A demo snapshot draws it as the real app does; the demo itself never sends.
+            .disabled(queued || (model.demo && !CommandLine.arguments.contains("--snapshot")))
+            .help(queued ? "A message is already on its way to \(agent)." : "Sends \(agent) this:\n" + CodexApproval.visible(instruction))
         } else if model.writingContinuation(for: task) {
             ChoiceProgress(text: "Reading the chat…")
         }
@@ -89,9 +161,56 @@ struct TaskChoicesPopover: View {
         field("Or tell the agent…", text: $message, focus: .message) {
             let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
-            if model.tell(task, text) { dismiss() }
+            if model.tell(task, text) { lookForRepeatedReply(text) }
         }
         .disabled(queued || model.demo)
+    }
+
+    /// A move is sent exactly as written; the row shows it on one line, cut short.
+    private func shown(_ text: String) -> String {
+        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return line.count > 140 ? String(line.prefix(140)) + "…" : line
+    }
+
+    private func lookForRepeatedReply(_ text: String) {
+        guard model.memorySettings?.enabled == true else { dismiss(); return }
+        checkingSentMove = true
+        Task {
+            defer { checkingSentMove = false }
+            do {
+                try model.store.captureWorkspaceMemory()
+                try await MemoryMoveLearner(store: model.store).learnPending()
+                let space = try model.store.memorySpace(forTask: task.id).id
+                sentMove = try model.store.memoryMoves(spaceID: space).first { $0.text == text && $0.stage == .offered }
+                if sentMove == nil { dismiss() }
+            } catch { model.memoryError = error.localizedDescription; dismiss() }
+        }
+    }
+
+    private func loadRoutine() {
+        guard let space = try? model.store.memorySpace(forTask: task.id).id else { return }
+        availableRoutines = ((try? model.store.memoryRoutines(spaceID: space)) ?? []).filter { $0.state == .live }
+        routine = nil
+        for _ in 0..<12 {
+            guard let (item, index) = try? model.store.memoryRoutineStep(taskID: task.id) else { return }
+            let step = item.steps[index]
+            if step.mode == .automatic && step.canBeAutomatic {
+                model.perform { model.notice = try model.store.advanceMemoryRoutine(taskID: task.id, expectedStep: index, userConfirmed: false) }
+            } else { routine = item; routineIndex = index; return }
+        }
+    }
+
+    private func runRoutineStep(_ step: MemoryRoutine.Step) {
+        let confirmed: Bool
+        switch step.action {
+        case .message: confirmed = model.tell(task, step.text)
+        case .yourStep: confirmed = model.takeOn(task, step: step.text, at: nil)
+        case .reminder: confirmed = true
+        }
+        guard confirmed else { return }
+        model.perform { if let text = try model.store.advanceMemoryRoutine(taskID: task.id, expectedStep: routineIndex, userConfirmed: true) { model.notice = text } }
+        reviewingRoutineStep = false; loadRoutine()
+        if step.action != .reminder { dismiss() }
     }
 
     /// Chats the request or the answer links to: the task can carry on there, in place of its own chat.
@@ -184,7 +303,10 @@ struct TaskChoicesPopover: View {
     }
 
     private func save(_ step: String, at: Date?) {
-        if model.takeOn(task, step: step, at: at) { dismiss() }
+        if model.takeOn(task, step: step, at: at) {
+            if let move = moves.first(where: { $0.isYourStep && $0.text == step && $0.stage == .accepted }) { try? model.store.recordMoveUse(move.id, taskID: task.id) }
+            dismiss()
+        }
     }
 
     // MARK: After the user took a step on

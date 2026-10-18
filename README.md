@@ -6,7 +6,7 @@ One board for everything you're doing, and you don't do it alone. Lay your work 
 
 Not only for code. A trip, your taxes, a paper, a house move: anything with steps, waiting and loose ends.
 
-![Facienda in dark mode, with demo data](Assets/Brand/facienda-app-preview-dark.png)
+![Facienda 0.3.0 in dark mode, showing the fictional Side Project example workspace](Assets/Brand/facienda-app-preview-dark.png)
 
 **[Download](https://github.com/jostelzer/facienda/releases/latest)** · macOS 26 or later; agents need Claude Code or Codex · Beta
 
