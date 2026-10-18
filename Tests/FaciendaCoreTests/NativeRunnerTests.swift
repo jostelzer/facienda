@@ -49,14 +49,16 @@ private func runnerStore() throws -> FaciendaStore {
     #expect(try store.dispatches().first { $0.id == snoozed.id }?.state == "cancelled")
 }
 
-@Test func nativeQueueWaitWakesOnCrossProcessStyleStoreWrite() async throws {
+@Test(.timeLimit(.minutes(1))) func nativeQueueWaitWakesOnCrossProcessStyleStoreWrite() throws {
     let store = try runnerStore(), task = try store.create(FaciendaTask(title: "Wake"))
     try store.bindRunner(threadId: "runner", automationId: nil)
-    let waiting = Task.detached { try store.waitForDispatch(runnerId: "runner", seconds: 3) }
-    try await Task.sleep(for: .milliseconds(100))
     let producer = try FaciendaStore(url: store.url)
-    let item = try producer.enqueueDispatch(taskId: task.id)
-    #expect(try await waiting.value?.id == item.id)
+    // The CLI wait blocks a thread; its producer must not depend on Swift's cooperative executor.
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+        do { _ = try producer.enqueueDispatch(taskId: task.id) }
+        catch { Issue.record(error) }
+    }
+    #expect(try store.waitForDispatch(runnerId: "runner", seconds: 50)?.taskId == task.id)
     #expect(throws: StoreError.self) { try store.bindRunner(threadId: "another-runner", automationId: nil) }
 }
 

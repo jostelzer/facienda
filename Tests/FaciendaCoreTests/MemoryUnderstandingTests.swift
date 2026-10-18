@@ -232,22 +232,28 @@ private actor ParallelUnderstandingWorker: MemoryInference {
 
 private actor CancelledUnderstandingWorker: MemoryInference {
     var calls = 0
+    let started: AsyncStream<Void>.Continuation
+
+    init(started: AsyncStream<Void>.Continuation) { self.started = started }
+
     func complete(system: String, user: String, schema: JSONValue) async throws -> String {
         calls += 1
+        if calls == 4 { started.yield(()) }
         try await Task.sleep(for: .seconds(30))
         throw CancellationError()
     }
 }
 
-@Test func parallelUnderstandingCancellationLeavesSourcesPendingAndReleasesLease() async throws {
+@Test(.timeLimit(.minutes(1))) func parallelUnderstandingCancellationLeavesSourcesPendingAndReleasesLease() async throws {
     let (store, space, _) = try understandingLibrary()
     for i in 0..<48 { try source(store, space, "cancel-\(i)", "Check invented reference \(i).") }
-    let worker = CancelledUnderstandingWorker()
+    let started = AsyncStream<Void>.makeStream()
+    defer { started.continuation.finish() }
+    let worker = CancelledUnderstandingWorker(started: started.continuation)
     let task = Task { try await MemoryReasoner(store: store, inference: worker).learn(spaceID: space) }
     defer { task.cancel() }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while await worker.calls < 4 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
-    #expect(await worker.calls == 4)
+    for await _ in started.stream { break }
+    try #require(await worker.calls == 4)
     task.cancel()
     await #expect(throws: CancellationError.self) { try await task.value }
     let progress = try store.memoryLearningProgress(spaceID: space)
