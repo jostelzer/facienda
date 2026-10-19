@@ -24,7 +24,7 @@ Facienda holds the work so your head doesn't have to, and learns how you work so
 
 **Your next step is already written.** Facienda recognises the situation (checks passed, a quote arrived, a choice is needed) and offers the move you made last time, in your own words. Whole workflows start to run one button at a time.
 
-**Wait without remembering.** Park a task on a reply, a date, a build. It checks on its own and comes back when ready.
+**Watch the world without looking.** Park a task on a reply, a quote, a build, a page changing. An agent checks on its own cadence, for a day or three months, and brings the task back the moment it's ready. No webhooks, no reminders.
 
 **It learns how you work.** Where you file things, what you call them, what you always ask for. Memory you can read, edit and correct, handed to every new task.
 
