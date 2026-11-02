@@ -113,47 +113,74 @@ extension FaciendaStore {
 
     /// Rebuildable from sources. Old captures are included, so an upgraded library gains understanding without re-importing it.
     public func prepareMemoryEvidence(spaceID: String) throws {
-        try db.write { db in
-            _ = try Self.memorySpace(db, spaceID)
+        // This runs for every memory on every sync and almost always finds nothing new. Looking in a read first, and
+        // chunking there, keeps the library's write lock free for the app, the helpers and the runner.
+        let chunks = EvidenceChunks()
+        guard try db.read({ try Self.syncMemoryEvidence($0, spaceID: spaceID, chunks: chunks, apply: false) }) else { return }
+        try db.write { _ = try Self.syncMemoryEvidence($0, spaceID: spaceID, chunks: chunks, apply: true) }
+    }
+
+    /// Chunks of each source text, kept between the read that looks and the write that applies.
+    private final class EvidenceChunks {
+        private var byText: [String: [String]] = [:]
+        func split(_ text: String) -> [String] {
+            if let chunks = byText[text] { return chunks }
+            let chunks = MemoryChunker.split(MemoryRedaction.redact(text), limit: 3000)
+            byText[text] = chunks
+            return chunks
+        }
+    }
+
+    /// Returns whether the evidence differs from its sources, and with `apply` brings it in line.
+    private static func syncMemoryEvidence(_ db: Database, spaceID: String, chunks: EvidenceChunks, apply: Bool) throws -> Bool {
+        _ = try memorySpace(db, spaceID)
+        var changed = false
+        if apply {
             try db.execute(sql: "INSERT OR IGNORE INTO memoryReasoningState(spaceId) VALUES (?)", arguments: [spaceID])
-            let utterances = try MemoryUtterance.fetchAll(db, sql: "SELECT * FROM memoryUtterances WHERE spaceId = ? ORDER BY at", arguments: [spaceID])
-            let entries = try MemoryEntry.fetchAll(db, sql: "SELECT * FROM memoryEntries WHERE spaceId = ? AND state = 'live'", arguments: [spaceID])
-            var changed = false
-            var present = Set<String>()
-            func add(_ sourceId: String, text: String, source: String, at: Date) throws {
-                present.insert(sourceId)
-                let chunks = MemoryChunker.split(MemoryRedaction.redact(text), limit: 3000)
-                let old = try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND sourceId = ? AND active = 1", arguments: [spaceID, sourceId])
-                var ids = Set<String>()
-                for (index, chunk) in chunks.enumerated() {
-                    let id = MemoryChunker.digest(spaceID + "\n" + sourceId + "\n\(index)\n" + chunk)
-                    ids.insert(id)
-                    if let current = try MemoryEvidence.fetchOne(db, key: id) {
-                        if !current.active {
-                            try db.execute(sql: "UPDATE memoryEvidence SET active = 1, processedAt = NULL, nextAttempt = NULL WHERE id = ?", arguments: [id]); changed = true
-                        }
-                    } else {
+        } else if try Int.fetchOne(db, sql: "SELECT 1 FROM memoryReasoningState WHERE spaceId = ?", arguments: [spaceID]) == nil {
+            return true
+        }
+        let utterances = try MemoryUtterance.fetchAll(db, sql: "SELECT * FROM memoryUtterances WHERE spaceId = ? ORDER BY at", arguments: [spaceID])
+        let entries = try MemoryEntry.fetchAll(db, sql: "SELECT * FROM memoryEntries WHERE spaceId = ? AND state = 'live'", arguments: [spaceID])
+        var present = Set<String>()
+        func add(_ sourceId: String, text: String, source: String, at: Date) throws {
+            present.insert(sourceId)
+            let old = try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND sourceId = ? AND active = 1", arguments: [spaceID, sourceId])
+            var ids = Set<String>()
+            for (index, chunk) in chunks.split(text).enumerated() {
+                let id = MemoryChunker.digest(spaceID + "\n" + sourceId + "\n\(index)\n" + chunk)
+                ids.insert(id)
+                if let current = try MemoryEvidence.fetchOne(db, key: id) {
+                    if !current.active {
+                        changed = true
+                        if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 1, processedAt = NULL, nextAttempt = NULL WHERE id = ?", arguments: [id]) }
+                    }
+                } else {
+                    changed = true
+                    if apply {
                         try MemoryEvidence(id: id, spaceId: spaceID, sourceId: sourceId, source: MemoryRedaction.redact(source), text: chunk,
                                            at: at, active: true, processedAt: nil, embedding: Data()).insert(db)
-                        changed = true
                     }
                 }
-                for item in old where !ids.contains(item.id) {
-                    try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [item.id]); changed = true
-                }
             }
-            for utterance in utterances where [.userRequest, .userReply, .userDecision, .codexUser, .claudeUser].contains(utterance.sourceKind) {
-                try add("utterance:" + utterance.id, text: utterance.text, source: utterance.source, at: utterance.at)
+            for item in old where !ids.contains(item.id) {
+                changed = true
+                if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [item.id]) }
             }
-            for entry in entries { try add("entry:" + entry.id, text: entry.text, source: "User-written or accepted entry: " + entry.subject, at: entry.updatedAt) }
-            for item in try MemoryUnderstanding.fetchAll(db, sql: "SELECT * FROM memoryUnderstanding WHERE spaceId = ? AND state = 'reviewed'", arguments: [spaceID]) {
-                try add("reviewed:" + item.id, text: item.summary, source: "Understanding reviewed or corrected by the user: " + item.subject, at: item.updatedAt)
-            }
-            for old in try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND active = 1", arguments: [spaceID]) where !present.contains(old.sourceId) {
-                try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [old.id]); changed = true
-            }
-            if changed { try db.execute(sql: "UPDATE memoryReasoningState SET revision = revision + 1 WHERE spaceId = ?", arguments: [spaceID]) }
         }
+        for utterance in utterances where utteranceKinds.contains(utterance.sourceKind) {
+            try add("utterance:" + utterance.id, text: utterance.text, source: utterance.source, at: utterance.at)
+        }
+        for entry in entries { try add("entry:" + entry.id, text: entry.text, source: "User-written or accepted entry: " + entry.subject, at: entry.updatedAt) }
+        for item in try MemoryUnderstanding.fetchAll(db, sql: "SELECT * FROM memoryUnderstanding WHERE spaceId = ? AND state = 'reviewed'", arguments: [spaceID]) {
+            try add("reviewed:" + item.id, text: item.summary, source: "Understanding reviewed or corrected by the user: " + item.subject, at: item.updatedAt)
+        }
+        for old in try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND active = 1", arguments: [spaceID]) where !present.contains(old.sourceId) {
+            changed = true
+            if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [old.id]) }
+        }
+        if changed && apply { try db.execute(sql: "UPDATE memoryReasoningState SET revision = revision + 1 WHERE spaceId = ?", arguments: [spaceID]) }
+        return changed
     }
 
     public func memoryUnderstanding(spaceID: String, includeDismissed: Bool = false) throws -> [MemoryUnderstanding] {

@@ -81,6 +81,36 @@ extension FaciendaStore {
         }
         // Slash commands and question replies were counted as things the person says again and again.
         migrator.registerMigration("memory_moves_without_envelopes") { try removeEnvelopeMoves($0) }
+        // Codex's browser and attachment context was kept with the person's words, so unrelated requests became one move.
+        migrator.registerMigration("memory_moves_from_typed_words") { try relearnWrappedCodexMoves($0) }
+    }
+
+    /// Keeps only what the person typed in Codex. Moves built from the wrapper are learned again from those words;
+    /// a move the person accepted stays as they kept it.
+    static func relearnWrappedCodexMoves(_ db: Database) throws {
+        let utterances = try MemoryUtterance.fetchAll(db, sql: "SELECT * FROM memoryUtterances WHERE sourceKind = ?", arguments: [MemorySourceKind.codexUser.rawValue])
+        var wrapped = Set<String>()
+        for utterance in utterances {
+            let typed = MemoryUserMessages.typed(utterance.text)
+            guard typed != utterance.text || MemoryUserMessages.isEnvelope(typed) else { continue }
+            if let move = utterance.moveId { wrapped.insert(move) }
+            if typed.isEmpty || MemoryUserMessages.isEnvelope(typed) {
+                try db.execute(sql: "DELETE FROM memoryUtterances WHERE id = ?", arguments: [utterance.id])
+            } else {
+                try db.execute(sql: "UPDATE memoryUtterances SET text = ? WHERE id = ?", arguments: [typed, utterance.id])
+            }
+        }
+        let moves = try MemoryMove.fetchAll(db, sql: "SELECT * FROM memoryMoves WHERE stage != 'accepted'")
+            .filter { wrapped.contains($0.id) || MemoryUserMessages.typed($0.text) != $0.text || MemoryUserMessages.isEnvelope($0.text) }
+        for move in moves {
+            try db.execute(sql: "UPDATE memoryUtterances SET moveId = NULL, situationId = NULL, embedding = NULL WHERE moveId = ?", arguments: [move.id])
+            try db.execute(sql: "DELETE FROM memoryMoveOffers WHERE moveId = ?", arguments: [move.id])
+            try db.execute(sql: "DELETE FROM memoryMoves WHERE id = ?", arguments: [move.id])
+        }
+        for move in try MemoryMove.fetchAll(db, sql: "SELECT * FROM memoryMoves WHERE stage = 'accepted'") where MemoryUserMessages.typed(move.text) != move.text {
+            // An empty embedding has the learner embed the shorter wording again.
+            try db.execute(sql: "UPDATE memoryMoves SET text = ?, embedding = ? WHERE id = ?", arguments: [MemoryUserMessages.typed(move.text), Data(), move.id])
+        }
     }
 
     /// Drops what was learned from text the person did not write. Their other words, which a move may also have
@@ -97,19 +127,37 @@ extension FaciendaStore {
     }
 
     func captureUtterance(id: String, text: String, source: String, kind: MemorySourceKind, taskID: String?, spaceID: String, at: Date, priorResult: String? = nil) throws {
-        guard [.userRequest, .userReply, .userDecision, .codexUser, .claudeUser].contains(kind), !MemoryUserMessages.isEnvelope(text) else { return }
-        try db.write { db in
-            let previous = try priorResult ?? taskID.flatMap { id in
-                try String.fetchOne(db, sql: "SELECT payload FROM events WHERE taskId = ? AND kind = 'codex.result' AND at < ? ORDER BY at DESC LIMIT 1", arguments: [id, at])
-            }
-            let clean = MemoryRedaction.redact(text)
-            try db.execute(sql: """
-                INSERT INTO memoryUtterances (id, spaceId, taskId, text, source, sourceKind, at, priorResult)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET priorResult = coalesce(excluded.priorResult, memoryUtterances.priorResult)
-                """, arguments: [id, spaceID, taskID, clean, MemoryRedaction.redact(source), kind.rawValue, at,
-                                   previous.map { String(MemoryRedaction.redact($0).prefix(4000)) }])
+        guard Self.utteranceKinds.contains(kind), !MemoryUserMessages.isEnvelope(text) else { return }
+        let clean = MemoryRedaction.redact(text), cleanSource = MemoryRedaction.redact(source)
+        try db.write { try Self.captureUtterance($0, id: id, text: clean, source: cleanSource, kind: kind, taskID: taskID, spaceID: spaceID, at: at, priorResult: priorResult) }
+    }
+
+    static let utteranceKinds: Set<MemorySourceKind> = [.userRequest, .userReply, .userDecision, .codexUser, .claudeUser]
+
+    /// Text and source arrive redacted. Every sync offers the same messages again, inside a write, so a message
+    /// already kept with its earlier reply returns at once: redacting that reply again would hold the library's
+    /// only write lock long enough for the helpers and the runner to give up with "database is locked".
+    static func captureUtterance(_ db: Database, id: String, text: String, source: String, kind: MemorySourceKind, taskID: String?, spaceID: String, at: Date, priorResult: String? = nil) throws {
+        let pending = try pendingUtterance(db, id: id, text: text, kind: kind, taskID: taskID, at: at, priorResult: priorResult)
+        guard pending.needed else { return }
+        try db.execute(sql: """
+            INSERT INTO memoryUtterances (id, spaceId, taskId, text, source, sourceKind, at, priorResult)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET priorResult = coalesce(excluded.priorResult, memoryUtterances.priorResult)
+            """, arguments: [id, spaceID, taskID, text, source, kind.rawValue, at,
+                               pending.previous.map { String(MemoryRedaction.redact($0).prefix(4000)) }])
+    }
+
+    /// Whether a message is new, or kept without the reply before it that is now known; that reply is settled once
+    /// the message is written, so one kept with it never changes. Reads only.
+    static func pendingUtterance(_ db: Database, id: String, text: String, kind: MemorySourceKind, taskID: String?, at: Date, priorResult: String?) throws -> (needed: Bool, previous: String?) {
+        guard utteranceKinds.contains(kind), !MemoryUserMessages.isEnvelope(text) else { return (false, nil) }
+        let kept = try Bool.fetchOne(db, sql: "SELECT priorResult IS NOT NULL FROM memoryUtterances WHERE id = ?", arguments: [id])
+        if kept == true { return (false, nil) }
+        let previous = try priorResult ?? taskID.flatMap { id in
+            try String.fetchOne(db, sql: "SELECT payload FROM events WHERE taskId = ? AND kind = 'codex.result' AND at < ? ORDER BY at DESC LIMIT 1", arguments: [id, at])
         }
+        return (kept == nil || previous != nil, previous)
     }
 
     public func memoryMoves(spaceID: String, includeArchived: Bool = false) throws -> [MemoryMove] {

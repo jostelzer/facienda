@@ -23,6 +23,8 @@ public struct TaskGroup: Codable, FetchableRecord, PersistableRecord, Identifiab
     public var codexProjectId: String?
     /// True when Facienda made that project, so it may change its folders. The user's own projects are never changed.
     public var codexProjectOwned: Bool?
+    /// True when each of the group's tasks works in its own folder, even where the workspace has a folder to work in.
+    public var ownFolders: Bool?
     public var coverNoteList: [String] { (coverNotes ?? "").split(whereSeparator: \.isNewline).map(String.init) }
 }
 
@@ -120,7 +122,7 @@ extension FaciendaStore {
     private static func insertGroup(_ db: Database, name: String, workspaceID: String?) throws -> TaskGroup {
         let workspace = try workspaceID.map { try Self.workspace(db, $0).id } ?? Self.defaultWorkspace(db).id
         let position = try Self.nextPosition(db, in: "taskGroups", workspaceID: workspace)
-        let group = TaskGroup(id: UUID().uuidString, name: name, position: position, createdAt: Date(), lane: nil, row: nil, workspaceId: workspace)
+        let group = TaskGroup(id: UUID().uuidString, name: name, position: position, createdAt: Date(), lane: nil, row: nil, workspaceId: workspace, ownFolders: nil)
         try group.insert(db)
         return group
     }
@@ -175,7 +177,6 @@ extension FaciendaStore {
         try write { db in
             try db.execute(sql: "DELETE FROM taskGroupMembers WHERE groupId = ?", arguments: [id])
             try db.execute(sql: "DELETE FROM groupFolders WHERE groupId = ?", arguments: [id])
-            try db.execute(sql: "DELETE FROM groupSources WHERE groupId = ?", arguments: [id])
             _ = try TaskGroup.deleteOne(db, key: id)
         }
         guard UndoRecorder.current == nil else { return }

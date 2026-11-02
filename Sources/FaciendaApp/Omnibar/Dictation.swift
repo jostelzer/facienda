@@ -6,7 +6,8 @@ import SwiftUI
 /// Speech to text for the top bar, with Whisper on this Mac. Audio never leaves it.
 /// While you speak, the recording so far is transcribed again every moment; stopping runs one last, complete pass.
 @MainActor @Observable final class Dictation {
-    enum Phase: Equatable { case idle, preparing, downloading, listening, finishing }
+    /// Setting up is the model's first load on this Mac, which compiles it and can take minutes.
+    enum Phase: Equatable { case idle, preparing, downloading, settingUp, listening, finishing }
     private(set) var phase: Phase = .idle
     /// Download progress of the speech model, 0…1.
     private(set) var progress: Double = 0
@@ -94,9 +95,21 @@ import SwiftUI
             if !WhisperEngine.isDownloaded {
                 phase = .downloading; progress = 0
                 try await WhisperEngine.shared.download { [weak self] value in Task { @MainActor in self?.progress = value } }
+                // Setting up starts right away, even if this dictation was called off meanwhile.
+                warm()
                 guard generation == run else { return }
             }
-            // Listening starts at once; words follow when the model is ready.
+            // The first load can take minutes, so listening waits for it: nothing said goes to a model that is not there.
+            // Called off, the setting up goes on, and the next dictation finds it done or further along.
+            if !modelReady, !WhisperEngine.isPrepared {
+                phase = .settingUp
+                do { try await WhisperEngine.shared.load() } catch {
+                    throw DictationError("The speech model could not be set up. Try again to repair it. (\(error.localizedDescription))")
+                }
+                modelReady = true
+                guard generation == run else { return }
+            }
+            // Otherwise listening starts at once; words follow when the model is ready, in seconds.
             if !modelReady {
                 Task {
                     do { try await WhisperEngine.shared.load(); modelReady = true } catch {

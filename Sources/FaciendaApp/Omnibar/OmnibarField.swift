@@ -155,6 +155,7 @@ struct OmnibarField: View {
     private var placeholder: String {
         switch omnibar.dictation.phase {
         case .downloading: return "Downloading the speech model… \(Int(omnibar.dictation.progress * 100))%"
+        case .settingUp: return "Setting up the speech model, once. Listening starts in a minute or two…"
         case .preparing: return "Listening…"
         // The outlines follow this; once the model is ready, they say it all.
         case .listening where !omnibar.dictation.modelReady: return "Loading the speech model, words follow…"

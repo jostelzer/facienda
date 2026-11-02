@@ -91,7 +91,9 @@ struct OmnibarPanel: View {
     private var startTitle: String {
         let reading = omnibar.defaultReading
         switch reading.verb {
-        case .trackChat: return OmnibarModel.codexThreadID(omnibar.trimmed) != nil ? "Add Codex chat as task" : "Add Claude session as task"
+        case .trackChat:
+            if OmnibarModel.codexMessage(omnibar.trimmed) != nil { return "Send to the Codex chat" }
+            return OmnibarModel.codexThreadID(omnibar.trimmed) != nil ? "Add Codex chat as task" : "Add Claude session as task"
         case .already: return "Open “\(reading.target)”"
         case .find: return omnibar.finding ? "Finding the task…" : "Find the earlier task"
         case .start:

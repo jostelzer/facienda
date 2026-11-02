@@ -72,6 +72,8 @@ import FaciendaBridge
 
     var tasks: [FaciendaTask] = [] { didSet { derived = Derived() } }
     var links: [ThreadLink] = [] { didSet { derived = Derived() } }
+    /// Every chat in the library and the task it carries. A chat carries one task, in whichever workspace it is.
+    var chatOwners: [String: String] = [:]
     var decisions: [Decision] = [] { didSet { derived = Derived() } }
     var nativeDispatches: [NativeDispatch] = [] { didSet { derived = Derived() } }
     /// The model for Facienda's background work, in Codex or Claude.
@@ -126,10 +128,10 @@ import FaciendaBridge
     var groupMembers: [String: String] = [:] { didSet { derived = Derived() } }
     /// Where the user put each task on the board. Tasks without an entry sort by when they were made, newest first.
     var taskPlaces: [String: Double] = [:] { didSet { derived = Derived() } }
-    /// Each group's linked folders, primary first. Groups without links are absent.
+    /// Where each group's tasks work, primary first. Groups whose tasks work in their own folders are absent.
     var groupFolders: [String: [String]] = [:]
-    /// Each group's linked and proposed sources, in order. Groups without any are absent.
-    var groupSources: [String: [GroupSource]] = [:]
+    /// The folders linked to this workspace for its tasks to work in, primary first.
+    var workspaceFolders: [String] = []
     /// Every line of this workspace's group plans. The Plan view shows one group's lines as an outline.
     var planLines: [PlanLine] = []
     /// Folders of the user's Codex projects, most recently active first, offered when linking a folder.
@@ -154,7 +156,7 @@ import FaciendaBridge
     /// Its notes and rules.
     var memories: [MemoryFact] = []
     /// What every task in the workspace may read, linked or proposed.
-    var workspaceSources: [GroupSource] = []
+    var workspaceSources: [WorkspaceSource] = []
     var memoryStatus: WorkspaceMemoryStatus?
     /// Built-in memory progress for this workspace's memory.
     var learnedStatus: NativeMemoryStatus?
@@ -180,7 +182,7 @@ import FaciendaBridge
             if let data = try? JSONEncoder().encode(modelSettings) { UserDefaults.standard.set(data, forKey: "composerModelSettings") }
         }
     }
-    /// The reasoning and Fast each model last had, so switching back to a model brings them back.
+    /// The reasoning and Fast each model last had, so switching back to a model brings them back. Fast lasts until a task starts.
     @ObservationIgnored var modelSettings = AppModel.savedModelSettings()
 
     func chooseComposerModel(_ id: String) { composerModel = composerModel.choosing(id, remembered: modelSettings) }
@@ -291,16 +293,18 @@ import FaciendaBridge
         refresh()
     }
 
+    /// Fast is chosen for one task at a time, so it never comes back on by itself.
     static func savedComposerModel() -> TaskModelChoice {
         guard let data = UserDefaults.standard.data(forKey: "composerModel"),
-              let choice = try? JSONDecoder().decode(TaskModelChoice.self, from: data), choice.details != nil else { return .standard }
+              var choice = try? JSONDecoder().decode(TaskModelChoice.self, from: data), choice.details != nil else { return .standard }
+        choice.fast = false
         return choice
     }
 
     static func savedModelSettings() -> [String: TaskModelChoice] {
         guard let data = UserDefaults.standard.data(forKey: "composerModelSettings"),
               let settings = try? JSONDecoder().decode([String: TaskModelChoice].self, from: data) else { return [:] }
-        return settings
+        return settings.mapValues { var choice = $0; choice.fast = false; return choice }
     }
 
     var selectedTask: FaciendaTask? { selection.flatMap { tasksByID[$0] } }
@@ -346,14 +350,17 @@ import FaciendaBridge
             nextSteps = Self.byTask(try store.nextSteps(), \.taskId, in: ids)
             ownSteps = Self.byTask(try store.ownSteps(), \.taskId, in: ids)
             handedOver = try store.handedOverTasks().intersection(ids)
-            links = try store.links().filter { ids.contains($0.taskId) }; decisions = try store.decisions().filter { ids.contains($0.taskId) }
+            let allLinks = try store.links()
+            links = allLinks.filter { ids.contains($0.taskId) }
+            chatOwners = Dictionary(allLinks.map { ($0.codexThreadId, $0.taskId) }, uniquingKeysWith: { _, last in last })
+            decisions = try store.decisions().filter { ids.contains($0.taskId) }
             memories = try store.allMemory()
             workspaceSources = try store.workspaceSources()
             groups = try store.groups()
             groupMembers = Dictionary(try store.groupMembers().map { ($0.taskId, $0.groupId) }, uniquingKeysWith: { first, _ in first })
             taskPlaces = try store.boardPlaces()
             groupFolders = try store.groupFolders()
-            groupSources = try store.groupSources()
+            workspaceFolders = try store.workspaceFolders()
             planLines = try store.planLines()
             readMarks = try store.readMarks()
 

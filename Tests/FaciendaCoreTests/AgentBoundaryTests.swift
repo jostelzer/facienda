@@ -99,6 +99,9 @@ private let helper = "/Apps/facienda-mcp"
     #expect(prompt.contains("TASK HANDLE: \(handle)") && prompt.contains("facienda_memory_find(text, taskId: \(handle))") && prompt.contains("fromTaskId \(handle)"))
     #expect(!prompt.contains("--runner rules"))
     #expect(!prompt.replacingOccurrences(of: handle, with: "HANDLE").contains("taskId \(task.id)"))
+    // The saved answer is read in Facienda, so the chat only sums it up, on a first delivery and on a reply.
+    let reply = try DispatchPrompt.replyPrompt(NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "started", requestedAt: Date(), kind: "reply", message: "Earlier one?"), task: task, message: "Earlier one?", store: store, base: "facienda-mcp")
+    #expect(prompt.contains(DispatchPrompt.chatReply) && reply.contains(DispatchPrompt.chatReply))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "chat", role: "work", linkedBy: "user"))
     let event = try JSONDecoder().decode(HookEvent.self, from: Data(#"{"session_id":"chat","hook_event_name":"UserPromptSubmit"}"#.utf8))
     let context = try event.apply(to: store)?["hookSpecificOutput"]["additionalContext"].string ?? ""
@@ -254,7 +257,23 @@ private let helper = "/Apps/facienda-mcp"
     let narrowed = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: old.appending(path: ".claude/settings.local.json")))
     #expect(narrowed["permissions"]["allow"].array == store.claudeTaskRules(helper: helper).map(JSONValue.string))
     #expect(narrowed["permissions"]["additionalDirectories"].array == [.string("/Users/me/site")])
-    #expect(narrowed["autoCompactWindow"] == .null)
+    #expect(narrowed["autoCompactWindow"].number == Double(FaciendaStore.claudeTaskContext))
+    // A narrow task folder without a bound gets only the bound: rules its session's user approved stay.
+    let approved = store.workFolder.appending(path: try store.create(FaciendaTask(title: "Approved")).id)
+    try FileManager.default.createDirectory(at: approved.appending(path: ".claude"), withIntermediateDirectories: true)
+    let rules = store.claudeTaskRules(helper: helper) + ["Bash(swift test)"]
+    let unboundTask: JSONValue = .object(["enabledMcpjsonServers": .array([.string("facienda")]), "permissions": .object(["allow": .array(rules.map(JSONValue.string))])])
+    try Data(unboundTask.json.utf8).write(to: approved.appending(path: ".claude/settings.local.json"))
+    // A settings file Facienda did not write is left alone.
+    let foreign = store.workFolder.appending(path: try store.create(FaciendaTask(title: "Foreign")).id)
+    try FileManager.default.createDirectory(at: foreign.appending(path: ".claude"), withIntermediateDirectories: true)
+    let mine: JSONValue = .object(["permissions": .object(["allow": .array([.string("Bash(make)")])])])
+    try Data(mine.json.utf8).write(to: foreign.appending(path: ".claude/settings.local.json"))
+    store.narrowClaudeFolders(helper: helper, runnerBase: store.workFolder.appending(path: "claude"))
+    let kept = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: approved.appending(path: ".claude/settings.local.json")))
+    #expect(kept["autoCompactWindow"].number == Double(FaciendaStore.claudeTaskContext))
+    #expect(kept["permissions"]["allow"].array == rules.map(JSONValue.string))
+    #expect(try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: foreign.appending(path: ".claude/settings.local.json"))) == mine)
     // The runner already running gets its bound from the folder it works in.
     let runnerFolder = store.workFolder.appending(path: "claude/runner-old")
     try FileManager.default.createDirectory(at: runnerFolder.appending(path: ".claude"), withIntermediateDirectories: true)
@@ -266,4 +285,11 @@ private let helper = "/Apps/facienda-mcp"
     let bounded = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: runnerFolder.appending(path: ".claude/settings.local.json")))
     #expect(bounded["autoCompactWindow"].number == Double(FaciendaStore.claudeRunnerContext))
     #expect(bounded["permissions"]["allow"].array == runner.map(JSONValue.string))
+}
+
+@Test func toolAnswersLeaveOutEmbeddings() {
+    let answer: JSONValue = .array([.object(["text": .string("Prefers tea"), "embedding": .string("P/+YvQ1b"),
+                                             "sources": .array([.object(["embedding": .string("x"), "id": .string("a")])])])])
+    let cleaned = ToolService.withoutEmbeddings(answer)
+    #expect(!cleaned.json.contains("embedding") && cleaned.json.contains("Prefers tea") && cleaned.json.contains("\"a\""))
 }

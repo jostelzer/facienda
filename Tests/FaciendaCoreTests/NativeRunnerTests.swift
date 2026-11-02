@@ -222,7 +222,9 @@ private func deliveringStart(_ store: FaciendaStore, _ task: FaciendaTask) throw
     let id = try store.bindScheduledRunner(id: "runner-sched")
     let now = Date()
     #expect(try store.beginRunnerTurn(runnerId: id, holder: "run-a", now: now))
-    #expect(try store.runnerState()?.lastSeen != nil)
+    // Holding the queue is not a check-in: only reaching Codex is.
+    #expect(try store.runnerState()?.leaseHolder == "run-a")
+    #expect(try store.runnerState()?.isAwake(at: now.addingTimeInterval(3600)) == false)
     // A second run while the first delivers stays out of the queue, even with work waiting.
     let item = try store.enqueueDispatch(taskId: task.id)
     #expect(try !store.beginRunnerTurn(runnerId: id, holder: "run-b", now: now.addingTimeInterval(60)))

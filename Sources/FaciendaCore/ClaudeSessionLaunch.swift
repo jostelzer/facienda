@@ -236,9 +236,12 @@ extension FaciendaStore {
     }
 
     /// The Claude app tools the runner uses on task sessions. Allowed in its own folder only, so applying a task's
-    /// model or relaying a reply never stops for an approval.
+    /// model, filing it in the sidebar or relaying a reply never stops for an approval.
     public static let claudeRunnerTools = ["get_session", "set_session_model", "set_session_effort", "set_session_fast_mode",
-                                           "set_session_title", "list_events", "send_message"].map { "mcp__ccd_session_mgmt__" + $0 } + ["SendMessage"]
+                                           "set_session_title", "list_events", "send_message"].map { "mcp__ccd_session_mgmt__" + $0 }
+        + ["list_groups", "create_group", "move_sessions"].map { "mcp__ccd_sidebar__" + $0 } + ["SendMessage"]
+        // Its hourly alarm, which lives in its own session.
+        + ["CronList", "CronCreate", "CronDelete"]
 
     /// What a task session may run without asking: Facienda's tools, and exactly the helper commands its instructions
     /// name, pinned to this library. Nothing that relays, binds, answers or administers.
@@ -251,6 +254,9 @@ extension FaciendaStore {
     /// How much conversation the runner keeps before Claude compacts it. Every relay step rereads all of it, and on a
     /// model with a million-token window it would otherwise grow for days, until each step of a start took seconds.
     public static let claudeRunnerContext = 150_000
+    /// The same bound for task sessions, set higher because they do the work. Without it a task chat grew to 300k–970k
+    /// tokens over days of replies, and each of its steps reread all of it: 84% of a week's Claude tokens in early November.
+    public static let claudeTaskContext = 250_000
 
     /// What the runner session may run without asking: its relay commands and the Claude app tools it relays with.
     public func claudeRunnerRules(helper: String) -> [String] {
@@ -280,8 +286,9 @@ extension FaciendaStore {
         let settings: JSONValue = .object([
             "enabledMcpjsonServers": .array([.string("facienda")]),
             "permissions": .object(["allow": .array(rules.map(JSONValue.string))]
-                .merging(folders.isEmpty ? [:] : ["additionalDirectories": .array(folders.map(JSONValue.string))]) { $1 })
-        ].merging(runner ? ["autoCompactWindow": .number(Double(Self.claudeRunnerContext))] : [:]) { $1 })
+                .merging(folders.isEmpty ? [:] : ["additionalDirectories": .array(folders.map(JSONValue.string))]) { $1 }),
+            "autoCompactWindow": .number(Double(runner ? Self.claudeRunnerContext : Self.claudeTaskContext))
+        ])
         try Self.makePrivateFolder(folder)
         try Self.makePrivateFolder(folder.appending(path: ".claude"))
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -295,7 +302,9 @@ extension FaciendaStore {
 
     /// Folders earlier builds prepared let a session run any helper command. This library's task folders and runner
     /// folders that still carry such a rule get today's narrow rules, keeping their linked folders. A runner folder
-    /// from before its context was bounded gets the bound too, so the runner already running compacts from now on.
+    /// from before its context was bounded gets the bound too, so the runner already running compacts from now on, and
+    /// one missing a Claude app tool the runner now uses gets it. A task folder without a bound gets only the bound,
+    /// so approvals the user gave its session stay.
     public func narrowClaudeFolders(helper: String, runnerBase: URL? = nil) {
         let files = FileManager.default
         let tasks = Set(((try? library.tasks()) ?? []).map(\.id))
@@ -307,10 +316,23 @@ extension FaciendaStore {
             guard let data = try? Data(contentsOf: folder.appending(path: ".claude/settings.local.json")),
                   let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let permissions = settings["permissions"] as? [String: Any],
-                  let allow = permissions["allow"] as? [String],
-                  allow.contains(where: { $0.hasPrefix("Bash(") && $0.hasSuffix(" *)") && !$0.contains(" --") })
-                    || (runner && settings["autoCompactWindow"] == nil) else { continue }
+                  let allow = permissions["allow"] as? [String] else { continue }
+            guard allow.contains(where: { $0.hasPrefix("Bash(") && $0.hasSuffix(" *)") && !$0.contains(" --") })
+                    || (runner && (settings["autoCompactWindow"] == nil || !Set(allow).isSuperset(of: Self.claudeRunnerTools))) else {
+                if !runner, settings["autoCompactWindow"] == nil, (settings["enabledMcpjsonServers"] as? [String])?.contains("facienda") == true { Self.boundTaskFolder(folder, settings: settings) }
+                continue
+            }
             try? prepareClaudeFolder(folder, mcpHelper: helper, runner: runner, folders: permissions["additionalDirectories"] as? [String] ?? [])
         }
+    }
+
+    /// Adds the task bound to a task folder's settings and leaves everything else as it is.
+    static func boundTaskFolder(_ folder: URL, settings: [String: Any]) {
+        let file = folder.appending(path: ".claude/settings.local.json")
+        var settings = settings
+        settings["autoCompactWindow"] = claudeTaskContext
+        guard let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else { return }
+        try? data.write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }

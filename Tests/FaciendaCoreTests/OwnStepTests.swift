@@ -160,3 +160,64 @@ private func stepStore() throws -> FaciendaStore {
     try prompt()
     #expect(try store.ownSteps().map(\.text) == ["Check the frames"])
 }
+
+private func proposeDone(_ store: FaciendaStore, _ taskId: String, _ evidence: String) throws {
+    try store.requestDecision(Decision(taskId: taskId, question: "Ready to mark this task done?", context: evidence, recommendation: "Mark done", options: ["Mark done", "Keep open"], kind: "completion"))
+}
+
+@Test func aReplyPutsAsideTheAgentsProposalToCloseButNotItsQuestions() throws {
+    let store = try stepStore()
+    let task = try store.create(FaciendaTask(title: "Tidy the photo library", state: .needsMe, nextAction: "Review"))
+    try proposeDone(store, task.id, "Albums sorted on the branch")
+    try store.requestDecision(Decision(taskId: task.id, question: "Keep the duplicates?", recommendation: "No", options: ["No", "Yes"]))
+    // Proposing again shows the newer evidence instead of the first turn's.
+    try proposeDone(store, task.id, "Albums sorted and installed")
+    #expect(try store.decisions(taskId: task.id).filter { $0.kind == "completion" }.map(\.context) == ["Albums sorted and installed"])
+    try store.enqueueDispatch(taskId: task.id, message: "The holiday album is still missing")
+    #expect(try store.decisions(taskId: task.id).map(\.question) == ["Keep the duplicates?"])
+    #expect(try store.events(taskId: task.id).contains { $0.kind == "decision.superseded" })
+}
+
+@Test func writingInTheChatYourselfPutsAsideTheProposalToClose() throws {
+    let store = try stepStore(), now = Date()
+    let codex = try store.create(FaciendaTask(title: "Sort the receipts", state: .needsMe, nextAction: "Review"))
+    try store.link(ThreadLink(taskId: codex.id, codexThreadId: "chat"))
+    let prompt = { _ = try JSONDecoder().decode(HookEvent.self, from: Data(#"{"session_id":"chat","hook_event_name":"UserPromptSubmit"}"#.utf8)).apply(to: store) }
+    // Facienda delivering into the chat is not the user writing.
+    try proposeDone(store, codex.id, "Receipts sorted")
+    try store.db.write { try $0.execute(sql: "INSERT INTO dispatches (id, taskId, state, requestedAt) VALUES ('delivery', ?, 'dispatching', ?)", arguments: [codex.id, now]) }
+    try prompt()
+    #expect(try store.decisions(taskId: codex.id).count == 1)
+    try store.db.write { try $0.execute(sql: "UPDATE dispatches SET state = 'started' WHERE id = 'delivery'") }
+    try prompt()
+    #expect(try store.decisions(taskId: codex.id).isEmpty)
+
+    let claude = try store.create(FaciendaTask(title: "Sort the invoices", state: .needsMe, nextAction: "Review"))
+    try store.link(ThreadLink(taskId: claude.id, codexThreadId: "local_invoices", provider: .claude))
+    try store.write { db in
+        try ClaudeSession(threadId: "local_invoices", taskId: claude.id, cliSessionId: "5A1B2C3D-0000-4000-8000-0000000000CD", cwd: nil, linkedAt: now,
+                          model: nil, effort: nil, fast: false, configureState: "done", configureClaimedAt: nil, configuredAt: nil, configureNote: nil).insert(db)
+    }
+    try proposeDone(store, claude.id, "Invoices sorted")
+    try JSONDecoder().decode(ClaudeHookEvent.self, from: Data(#"{"session_id":"5a1b2c3d-0000-4000-8000-0000000000cd","hook_event_name":"UserPromptSubmit"}"#.utf8)).apply(to: store)
+    #expect(try store.decisions(taskId: claude.id).isEmpty)
+}
+
+@Test func proposalsTheUserHadAlreadyWrittenPastAreClosedOnce() throws {
+    let store = try stepStore(), now = Date()
+    let overtaken = try store.create(FaciendaTask(title: "Fix the gutter", state: .needsMe, nextAction: "Review"))
+    let standing = try store.create(FaciendaTask(title: "Paint the fence", state: .needsMe, nextAction: "Review"))
+    try store.write { db in
+        for (task, minutes) in [(overtaken.id, -30.0), (standing.id, -30.0)] {
+            var proposal = Decision(taskId: task, question: "Ready to mark this task done?", context: "Done", recommendation: "Mark done", options: ["Mark done", "Keep open"], kind: "completion")
+            proposal.createdAt = now.addingTimeInterval(minutes * 60)
+            try proposal.insert(db)
+        }
+        // Written after the proposal on one task, before it on the other.
+        try TaskEvent(taskId: overtaken.id, source: .hook, kind: "hook.UserPromptSubmit", payload: "", at: now.addingTimeInterval(-10 * 60)).insert(db)
+        try TaskEvent(taskId: standing.id, source: .hook, kind: "hook.claude.UserPromptSubmit", payload: "", at: now.addingTimeInterval(-40 * 60)).insert(db)
+        try FaciendaStore.setAsideOvertakenCompletions(db, now: now)
+    }
+    #expect(try store.decisions(taskId: overtaken.id).isEmpty)
+    #expect(try store.decisions(taskId: standing.id).count == 1)
+}

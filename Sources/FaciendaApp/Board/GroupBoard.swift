@@ -341,7 +341,7 @@ struct GroupBoard: View {
                 Button("New task here") { newTask(in: group) }
                 if let group {
                     Button("Rename") { beginRename(group) }
-                    Menu("Link source") { SourceLinkChoices(model: model, group: group) }
+                    Menu("Works in") { WorkPlaceChoices(model: model, group: group) }
                     if !model.otherWorkspaces.isEmpty {
                         Menu("Move to workspace") {
                             ForEach(model.otherWorkspaces) { workspace in Button(workspace.name) { model.moveGroup(group, to: workspace) } }
@@ -436,7 +436,7 @@ struct GroupBoard: View {
         }
     }
 
-    /// The group's name with its sources, set on the cover's fade or on a row of its own. Folded, the counts take the sources' place;
+    /// The group's name, with where it works when that is not the workspace's usual place, set on the cover's fade or on a row of its own. Folded, the counts take that place;
     /// resting, the line that says since when. The whole row folds and unfolds the card, out to the card's edges and its padding,
     /// so the click never has to find the arrow. A resting card has nothing to unfold, so it has no arrow and the click does nothing.
     /// Renaming is in the card's menu.
@@ -460,7 +460,7 @@ struct GroupBoard: View {
                 Text(group == nil ? "Nothing here right now" : RestingLine.text(since: model.lastActive(in: group?.id)))
                     .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).transition(.opacity)
             } else if fold.folded { FoldTally(model: model, tasks: fold.tasks, planned: fold.planned).transition(.opacity) }
-            else if let group { SourcesButton(model: model, group: group).background(GraceZone()).transition(.opacity) }
+            else if let group, model.worksElsewhere(group) { WorkPlaceChip(model: model, group: group).background(GraceZone()).transition(.opacity) }
             // The island's +, in the same corner of every card, Unsorted's too: a task in this group, or in the pile.
             PlusButton(help: "New task in " + name, label: "New task in " + name) { newTask(in: group) }
                 .padding(.trailing, -6).padding(.vertical, -2)

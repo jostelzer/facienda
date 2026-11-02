@@ -264,3 +264,36 @@ private func fixture() throws -> String { try #require(Bundle.module.url(forReso
     #expect(await drops.next()?.method == "thread/status/changed")
     await bridge.disconnect()
 }
+
+@Test func disconnectAndWaitEndsAServerThatIgnoresTheRequestToStop() async throws {
+    // The dispatcher waits here after making a chat. A wait without end left it frozen and Codex read as down.
+    let pidFile = FileManager.default.temporaryDirectory.appending(path: "FaciendaBridgeTests-\(UUID().uuidString).pid")
+    defer { try? FileManager.default.removeItem(at: pidFile) }
+    let stubborn = """
+    import json, os, signal, sys, time
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    open(sys.argv[1], "w").write(str(os.getpid()))
+    request = json.loads(sys.stdin.readline())
+    print(json.dumps({"id": request["id"], "result": {}}), flush=True)
+    while True: time.sleep(60)
+    """
+    let bridge = CodexBridge()
+    try await bridge.connect(executable: "/usr/bin/python3", arguments: ["-c", stubborn, pidFile.path])
+    let pid = try #require(Int32(String(contentsOf: pidFile, encoding: .utf8)))
+    let started = ContinuousClock.now
+    await bridge.disconnectAndWait(within: .milliseconds(500))
+    #expect(ContinuousClock.now - started < .seconds(5))
+    var exited = false
+    for _ in 0..<40 where !exited {
+        exited = kill(pid, 0) != 0
+        if !exited { try await Task.sleep(for: .milliseconds(50)) }
+    }
+    #expect(exited)
+
+    // A server that stops when asked is waited for, not killed.
+    let polite = CodexBridge()
+    try await polite.connect(executable: "/usr/bin/python3", arguments: [try fixture()])
+    let asked = ContinuousClock.now
+    await polite.disconnectAndWait()
+    #expect(ContinuousClock.now - asked < .seconds(5))
+}

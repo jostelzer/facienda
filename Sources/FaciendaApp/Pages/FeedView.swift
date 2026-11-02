@@ -1,7 +1,7 @@
 import SwiftUI
 import FaciendaCore
 
-/// History: what came in through the bar, across every workspace, in place of the island and the board. Nothing stands
+/// Incoming: what came in through the bar, across every workspace, in place of the island and the board. Nothing stands
 /// above it but a slim row of workspace chips and a close button; below, one list, newest first, using the whole room.
 /// Each row leads with the group's cover and the workspace's planet, as the bar draws found tasks, then the request in
 /// its own words, where it went and what it became, with the task's live glyph. Esc or the ✕ brings the board back.
@@ -25,7 +25,7 @@ struct FeedView: View {
     // MARK: Filters
 
     /// All, then each workspace something went to, then Here for what needed no task, each with its count; the ✕ at the end
-    /// closes History.
+    /// closes Incoming.
     private var filters: some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -44,7 +44,7 @@ struct FeedView: View {
                     .frame(width: 26, height: 26).background(Palette.card, in: Circle())
                     .overlay(Circle().strokeBorder(Palette.line, lineWidth: 1))
             }
-            .buttonStyle(.plain).help("Back to the board (esc)").accessibilityLabel("Close History")
+            .buttonStyle(.plain).help("Back to the board (esc)").accessibilityLabel("Close Incoming")
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 6)
     }
@@ -196,37 +196,32 @@ struct FeedGlyph: View {
     }
 }
 
-/// The way into what came in: a pill named History at the bar's end, with the latest request that finished or came
-/// back for you in the last day, in blue while you have not looked at it. A click opens what came in, or closes it again.
+/// The way into Incoming: a pill at the bar's end that names it and says only what is live, the board's spinning glyph
+/// while something you sent is being placed or worked on, and the blue dot while something came back unseen. A click
+/// opens Incoming, or closes it again.
 struct FeedTrail: View {
     @Bindable var feed: FeedModel
     let workspaces: WorkspaceController
 
     var body: some View {
-        let done = feed.latestDone
         Button { withAnimation(Motion.fade) { feed.toggle() } } label: {
             HStack(spacing: 6) {
-                Image(systemName: "clock.arrow.circlepath").font(.system(size: 12, weight: .medium))
-                Text("History").font(.system(size: 12, weight: .semibold))
-                if let done, let task = done.task {
-                    Rectangle().fill(Palette.line).frame(width: 1, height: 14).padding(.horizontal, 2)
-                    FeedGlyph(arrival: done, workspaces: workspaces).scaleEffect(0.85)
-                    // As wide as the name, up to a point, so the bar keeps its room for typing.
-                    Text(task.displayName.count > 34 ? task.displayName.prefix(33) + "…" : task.displayName)
-                        .font(.system(size: 12)).lineLimit(1)
-                        .foregroundStyle(done.isNew ? Palette.blue : Palette.muted)
-                    if done.isNew { Circle().fill(Palette.blue).frame(width: 6, height: 6) }
-                }
+                Image(systemName: "tray.and.arrow.down").font(.system(size: 12, weight: .medium))
+                Text("Incoming").font(.system(size: 12, weight: .semibold))
+                if feed.working { TaskDot(kind: .running).scaleEffect(0.85).transition(.opacity) }
+                if feed.cameBack { Circle().fill(Palette.blue).frame(width: 6, height: 6).transition(.opacity) }
             }
             .foregroundStyle(Palette.ink)
             .padding(.leading, 10).padding(.trailing, 12).frame(height: 28)
             .background(feed.isOpen ? Palette.blue.opacity(0.1) : Palette.card, in: Capsule())
             .overlay(Capsule().strokeBorder(feed.isOpen ? Palette.blue.opacity(0.5) : Palette.line, lineWidth: 1))
             .contentShape(Capsule())
+            .animation(Motion.fade, value: feed.working)
+            .animation(Motion.fade, value: feed.cameBack)
         }
         .buttonStyle(.plain)
-        .help(feed.isOpen ? "Back to the board (esc)" : "History (⇧⌘K): what you asked in the bar and what became of it")
-        .accessibilityLabel("History")
-        .accessibilityValue(done?.task.map { "Latest finished: \($0.displayName)" } ?? "")
+        .help(feed.isOpen ? "Back to the board (esc)" : "Incoming (⇧⌘K): everything you sent through the bar and what became of it")
+        .accessibilityLabel("Incoming")
+        .accessibilityValue([feed.working ? "work in progress" : nil, feed.cameBack ? "something came back" : nil].compactMap { $0 }.joined(separator: ", "))
     }
 }

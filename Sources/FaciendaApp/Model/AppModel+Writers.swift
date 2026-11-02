@@ -221,8 +221,8 @@ extension AppModel {
         headlineTask = Task { [weak self] in
             defer { self?.headlineTask = nil; self?.refresh() }
             do { try await luna.warm(executable: executable) } catch { return }
-            let tiers = (try? await luna.options().tiers) ?? []
-            let tier = tiers.first { $0 == "priority" } ?? tiers.first { $0.localizedCaseInsensitiveContains("fast") }
+            // Nobody waits on these, so they run at standard speed: the priority tier costs more of the user's allowance.
+            let tier: String? = nil
             for job in recapsDue { await self?.prepareRecap(job.id, luna: luna, tier: tier) }
             for job in due {
                 if job.steps { await self?.prepareNextSteps(job.source, luna: luna, tier: tier) }

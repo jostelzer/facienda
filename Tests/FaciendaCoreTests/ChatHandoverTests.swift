@@ -64,6 +64,21 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     #expect(try store.links(taskId: task.id).map(\.threadId) == ["finder"])
 }
 
+@Test func aTakenChatSaysWhichTaskHasItAndWhere() throws {
+    let library = try handoverStore()
+    let home = try library.defaultWorkspace()
+    let studio = try library.createWorkspace(name: "Studio")
+    let task = try startedTask(library.scoped(to: home.id))
+    let other = try startedTask(library.scoped(to: studio.id), chat: "theirs", title: "Fix the swoosh lines")
+    _ = try library.update(other.id) { $0.state = .done }
+    do {
+        try library.scoped(to: home.id).handOver(taskId: task.id, to: ChatCandidate(threadId: "theirs", provider: .codex, title: ""))
+        Issue.record("A taken chat was handed over")
+    } catch {
+        #expect(error.localizedDescription == "This chat is taken by “Fix the swoosh lines” (done, in Studio). A chat carries one task.")
+    }
+}
+
 @Test func aDeliveryUnderwayHoldsTheSwitch() throws {
     let store = try handoverStore()
     let task = try startedTask(store)
@@ -89,7 +104,8 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
                                  "lastActivityAt": 1_792_045_838_810.0, "isArchived": false, "model": "claude-sonnet-5-5", "effort": "medium"]
     try JSONSerialization.data(withJSONObject: record).write(to: organisation.appending(path: sessionID + ".json"))
     let archived = "local_11111111-2222-4333-8444-555555555555"
-    try JSONSerialization.data(withJSONObject: ["sessionId": archived, "cliSessionId": cliID, "cwd": "/", "title": "Old"]).write(to: organisation.appending(path: archived + ".json"))
+    try JSONSerialization.data(withJSONObject: ["sessionId": archived, "cliSessionId": cliID, "cwd": "/", "title": "Old",
+                                                "error": "You've hit your session limit", "errorAt": 1_792_045_900_000.0]).write(to: organisation.appending(path: archived + ".json"))
     try JSONSerialization.data(withJSONObject: ["v": 1, "archived": [archived]]).write(to: organisation.appending(path: "archived-sessions.idx"))
 
     let sessions = ClaudeDesktop.sessions(registry: registry)
@@ -98,6 +114,9 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     #expect(session.title == "Venue email" && session.cwd == "/Users/me/project" && !session.archived)
     #expect(session.model == "claude-sonnet-5-5" && session.effort == "medium")
     #expect(sessions.first { $0.id == archived }?.model == nil)
+    // The error that ended a session's last turn, such as a usage limit.
+    #expect(session.error == nil && sessions.first { $0.id == archived }?.error == "You've hit your session limit")
+    #expect(sessions.first { $0.id == archived }?.errorAt == Date(timeIntervalSince1970: 1_792_045_900))
     #expect(session.chat.provider == .claude && session.chat.cliSessionId == cliID)
 
     #expect(ClaudeDesktop.sessionID(inLink: sessionID) == sessionID)
@@ -126,4 +145,13 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     #expect(try store.claudeSession(sessionID)?.cliSessionId == cliID)
     // Importing it again gives the same task back.
     #expect(try store.importClaudeSession(session, transcripts: transcripts).id == task.id)
+}
+
+@Test func deletingAHandedOverTaskLeavesTheBoardLoadable() throws {
+    let store = try handoverStore()
+    let task = try startedTask(store)
+    try store.handOver(taskId: task.id, to: ChatCandidate(threadId: "found", provider: .codex, title: "Venue email"))
+    // Deleting keeps the task's events with no task; they must not break loading.
+    try store.deleteTask(task.id)
+    #expect(try store.handedOverTasks().isEmpty)
 }

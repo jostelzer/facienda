@@ -10,6 +10,9 @@ struct MemoryPage: View {
     @State private var sections: [MemorySection] = []
     @State private var routines: [MemoryRoutine] = []
     @State private var deliveries: [MemoryDelivery] = []
+    /// The memories this one reads, with what they lend, and the workspaces that read this one.
+    @State private var readFrom: [(name: String, understanding: Bool, entries: [MemoryEntry])] = []
+    @State private var readBy: [String] = []
     @State private var query = ""
     @State private var editing: String?
     @State private var draft = ""
@@ -41,6 +44,8 @@ struct MemoryPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                // Where tasks work and what they read come first: every task uses them, and the shelves below can run long.
+                shelfCards([.places])
                 MemoryUnderstandingView(model: model)
                 movesShelf
                 proposalsShelf
@@ -53,8 +58,9 @@ struct MemoryPage: View {
                     } label: { Label("Write a memory", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
                 }
                 if editing == "new" { editor(nil) }
-                MemoryShelfLayout { shelfCards([.rules, .places, .people, .choices, .howtos]) }
+                MemoryShelfLayout { shelfCards([.rules, .people, .choices, .howtos]) }
                 ForEach(sections.filter { $0.state == .live }) { section in sectionCard(section) }
+                if !readFrom.isEmpty || !readBy.isEmpty { readsCard }
                 card("About you", hint: "Only what you explicitly share here reaches every workspace.") {
                     ForEach(live.filter { $0.spaceId == nil }) { entry in entryRow(entry) }
                     if !live.contains(where: { $0.spaceId == nil }) { empty("Share an accepted entry using its menu.") }
@@ -141,7 +147,7 @@ struct MemoryPage: View {
 
     private var proposalsShelf: some View {
         card("Proposals", hint: "Nothing here applies until you accept it. Edit the words first if you like.") {
-            if proposals.isEmpty && sharedMoves.isEmpty && sections.allSatisfy({ $0.state != .proposed }) && routines.allSatisfy({ $0.state != .proposed }) && model.workspaceSources.allSatisfy({ $0.state != .proposed }) { empty("All caught up.") }
+            if proposals.isEmpty && sharedMoves.isEmpty && sections.allSatisfy({ $0.state != .proposed }) && routines.allSatisfy({ $0.state != .proposed }) { empty("All caught up.") }
             ForEach(proposals.prefix(proposalLimit)) { entry in entryRow(entry) }
             if proposals.count > proposalLimit { Button("Show \(min(12, proposals.count - proposalLimit)) more") { proposalLimit += 12 }.buttonStyle(QuietButton()) }
             ForEach(sharedMoves) { move in
@@ -164,9 +170,6 @@ struct MemoryPage: View {
                 }.padding(.vertical, 6)
             }
             ForEach(routines.filter { $0.state == .proposed }) { routine in routineRow(routine) }
-            ForEach(model.workspaceSources.filter { $0.state == .proposed }) { source in
-                HStack { Text(source.title); Spacer(); Button("Link") { model.acceptSource(source) }; Button("Dismiss") { model.dismissSource(source) } }.buttonStyle(QuietButton())
-            }
         }
     }
 
@@ -295,16 +298,6 @@ struct MemoryPage: View {
         }.padding(.vertical, 7)
     }
 
-    private var linkedPlaces: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(model.workspaceSources.filter { $0.state == .linked }) { source in
-                Button { model.openSource(source) } label: { Label(source.title, systemImage: "link") }.buttonStyle(.plain).foregroundStyle(Palette.blue)
-                if let about = source.about { Text(about).font(.caption).foregroundStyle(Palette.muted) }
-            }
-            Button("Link a folder or document…") { model.linkPastedWorkspaceSource() }.buttonStyle(QuietButton())
-        }
-    }
-
     private var oldMemory: some View {
         card("Your earlier memory", hint: "Review a distilled version in Proposals. Originals are archived; backups and chat transcripts retain their earlier contents.") {
             Text("\(model.memories.count) notes are available to migrate.").font(.system(size: 12))
@@ -321,14 +314,15 @@ struct MemoryPage: View {
     }
 
     private func hint(_ shelf: MemoryShelf) -> String {
-        switch shelf { case .rules: "Always, ask first, and never. Your standing instructions."; case .places: "Where to work, read, put results, or leave alone."; case .people: "Who people are, in the words you gave us."; case .choices: "Your current choices, with earlier wording kept."; case .howtos: "Useful steps you can repeat."; case .moves: "What you usually do next." }
+        switch shelf { case .rules: "Always, ask first, and never. Your standing instructions."; case .places: "Where tasks work and what they read. Groups choose among the folders in their menu."; case .people: "Who people are, in the words you gave us."; case .choices: "Your current choices, with earlier wording kept."; case .howtos: "Useful steps you can repeat."; case .moves: "What you usually do next." }
     }
     private func shelfCards(_ shelves: [MemoryShelf]) -> some View {
             ForEach(shelves, id: \.self) { shelf in
                 card(shelf.title, hint: hint(shelf)) {
                     ForEach(live.filter { $0.shelf == shelf && $0.spaceId != nil && $0.sectionId == nil }) { entry in entryRow(entry) }
-                    if !live.contains(where: { $0.shelf == shelf && $0.spaceId != nil && $0.sectionId == nil }) { empty("Nothing here yet.") }
-                    if shelf == .places { linkedPlaces }
+                    let places = shelf == .places && (!model.workspaceFolders.isEmpty || model.workspaceSources.contains { $0.state == .linked })
+                    if !places && !live.contains(where: { $0.shelf == shelf && $0.spaceId != nil && $0.sectionId == nil }) { empty("Nothing here yet.") }
+                    if shelf == .places { PlacesList(model: model) }
                 }
             }
     }
@@ -344,6 +338,30 @@ struct MemoryPage: View {
             sharedMoves = try model.store.sharedMoveProposals()
             sections = try model.store.memorySections(spaceID: space); routines = try model.store.memoryRoutines(spaceID: space)
             deliveries = try model.store.memoryDeliveries(spaceID: space); migrated = try model.store.memoryWasMigrated(space)
+            readFrom = try model.store.memoriesRead(by: space).map { ($0.space.name, $0.read.understanding, try model.store.lentMemoryEntries($0.space.id)) }
+            readBy = try model.store.memoriesReading(space).map(\.name)
+        }
+    }
+    /// What agents here may read from other workspaces, read-only, and who reads this one. Links are made on the island.
+    private var readsCard: some View {
+        card("Read from other workspaces", hint: "Agents here may read these, never change them. Rules and moves stay home. To link one, right-click this workspace's planet on the island and choose Read another memory, or hold ⌥ and drag another planet onto it.") {
+            ForEach(readFrom, id: \.name) { source in
+                DisclosureGroup {
+                    ForEach(source.entries.prefix(30)) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(entry.subject).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.muted).frame(width: 120, alignment: .leading)
+                            Text(entry.text).font(.system(size: 13)).lineLimit(2)
+                            Spacer()
+                            Text(entry.shelf.title).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                        }.padding(.vertical, 3)
+                    }
+                    if source.entries.count > 30 { empty("\(source.entries.count - 30) more") }
+                } label: {
+                    Text("From \(source.name)").font(.system(size: 13, weight: .medium))
+                    + Text(" · \(source.entries.count) \(source.entries.count == 1 ? "entry" : "entries")\(source.understanding ? " and understanding" : "")").font(.system(size: 12)).foregroundStyle(Palette.muted)
+                }
+            }
+            if !readBy.isEmpty { empty("Read by " + readBy.formatted(.list(type: .and)) + ".") }
         }
     }
     private func empty(_ text: String) -> some View { Text(text).font(.system(size: 12)).foregroundStyle(Palette.muted).padding(.vertical, 3) }

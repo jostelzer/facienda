@@ -18,7 +18,7 @@ enum ForceField {
 
     /// Where every planet comes to rest. `gap` is the space always kept between two planets, `lean` how much further out
     /// they already start to give way. A planet in `held` stays at its home whatever is near.
-    static func settle(_ bodies: [String: Body], held: String?, in bounds: CGRect, gap: CGFloat = 6, lean: CGFloat = 26) -> [String: CGPoint] {
+    static func settle(_ bodies: [String: Body], held: String?, in bounds: CGRect, gap: CGFloat = 3, lean: CGFloat = 13) -> [String: CGPoint] {
         let ids = bodies.keys.sorted()
         guard ids.count > 1 else { return bodies.mapValues { inside($0.home, $0.radius, bounds) } }
         var at = bodies.mapValues { inside($0.home, $0.radius, bounds) }

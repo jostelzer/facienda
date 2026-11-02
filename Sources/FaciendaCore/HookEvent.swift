@@ -75,6 +75,8 @@ public struct ClaudeHookEvent: Codable, Sendable {
 
     public func apply(to store: FaciendaStore) throws {
         guard let status, let session = try store.claudeSession(cliSessionId: session_id) else { return }
+        // Before the guard below: writing into a turn that already runs carries the work on too.
+        if hook_event_name == "UserPromptSubmit" { try store.setAsideCompletionInChat(session.taskId) }
         let current = try store.threadLink(threadId: session.threadId)?.lastKnownStatus
         switch status {
         case "waitingOnApproval": break

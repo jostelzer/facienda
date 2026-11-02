@@ -80,3 +80,36 @@ private func conversation(_ id: String, _ texts: [(String, String)]) throws -> J
     // Only recent turns are read, never a whole history.
     #expect(try await bridge.request("fixture/threadReads")["ids"].array?.isEmpty == true)
 }
+
+@Test func indexerKeepsOldAndNewMessagesAcrossSummaryPagesAndPreservesItsIndexOnFailure() async throws {
+    let bridge = CodexBridge()
+    try await bridge.connect(executable: "/usr/bin/python3", arguments: [try fixture()])
+    let index = try ChatIndex(url: FileManager.default.temporaryDirectory.appending(path: "FaciendaIndexerTests/\(UUID().uuidString)/ChatIndex.sqlite"))
+    let turns = (1...45).map { number -> JSONValue in
+        .object(["id": .string("turn-\(number)"), "status": .string("completed"), "items": .array([
+            .object(["id": .string("user"), "type": .string("userMessage"), "content": .array([
+                .object(["type": .string("text"), "text": .string(number == 1 ? "Earliest oak decision" : "Newest lamp \(number)")])
+            ])])
+        ])])
+    }
+    _ = try await bridge.request("fixture/setThreadList", params: .object(["pages": .object([
+        "": .object(["data": .array([chat("long", "Long chat", updatedAt: 100)]), "nextCursor": .null])
+    ])]))
+    let response: JSONValue = .object(["thread": .object(["id": .string("long"), "turns": .array(turns)])])
+    _ = try await bridge.request("fixture/setThread", params: .object(["threadId": .string("long"), "response": response]))
+    let indexer = ChatIndexer(bridge: bridge, index: index)
+    _ = try await indexer.step()
+    #expect(try index.search("oak").map(\.threadId) == ["long"])
+    #expect(try index.search("lamp 45").map(\.threadId) == ["long"])
+    let requests = try await bridge.request("fixture/threadReads")["requests"].array ?? []
+    #expect(requests.filter { $0["method"].string == "thread/turns/list" }.count == 3)
+    #expect(requests.filter { $0["method"].string == "thread/read" }.allSatisfy { $0["includeTurns"].bool == false })
+
+    // A broken cursor must fail the read, rather than replace the index with only its first page.
+    _ = try await bridge.request("fixture/setThread", params: .object(["threadId": .string("long"), "response": response, "repeatCursor": .bool(true)]))
+    try index.record([ChatListing(threadId: "long", title: "Long chat", cwd: "/tmp", updatedAt: 200)])
+    _ = try await indexer.step()
+    #expect(try index.search("oak").map(\.threadId) == ["long"])
+    #expect(try index.pending(limit: 1).map(\.threadId) == ["long"])
+    await bridge.disconnect()
+}

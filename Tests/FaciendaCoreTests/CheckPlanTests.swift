@@ -49,6 +49,23 @@ private func deliver(_ store: FaciendaStore, _ plan: CheckPlan) throws -> Native
     try store.acknowledgeDispatch(item.id, runnerId: "runner", threadId: "owner")
 }
 
+@Test(arguments: ["unchanged", "changed", "failed"])
+func checkShutdownOnlyMarksActionableResultsAsNew(outcome: String) throws {
+    let (store, task, plan) = try monitoredTask()
+    try store.markSeen([task.id: Date()])
+    let read = try store.readMarks()[task.id]
+    let item = try deliver(store, plan)
+    try store.observe(threadId: "owner", status: "active", source: .hook, verified: true)
+    _ = try store.reportCheck(taskId: task.id, dispatchId: item.id, expectedRevision: plan.revision, outcome: outcome, summary: "Fixture observation", nextCheck: nil, reason: "")
+    // report_check's own PostToolUse reactivates the chat before Stop arrives.
+    _ = try HookEvent(session_id: "owner", hook_event_name: "PostToolUse", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    _ = try HookEvent(session_id: "owner", hook_event_name: "Stop", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    let changed = outcome == "changed"
+    #expect(try store.task(task.id).state == (changed ? .needsMe : .waiting))
+    #expect(try store.readMarks()[task.id]?.isNew == changed)
+    if !changed { #expect(try store.readMarks()[task.id] == read) }
+}
+
 @Test func userChangesPauseAndClosureWinOverLateAgentReports() throws {
     let (store, task, plan) = try monitoredTask()
     let item = try deliver(store, plan)
@@ -78,12 +95,16 @@ private func deliver(_ store: FaciendaStore, _ plan: CheckPlan) throws -> Native
 
 @Test func repeatedFailuresBackOffAndEscalateInsteadOfPollingForever() throws {
     let (store, task, first) = try monitoredTask()
+    try store.markSeen([task.id: Date()])
     var plan = first
     for attempt in 1...3 {
         let item = try deliver(store, plan)
         let now = plan.nextCheck
         plan = try store.reportCheck(taskId: task.id, dispatchId: item.id, expectedRevision: plan.revision, outcome: "failed", summary: "Mail unavailable", nextCheck: now.addingTimeInterval(1), reason: "Retry later", now: now)
+        _ = try HookEvent(session_id: "owner", hook_event_name: "PostToolUse", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+        _ = try HookEvent(session_id: "owner", hook_event_name: "Stop", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
         #expect(plan.failures == attempt)
+        #expect(try store.readMarks()[task.id]?.isNew == (attempt == 3))
         if attempt < 3 { #expect(plan.nextCheck >= now.addingTimeInterval(first.minimumInterval * pow(2, Double(attempt)))) }
     }
     #expect(plan.paused)

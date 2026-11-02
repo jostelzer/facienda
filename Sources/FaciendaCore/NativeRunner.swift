@@ -41,6 +41,11 @@ public struct NativeRunnerState: Codable, FetchableRecord, Equatable, Sendable {
     public var unreportedSeenAt: Date?
     /// Facienda's own dispatcher, rather than a runner that lives in Codex.
     public var isDispatcher: Bool { threadId == FaciendaStore.codexDispatcherId }
+    /// Reached Codex lately. The dispatcher checks in only while it is connected, so the same window as the Claude
+    /// runner's says whether a task started now would reach Codex or only sit in the queue.
+    public func isAwake(at now: Date = Date()) -> Bool {
+        (lastSeen ?? .distantPast) > now.addingTimeInterval(-ClaudeRunnerState.awakeWindow)
+    }
 }
 
 /// Snapshot used to prepare a complete handoff before recording delivery intent.
@@ -70,12 +75,12 @@ extension FaciendaStore {
             guard var task = try FaciendaTask.fetchOne(db, key: taskId) else { throw StoreError.notFound }
             try TaskEvent(taskId: taskId, source: .mcp, kind: "codex.result", payload: text, verified: false).insert(db)
             if task.state == .running, try !Self.claudeTurnRuns(db, taskId: taskId) {
-                task.state = .needsMe; task.revision += 1; task.updatedAt = Date()
+                task.state = try stateAfterTurn(db, taskId: taskId); task.revision += 1; task.updatedAt = Date()
                 try task.update(db)
                 try settleWaits(db, now: Date())
             }
         }
-        // The documents the answer links to are offered to the task's group. The answer is saved whatever happens here.
+        // The documents the answer links to are offered to the task's workspace. The answer is saved whatever happens here.
         _ = try? proposeSources(fromAnswer: text, taskId: taskId)
     }
     public func runnerState() throws -> NativeRunnerState? {
@@ -113,7 +118,8 @@ extension FaciendaStore {
         try write { db in
             guard let runner = try NativeRunnerState.fetchOne(db, sql: "SELECT * FROM runnerState WHERE id = 1"), runner.threadId == runnerId else { throw StoreError.conflict }
             if let other = runner.leaseHolder, other != holder, (runner.leaseUntil ?? .distantPast) > now, !Self.holderIsGone(other) { return false }
-            try db.execute(sql: "UPDATE runnerState SET leaseHolder = ?, leaseUntil = ?, lastSeen = ? WHERE id = 1", arguments: [holder, now.addingTimeInterval(Self.runnerLease), now])
+            // Not lastSeen: holding the queue says nothing about reaching Codex. The run checks in once it has.
+            try db.execute(sql: "UPDATE runnerState SET leaseHolder = ?, leaseUntil = ? WHERE id = 1", arguments: [holder, now.addingTimeInterval(Self.runnerLease)])
             return true
         }
     }
@@ -247,6 +253,8 @@ extension FaciendaStore {
             let item = NativeDispatch(id: UUID().uuidString, taskId: taskId, state: "queued", requestedAt: Date(), threadId: previous, triggerKey: triggerKey, kind: message == nil ? "start" : "reply", message: message)
             try item.insert(db)
             if let message { try TaskEvent(taskId: taskId, source: source, kind: source == .user ? (userAuthored ? "user.reply" : "suggestion.used") : "wait.message", payload: message).insert(db) }
+            // A message from the user carries the work on, so the agent's proposal to close the task no longer stands.
+            if message != nil, source == .user { try setAsideCompletion(db, taskId: taskId, source: source, now: Date()) }
             try TaskEvent(taskId: taskId, source: source, kind: "dispatch.queued", payload: item.id).insert(db)
             try reconcileBlockers(db, now: Date())
             try arrangeBlockerCheck(db, taskId: taskId, threadId: nil, reset: false, now: Date())

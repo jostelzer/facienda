@@ -100,6 +100,41 @@ import GRDB
     #expect(try store.db.read { try String.fetchAll($0, sql: "SELECT id FROM memoryUtterances") } == ["b"])
 }
 
+@Test func codexMemoryKeepsOnlyWhatThePersonTyped() throws {
+    func codex(_ id: String, _ text: String) -> String {
+        JSONValue.object(["type": .string("response_item"), "payload": .object([
+            "type": .string("message"), "id": .string(id), "role": .string("user"),
+            "content": .array([.object(["type": .string("input_text"), "text": .string(text)])]),
+            "internal_chat_message_metadata_passthrough": .object(["turn_id": .string("turn"), "create_time": .number(100), "content_item_kinds": .array([.string("user.text")])])])]).json
+    }
+    let browser = "<in-app-browser-context source=\"ambient-ui-state\">\nThis block is automatically supplied ambient UI state.\n# In app browser:\n- Current URL: file:///invented/gallery.html\n</in-app-browser-context>"
+    let files = "# Files mentioned by the user:\n\n## tiles.jpg: /invented/tiles.jpg\nImage attachment: true\n\n"
+    let lines = [codex("browser", "\n\(browser)\n\n## My request:\nUse the oak floor\n"),
+                 codex("files", "\(files)\(browser)\n\n## My request:\nTry these three\n\n<image name=[Image #1] path=\"/invented/tiles.jpg\">\n</image>\n"),
+                 codex("context only", browser), codex("plain", "Show me the changes")]
+    #expect(MemoryUserMessages.codex(Data(lines.joined(separator: "\n").utf8)).map(\.text) == ["Use the oak floor", "Try these three", "Show me the changes"])
+
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "MemoryCodexWrapper/\(UUID().uuidString)/test.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Prepare the studio")), space = try store.memorySpace(forTask: task.id).id
+    try store.db.write { db in
+        for (id, text, stage) in [("wrapped", "\n\(browser)\n\n## My request:\nstatus", "offered"), ("kept", "Show me the changes", "offered"),
+                                  ("accepted", "\(browser)\n\n## My request:\nShow the preview", "accepted")] {
+            try MemoryMove(id: id, spaceId: space, situationId: "build", text: text, stage: .init(rawValue: stage)!, isYourStep: false, seen: 3, offered: 0, used: 0,
+                           ignored: 0, embedding: Data([1]), createdAt: Date(), updatedAt: Date()).insert(db)
+        }
+        for (id, text, move) in [("a", "\n\(browser)\n\n## My request:\nstatus", "wrapped"), ("b", "status", "wrapped"), ("c", browser, "kept"), ("d", "Show me the changes", "kept")] {
+            try db.execute(sql: "INSERT INTO memoryUtterances (id, spaceId, text, source, sourceKind, at, priorResult, moveId) VALUES (?, ?, ?, 'fixture', 'codexUser', ?, 'Done', ?)",
+                           arguments: [id, space, text, Date(), move])
+        }
+        try FaciendaStore.relearnWrappedCodexMoves(db)
+    }
+    #expect(try store.memoryMoves(spaceID: space).map(\.id).sorted() == ["accepted"])
+    #expect(try store.memoryMoves(spaceID: space).first?.text == "Show the preview")
+    let utterances = try store.db.read { try MemoryUtterance.fetchAll($0, sql: "SELECT * FROM memoryUtterances ORDER BY id") }
+    #expect(utterances.map(\.text) == ["status", "status", "Show me the changes"])
+    #expect(utterances.allSatisfy { $0.moveId == nil })
+}
+
 @Test func storedMemoryRedactionPreviewsCountsAndOnlyChangesItsWorkspace() throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "MemoryCleanup/\(UUID().uuidString)/test.sqlite"))
     let first = try store.defaultWorkspace(), other = try store.createWorkspace(name: "Other studio")

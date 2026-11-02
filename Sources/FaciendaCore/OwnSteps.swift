@@ -28,6 +28,47 @@ extension FaciendaStore {
         try TaskEvent(taskId: taskId, source: .user, kind: "decision.superseded", payload: pending.map(\.question).joined(separator: "\n"), at: now).insert(db)
     }
 
+    /// Closes the agent's proposal to mark the task done because the user wrote again, so the work goes on.
+    /// Its other asks stay open. If the work is finished after all, the agent proposes again.
+    func setAsideCompletion(_ db: Database, taskId: String, source: EventSource, now: Date) throws {
+        let proposals = try Decision.fetchAll(db, sql: "SELECT * FROM decisions WHERE taskId = ? AND kind = 'completion' AND state = 'pending'", arguments: [taskId])
+        guard !proposals.isEmpty else { return }
+        try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE taskId = ? AND kind = 'completion' AND state = 'pending'", arguments: [now, taskId])
+        try TaskEvent(taskId: taskId, source: source, kind: "decision.superseded", payload: proposals.map(\.question).joined(separator: "\n"), at: now).insert(db)
+    }
+
+    /// The user wrote in the task's chat themselves, in Codex or Claude, so the agent's proposal to close the task no
+    /// longer stands. Facienda's own deliveries into the chat do not count.
+    public func setAsideCompletionInChat(_ taskId: String, now: Date = Date()) throws {
+        try write { db in
+            guard try !Self.delivering(db, taskId: taskId) else { return }
+            try setAsideCompletion(db, taskId: taskId, source: .hook, now: now)
+        }
+    }
+
+    /// Proposals to close that the user had already written past before replies put them aside. They kept showing
+    /// "Ready to close" over later work, so they are closed once, as a reply closes them now.
+    static func setAsideOvertakenCompletions(_ db: Database, now: Date) throws {
+        let overtaken = try Decision.fetchAll(db, sql: """
+            SELECT * FROM decisions d WHERE d.kind = 'completion' AND d.state = 'pending' AND EXISTS (
+              SELECT 1 FROM events e WHERE e.taskId = d.taskId AND e.at > d.createdAt
+              AND e.kind IN ('user.reply', 'suggestion.used', 'hook.UserPromptSubmit', 'hook.claude.UserPromptSubmit'))
+            """)
+        for proposal in overtaken {
+            try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE id = ?", arguments: [now, proposal.id])
+            try TaskEvent(taskId: proposal.taskId, source: .app, kind: "decision.superseded", payload: proposal.question, at: now).insert(db)
+        }
+    }
+
+    static func registerOvertakenCompletions(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("overtaken_completions") { db in try setAsideOvertakenCompletions(db, now: Date()) }
+    }
+
+    /// Whether Facienda is handing the task's chat a message right now.
+    static func delivering(_ db: Database, taskId: String) throws -> Bool {
+        try Int.fetchOne(db, sql: "SELECT count(*) FROM dispatches WHERE taskId = ? AND state IN ('claimed', 'dispatching')", arguments: [taskId]) ?? 0 > 0
+    }
+
     /// The user takes the next step on. Without a time nothing reminds them; with one, the task is parked
     /// until then and comes back once, with the step as what to do.
     @discardableResult public func takeOn(_ taskId: String, step: String, remindAt: Date? = nil, now: Date = Date()) throws -> OwnStep {
@@ -60,15 +101,18 @@ extension FaciendaStore {
         return saved
     }
 
-    /// The user wrote in the task's chat themselves, so they are carrying on: their step is done and any pause ends,
-    /// leaving ordinary work that runs until it comes back. Facienda's own deliveries into the chat do not count.
+    /// The user wrote in the task's chat themselves, so they are carrying on: their step is done, any pause ends and
+    /// the agent's proposal to close the task no longer stands, leaving ordinary work that runs until it comes back.
+    /// Facienda's own deliveries into the chat do not count.
     public func carryOnInChat(_ taskId: String, now: Date = Date()) throws {
         let (step, waiting, delivering) = try db.read { db in
             (try OwnStep.fetchOne(db, key: taskId),
              try TaskWait.fetchOne(db, key: taskId)?.isActive == true,
-             try Int.fetchOne(db, sql: "SELECT count(*) FROM dispatches WHERE taskId = ? AND state IN ('claimed', 'dispatching')", arguments: [taskId]) ?? 0 > 0)
+             try Self.delivering(db, taskId: taskId))
         }
-        guard !delivering, step != nil || waiting else { return }
+        guard !delivering else { return }
+        try setAsideCompletionInChat(taskId, now: now)
+        guard step != nil || waiting else { return }
         if waiting { try wake(taskId, now: now) }
         guard step != nil else { return }
         try write { db in

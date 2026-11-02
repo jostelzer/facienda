@@ -73,6 +73,12 @@ extension FaciendaStore {
         for entry in try findMemoryEntries(query, spaceID: space.id, limit: 3) where entry.shelf != .rules {
             lines.append("\(entry.id): \(entry.subject) — \(entry.text.prefix(90).replacingOccurrences(of: "\n", with: " "))")
         }
+        if let reads = try memoryReadsSummary(spaceID: space.id) {
+            lines.append("Also reads, read-only: \(reads). memory_find and memory_open include them; their rules don't apply here.")
+            for linked in try linkedMemoryEntries(query, spaceID: space.id, limit: 1) where !query.isEmpty {
+                lines.append("\(linked.entry.id): \(linked.entry.subject) — \(linked.entry.text.prefix(80).replacingOccurrences(of: "\n", with: " ")) (from \(linked.from))")
+            }
+        }
         lines.append("More past work: task_search in this workspace. About you: \(entries.filter { $0.spaceId == nil }.count) shared entries.")
         // Bound discovery, including large names. The rules remain complete in their separate block.
         var index = ""

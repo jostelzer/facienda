@@ -15,6 +15,6 @@
 	<key>KeepAlive</key>
 	<true/>
 	<key>ProcessType</key>
-	<string>Background</string>
+	<string>Standard</string>
 </dict>
 </plist>

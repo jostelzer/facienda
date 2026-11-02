@@ -47,14 +47,13 @@ private func library() throws -> FaciendaStore {
     let sheet = "https://docs.google.com/spreadsheets/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcdEF/edit"
     let forAll = try store.linkWorkspaceSource(sheet, title: "Household budget")
     try store.setSourceAbout(forAll.id, "Monthly totals; read before quoting a price.")
-    try store.linkSource("https://example.com/menu", title: "The menu", groupId: group.id)
-    #expect(try store.workspaceSources().map(\.title) == ["Household budget"])
-    #expect(try store.groupSources()[group.id]?.map(\.title) == ["The menu"])
+    try store.linkWorkspaceSource("https://example.com/menu", title: "The menu")
+    #expect(try store.workspaceSources().map(\.title) == ["Household budget", "The menu"])
     #expect(try store.linkedSources(forTask: task.id).map(\.title) == ["Household budget", "The menu"])
     let prompt = try await DispatchPrompt.payload(try store.enqueueDispatch(taskId: task.id), store: db, base: "facienda-mcp")["workerPrompt"].string ?? ""
     #expect(prompt.contains("- Household budget: Sheet. \(sheet) — Monthly totals; read before quoting a price."))
     #expect(prompt.contains("- The menu: Link. https://example.com/menu\n"))
-    // The same address can be a workspace source and a group source; another workspace never sees it.
+    // Another workspace never sees it, and can link the same address itself.
     let work = try db.createWorkspace(name: "Work")
     #expect(try db.scoped(to: work.id).workspaceSources().isEmpty)
     #expect(try db.linkWorkspaceSource(sheet, workspaceID: work.id).workspaceId == work.id)

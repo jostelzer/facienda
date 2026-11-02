@@ -57,6 +57,7 @@ struct RunnersPane: View {
     @State private var guide: RunnerKind?
     /// The Claude app's record of the runner session, for the model it is set to.
     @State private var runnerSession: ClaudeDesktop.Session?
+    @State private var runnerAlarm: FaciendaStore.ClaudeRunnerAlarm = .missing
     /// Sample data has no Claude app behind it.
     private var runnerSessionId: String? { model.demo ? nil : model.claudeRunner?.sessionId }
 
@@ -73,6 +74,7 @@ struct RunnersPane: View {
             guard let id = runnerSessionId else { runnerSession = nil; return }
             while !Task.isCancelled {
                 runnerSession = await Task.detached { ClaudeDesktop.session(id: id) }.value
+                runnerAlarm = (try? model.store.claudeRunnerAlarm(id)) ?? .missing
                 try? await Task.sleep(for: .seconds(15))
             }
         }
@@ -89,7 +91,10 @@ struct RunnersPane: View {
                 codexCard
                 claudeCard
             }
-            if model.claudeInstalled { ClaudeAccessStatus(model: model).settingsCard() }
+            if model.claudeInstalled {
+                ClaudeAccessStatus(model: model).settingsCard()
+                ClaudeSidebarGroupSetting(model: model).settingsCard()
+            }
             VStack(alignment: .leading, spacing: 10) {
                 Eyebrow(text: "FOLDERS")
                 ClaudeRunnerFolderSetting(model: model)
@@ -127,6 +132,15 @@ struct RunnersPane: View {
         }
     }
 
+    /// Claude's own reason the runner's last turn failed, such as a usage limit, and whether its alarm will wake it.
+    private func stopReason(_ session: String, awake: Bool) -> String? {
+        guard let record = runnerSession, record.id == session, let error = record.error,
+              (record.errorAt ?? .distantPast) > Date().addingTimeInterval(-86_400) else { return nil }
+        let reason = "Claude stopped the runner: “\(error)”."
+        if case .set = runnerAlarm { return reason + " Its hourly alarm wakes it again once that passes." }
+        return reason + (awake ? "" : " Wake it once that passes.")
+    }
+
     private var codexCard: some View {
         card(.codex, status: RunnerStatus.codex(model)) {
             detail("Facienda hands each task, reply and due check to Codex as soon as it is queued. Task chats open in \(model.store.nativeProjectName).")
@@ -134,7 +148,7 @@ struct RunnersPane: View {
                 Text("This library still uses a runner inside Codex that checks every minute. Reconnect to replace it.")
                     .font(.system(size: 11)).foregroundStyle(Palette.accent).fixedSize(horizontal: false, vertical: true)
             } else if model.workspaceReady, let runner = model.nativeRunner {
-                detail(runner.lastSeen.map { "Last looked for work \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting for the first look at the queue.")
+                detail(runner.lastSeen.map { "Last reached Codex \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting to reach Codex for the first time.")
             }
             DispatcherApprovalNote()
             HStack(spacing: 8) {
@@ -156,7 +170,12 @@ struct RunnersPane: View {
             } else if let runner = model.claudeRunner, runner.isBound, let session = runner.sessionId {
                 let awake = runner.isAwake()
                 detail(runner.lastSeen.map { "Last seen \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting for the runner’s first check.")
-                detail(awake ? "New task sessions start on their own." : "Claude was closed, so the runner stopped. New Claude tasks wait here and start on their own once it wakes.")
+                if let stopped = stopReason(session, awake: awake) {
+                    Label(stopped, systemImage: "exclamationmark.circle")
+                        .font(.system(size: 11)).foregroundStyle(Palette.accent).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    detail(awake ? "New task sessions start on their own." : "Claude was closed, so the runner stopped. New Claude tasks wait here and start on their own once it wakes.")
+                }
                 if let current = runnerSession?.model, runnerSession?.id == session { runnerModel(current, effort: runnerSession?.effort) }
                 HStack(spacing: 8) {
                     if !awake {

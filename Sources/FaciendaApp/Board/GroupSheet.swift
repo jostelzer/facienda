@@ -263,20 +263,28 @@ private struct GroupSheetContent: View {
         .onChange(of: model.dictationRequest) { focused = true; omnibar.toggleDictation() }
     }
 
-    /// The new group's name, where a group's name sits on its cover. Return goes on to its first task.
+    /// The new group's name, where a group's name sits on its cover. With no task written, Return makes the group as it is;
+    /// Tab, or Return once a task is written, goes on to the first task.
     private var nameField: some View {
         VStack(alignment: .leading, spacing: 4) {
             Spacer(minLength: 0)
             TextField("", text: $omnibar.newGroupName, prompt: Text("Name the group").foregroundStyle(.white.opacity(0.72)))
                 .textFieldStyle(.plain).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
                 .focused($naming)
-                .onSubmit { focused = true }
+                .onSubmit { if !omnibar.submitGroupName() { focused = true } }
+                .onKeyPress(.tab) { focused = true; return .handled }
                 .padding(.bottom, 3)
                 .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(naming ? 0.7 : 0.45)).frame(height: 1) }
                 .accessibilityLabel("Name of the new group")
-            Text("Or leave it to Facienda").font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+            Text(nameHint).font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
         }
         .padding(.horizontal, 16).padding(.bottom, 16)
+    }
+
+    /// Under the name: unnamed, Facienda names it from its first task; named with no task yet, Return already makes it.
+    private var nameHint: String {
+        if omnibar.newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Or leave it to Facienda" }
+        return omnibar.makesGroupOnly ? "↵ makes it · ⇥ adds a first task" : "↵ goes on to its first task"
     }
 
     private var side: some View {
@@ -327,7 +335,7 @@ private struct GroupSheetContent: View {
                     if isNew && omnibar.makesGroupOnly {
                         Button { omnibar.submit() } label: { SheetButton.label("Make group", key: "↵") }
                             .buttonStyle(SheetButton(prominent: true)).disabled(!omnibar.canMakeGroup)
-                            .help("Make the group without a task yet (↵)")
+                            .help(omnibar.canMakeGroup ? "Make the group without a task yet (↵)" : "Name the group to make it without a task")
                     } else {
                         Button { omnibar.submit() } label: { SheetButton.label("Start", key: "↵") }
                             .buttonStyle(SheetButton(prominent: true)).disabled(!omnibar.canStart)
@@ -370,6 +378,7 @@ private struct GroupSheetContent: View {
     private var placeholder: String {
         switch omnibar.dictation.phase {
         case .downloading: return "Downloading the speech model… \(Int(omnibar.dictation.progress * 100))%"
+        case .settingUp: return "Setting up the speech model, once. Listening starts in a minute or two…"
         case .listening where !omnibar.dictation.modelReady: return "Loading the speech model, words follow…"
         case .listening where omnibar.dictation.showsVoice: return ""
         case .preparing, .listening: return "Listening…"

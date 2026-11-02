@@ -183,6 +183,8 @@ extension FaciendaStore {
             let target = try Self.availableWorkspace(db, targetID)
             guard group.workspaceId != target.id else { return }
             group.workspaceId = target.id; group.lane = nil; group.row = nil
+            // The folders it chose were the old workspace's; it works where the new one does.
+            try db.execute(sql: "DELETE FROM groupFolders WHERE groupId = ?", arguments: [groupID])
             group.position = try Self.nextPosition(db, in: "taskGroups", workspaceID: target.id)
             try group.update(db)
             let members = try String.fetchAll(db, sql: "SELECT taskId FROM taskGroupMembers WHERE groupId = ?", arguments: [groupID])

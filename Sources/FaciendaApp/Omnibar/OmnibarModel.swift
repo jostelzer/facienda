@@ -494,11 +494,10 @@ import FaciendaBridge
         finding = true
         Task {
             let answer = await model.findEarlierTask(text)
-            finding = false
             // Typing on while it looked makes the answer stale.
-            guard trimmed == text else { return }
-            if let answer, answer.intent == .new { start(); return }
-            guard let task = answer?.task ?? localPick(text) else { start(); return }
+            guard trimmed == text else { finding = false; return }
+            guard answer?.intent != .new, let task = answer?.task ?? localPick(text) else { await offerChatOrStart(text); return }
+            finding = false
             // Even a sure answer waits for one more Enter: a model chose the task and wrote what goes to it.
             offered = (task, answer?.message ?? "", text)
             dismissed = false
@@ -506,6 +505,46 @@ import FaciendaBridge
             highlighted = "task:" + task.id
         }
     }
+
+    /// No task holds what the text asks for. Earlier work often lives only in a Codex chat, so a chat whose title shares the
+    /// text's telling words is offered first, for one more Return; with none, the text starts as a task whose agent
+    /// looks further.
+    private func offerChatOrStart(_ text: String) async {
+        let found = await earlierChats(text)
+        finding = false
+        guard trimmed == text else { return }
+        guard let best = found.first else { start(); return }
+        chats = found + chats.filter { chat in !found.contains { $0.threadId == chat.threadId } }
+        chatsQuery = text
+        dismissed = false
+        rebuild(text, hits: lastHits, picking: false)
+        highlighted = "chat:" + best.threadId
+    }
+
+    /// Codex chats in any folder whose titles share the text's telling words, best first. A rare word counts for more
+    /// than a common one: "juice" names a few chats, "lines" dozens. Words that only say it is a search, such as "find"
+    /// or "task", do not count.
+    private func earlierChats(_ text: String) async -> [ChatResult] {
+        guard model.connected, !model.demo else { return [] }
+        let words = TaskLookup.terms(text).filter { $0.count >= 3 && !Self.searchWords.contains($0) }.sorted { $0.count > $1.count }.prefix(4)
+        var chats: [String: ChatResult] = [:], weight: [String: Double] = [:], score: [String: Double] = [:]
+        for word in words {
+            guard let page = try? await model.bridge.listThreads(search: word) else { continue }
+            let titled = page.data.filter { $0.title.lowercased().contains(word) }
+            guard !titled.isEmpty else { continue }
+            weight[word] = 1 / Double(titled.count)
+            for thread in titled.prefix(20) where linkedTask(thread.id) == nil {
+                chats[thread.id] = ChatResult(threadId: thread.id, title: thread.title, cwd: thread.cwd, updatedAt: Date(timeIntervalSince1970: thread.updatedAt))
+            }
+        }
+        for (id, chat) in chats {
+            let title = chat.title.lowercased()
+            score[id] = weight.filter { title.contains($0.key) }.values.reduce(0, +)
+        }
+        return chats.values.sorted { (score[$0.threadId] ?? 0, $0.updatedAt) > (score[$1.threadId] ?? 0, $1.updatedAt) }.prefix(3).map { $0 }
+    }
+    static let searchWords: Set<String> = ["codex", "claude", "chat", "chats", "task", "tasks", "thread", "find", "where", "earlier",
+                                           "before", "ago", "while", "had", "was", "were", "about", "fixing", "fix", "work", "worked"]
 
     /// Without the model: the best task matching every word that counts, if the words found one.
     private func localPick(_ text: String) -> FaciendaTask? {
@@ -691,6 +730,7 @@ import FaciendaBridge
         let taken = Launch(typed: trimmed, request: request, files: attachments, choice: model.composerModel, group: model.omnibarGroup,
                            reveal: model.destination != .dashboard)
         launching += taken.files
+        workspaces?.feed.placing += 1
         finish()
         return taken
     }
@@ -719,6 +759,8 @@ import FaciendaBridge
         defer {
             launching.removeAll { taken.files.contains($0) }
             Self.discardPasted(taken.files)
+            workspaces?.feed.placing -= 1
+            workspaces?.feed.load()
         }
         let elsewhere = place.map { $0.workspaceID != model.workspaceID } ?? false
         let home = elsewhere ? place.flatMap { workspaces?.model(for: $0.workspaceID) } ?? model : model
@@ -740,7 +782,7 @@ import FaciendaBridge
     /// A group's sheet's task, made right in that group, or a pasted chat link added as a task.
     private func start(in groupID: String?) {
         guard canStart else { return }
-        if let threadId = Self.codexThreadID(trimmed) { addChat(threadId, in: groupID); return }
+        if let threadId = Self.codexThreadID(trimmed) { addChat(threadId, message: Self.codexMessage(trimmed), in: groupID); return }
         if let sessionId = ClaudeDesktop.sessionID(inLink: trimmed) { addClaudeSession(sessionId, in: groupID); return }
         let request = request
         submitting = true
@@ -775,15 +817,27 @@ import FaciendaBridge
         start(in: group.id)
     }
 
+    /// Return on the new group's name. With a name and no task written, the group is made right there, so a group never
+    /// needs a task. Otherwise it reports false and the caret goes on to the first task.
+    @discardableResult func submitGroupName() -> Bool {
+        guard canMakeGroup else { return false }
+        startInNewGroup()
+        return true
+    }
+
     /// A pasted Codex link becomes a task that tracks that chat, in the lit group if there is one. You stay where you are.
-    private func addChat(_ threadId: String, in groupID: String?) {
+    /// Words written with the link go to that chat as your reply, so the work goes on there.
+    private func addChat(_ threadId: String, message: String? = nil, in groupID: String?) {
         submitting = true
         Task {
             defer { submitting = false }
-            if await model.importThread(CodexThread(id: threadId, title: "", cwd: "", updatedAt: Date()), groupID: groupID, reveal: false) {
-                record(BarReading(.trackChat), by: .rule, taskID: nil)
-                finish(); confirm("Chat added as a task")
-            }
+            guard await model.importThread(CodexThread(id: threadId, title: "", cwd: "", updatedAt: Date()), groupID: groupID, reveal: false) else { return }
+            let task = model.owner(ofChat: threadId)
+            record(BarReading(.trackChat), by: .rule, taskID: task?.id)
+            guard let message else { finish(); confirm("Chat added as a task"); return }
+            // The chat is tracked either way; if the reply can't go yet, the words stay in the bar.
+            guard let task, model.reply(to: task, text: message, reveal: false) else { return }
+            finish(); confirm("Sent to the chat")
         }
     }
 
@@ -799,13 +853,10 @@ import FaciendaBridge
         }
     }
 
-    /// The chat a Codex deep link such as `codex://threads/<id>` points to, when the text is only that link.
-    static func codexThreadID(_ text: String) -> String? {
-        guard !text.contains(where: \.isWhitespace), let url = URL(string: text), url.scheme?.lowercased() == "codex",
-              ["threads", "thread"].contains(url.host()?.lowercased()) else { return nil }
-        let id = url.path(percentEncoded: false).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return id.isEmpty || id.contains("/") ? nil : id
-    }
+    /// The chat a Codex link in the text points to, when it names exactly one.
+    static func codexThreadID(_ text: String) -> String? { CodexChatLink.threadID(in: text) }
+    /// What to send on to that chat, if the words say more than "this chat".
+    static func codexMessage(_ text: String) -> String? { CodexChatLink.message(in: text) }
 
     func remember(_ text: String) {
         model.perform {

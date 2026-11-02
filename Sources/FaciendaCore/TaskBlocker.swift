@@ -203,23 +203,34 @@ extension FaciendaStore {
     }
 
     /// Reuses one check plan per task: the owning chat evaluates all external blockers together.
-    func arrangeBlockerCheck(_ db: Database, taskId: String, threadId: String?, reset: Bool, now: Date) throws {
+    func arrangeBlockerCheck(_ db: Database, taskId: String, threadId: String?, reset: Bool, waitPlan: WaitPlan? = nil, now: Date) throws {
         let external = try Self.externalBlockers(db, taskId: taskId)
         guard !external.isEmpty else { return }
         let owner = try threadId ?? Self.workThreadID(db, taskId: taskId)
         if let owner {
-            if var plan = try CheckPlan.fetchOne(db, key: taskId) {
-                if reset {
-                    plan.revision += 1
-                    if plan.lastOutcome == "All conditions met" { plan.paused = false }
-                    if !plan.pinned && !plan.paused { plan.nextCheck = now }
-                    try plan.update(db)
-                    try Self.cancelQueuedChecks(db, taskId: taskId)
-                }
+            let existing = try CheckPlan.fetchOne(db, key: taskId)
+            var plan: CheckPlan
+            if let existing {
+                guard reset else { return }
+                plan = existing; plan.revision += 1
+                if plan.lastOutcome == "All conditions met" { plan.paused = false }
+                if !plan.pinned && !plan.paused { plan.nextCheck = now }
             } else {
-                let plan = CheckPlan(taskId: taskId, threadId: owner, revision: 1, nextCheck: now, purpose: "Check the saved external blockers", reason: "Observe each saved source and report whether its condition is met.", paused: false, pinned: false, minimumInterval: 3600, deadline: now.addingTimeInterval(30 * 86400), failures: 0, checks: 0)
-                try plan.insert(db)
+                plan = CheckPlan(taskId: taskId, threadId: owner, revision: 1, nextCheck: now, purpose: "Check the saved external blockers", reason: "Observe each saved source and report whether its condition is met.", paused: false, pinned: false, minimumInterval: 3600, deadline: now.addingTimeInterval(30 * 86400), failures: 0, checks: 0)
             }
+            let wait = try TaskWait.fetchOne(db, key: taskId).flatMap { $0.isActive ? $0 : nil }
+            if waitPlan != nil || existing == nil, let waiting = waitPlan ?? wait?.plan, waiting.hasObservedConditions {
+                if plan.paused && plan.lastOutcome != "All conditions met" { plan.paused = false; plan.failures = 0; plan.checks = 0 }
+                if let giveUpAt = waiting.giveUpAt { plan.deadline = giveUpAt }
+                else if plan.deadline <= now { plan.deadline = now.addingTimeInterval(30 * 86400) }
+                plan.minimumInterval = waiting.checkInterval
+                // A newly linked checking chat keeps the cadence measured from when the user parked the task.
+                let parkedAt = waitPlan == nil ? (wait?.createdAt ?? now) : now
+                if !plan.pinned { plan.nextCheck = min(plan.deadline, parkedAt.addingTimeInterval(plan.minimumInterval)) }
+                plan.reason = "Look about " + WaitPlan.cadenceLabel(plan.minimumInterval) + (waiting.giveUpAt.map { ", giving up " + $0.formatted(date: .abbreviated, time: .shortened) } ?? "") + "."
+            }
+            try plan.save(db)
+            try Self.cancelQueuedChecks(db, taskId: taskId)
         } else if try TaskReadiness.fetchOne(db, key: taskId)?.armed == true {
             try Self.queueAssessment(db, taskId: taskId, now: now)
         }

@@ -13,11 +13,20 @@ public enum MemoryUserMessages {
     /// What an agent app writes into the person's turn that they did not write: a slash command and its output,
     /// background notices, another session's message, and the JSON that carries an answer back to a question.
     private static let envelopes = ["<task-notification", "<system-reminder", "<local-command", "<command-name", "<command-message", "<command-args",
-                                    "<bash-", "<cross-session", "<send_user_message_question_reply"]
+                                    "<bash-", "<cross-session", "<send_user_message_question_reply", "<in-app-browser-context"]
 
     public static func isEnvelope(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return envelopes.contains { trimmed.hasPrefix($0) }
+    }
+
+    /// Codex's composer puts what the app adds ahead of what the person typed: the page open in its browser, attached
+    /// files, the text they pointed at. Their words follow the last "## My request:" line, with empty image tags after them.
+    static func typed(_ text: String) -> String {
+        let lines = text.components(separatedBy: "\n")
+        guard let header = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "## My request:" }) else { return text }
+        return lines[(header + 1)...].joined(separator: "\n").replacing(/<image\b[^>]*>\s*<\/image>/, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A question's answer comes back as JSON that holds the question too. Only the answer is the person's words.
@@ -48,7 +57,7 @@ public enum MemoryUserMessages {
                 guard kind.string == "user.text", block["type"].string == "input_text" else { return nil }
                 return block["text"].string
             }.joined(separator: "\n")
-            let said = answers(in: text) ?? text
+            let said = answers(in: text) ?? typed(text)
             guard !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isEnvelope(said) else { continue }
             messages.append(.init(id: id, turnID: turnID, text: said,
                                   at: Date(timeIntervalSince1970: metadata["create_time"].number ?? 0), precedingReply: precedingReply))
@@ -85,16 +94,19 @@ extension FaciendaStore {
               let link = try links().first(where: { $0.threadId == threadID && $0.provider == provider }) else { return }
         let space = try memorySpace(forTask: link.taskId).id
         let deliveries = try dispatches().filter { $0.taskId == link.taskId }.map(\.id)
-        for message in messages {
-            // Older deliveries have a user-role envelope. Their recorded dispatch identity identifies the machine
-            // source; the original user request and replies are captured separately from Facienda's events.
-            guard !deliveries.contains(where: { message.text.contains("Facienda dispatch: \($0)") }) else { continue }
-            try enqueueMemoryDocument(id: "thread-\(threadID)-turn-\(message.turnID)-item-\(message.id)", content: message.text,
-                                      source: "\(provider.name) thread \(threadID), turn \(message.turnID), message \(message.id)",
-                                      at: message.at, spaceID: space, sourceKind: provider == .codex ? .codexUser : .claudeUser, taskID: link.taskId)
-            try captureUtterance(id: "thread-\(threadID)-turn-\(message.turnID)-item-\(message.id)", text: message.text,
-                                 source: "\(provider.name) thread \(threadID), message \(message.id)", kind: provider == .codex ? .codexUser : .claudeUser,
-                                 taskID: link.taskId, spaceID: space, at: message.at, priorResult: message.precedingReply)
-        }
+        let kind: MemorySourceKind = provider == .codex ? .codexUser : .claudeUser
+        // Older deliveries have a user-role envelope. Their recorded dispatch identity identifies the machine
+        // source; the original user request and replies are captured separately from Facienda's events.
+        let kept = messages.filter { message in !deliveries.contains(where: { message.text.contains("Facienda dispatch: \($0)") }) }
+        // A whole transcript is read again each time it changes, so its messages share a few transactions.
+        try enqueueMemoryDocuments(kept.map { message in
+            PreparedMemoryDocument(id: "thread-\(threadID)-turn-\(message.turnID)-item-\(message.id)", content: message.text,
+                                   source: "\(provider.name) thread \(threadID), turn \(message.turnID), message \(message.id)",
+                                   at: message.at, spaceID: space, sourceKind: kind, taskID: link.taskId)
+        }, utterances: kept.compactMap { message in
+            PreparedUtterance(id: "thread-\(threadID)-turn-\(message.turnID)-item-\(message.id)", text: message.text,
+                              source: "\(provider.name) thread \(threadID), turn \(message.turnID), message \(message.id)", kind: kind,
+                              taskID: link.taskId, spaceID: space, at: message.at, priorResult: message.precedingReply)
+        })
     }
 }

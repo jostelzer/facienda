@@ -245,8 +245,10 @@ import FaciendaBridge
     try store.bindRunner(threadId: "runner", automationId: nil)
     let task = try store.create(FaciendaTask(title: "Hear back from the lawyer", state: .needsMe))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    try store.markSeen([task.id: Date()])
     try store.park(task.id, plan: WaitPlan(conditions: [.observed("Robin", source: "Mail", criterion: "A reply arrives")]))
-    try store.enqueueDueChecks(runnerId: "runner")
+    let plan = try #require(try store.checkPlan(task.id))
+    try store.enqueueDueChecks(runnerId: "runner", now: plan.nextCheck)
     let check = try #require(try store.claimDispatch(runnerId: "runner"))
     try store.deferDispatch(check.id, runnerId: "runner", reason: "The chat is busy.")
     let model = try AppModel(store: store)
@@ -258,6 +260,17 @@ import FaciendaBridge
     model.refresh()
     #expect(model.belongs(try store.task(task.id), to: .processing))
     #expect(model.taskStatus(try store.task(task.id)) == "Checking")
+    try store.observe(threadId: "owner", status: "active", source: .hook, verified: true)
+    let blocker = try #require(try store.blockers(taskId: task.id).first)
+    _ = try store.reportCheck(taskId: task.id, dispatchId: check.id, expectedRevision: plan.revision, outcome: "unchanged", summary: "No reply", nextCheck: nil, reason: "", blockerReports: [.init(blockerId: blocker.id, expectedRevision: blocker.revision, status: "notMet", evidence: "Fixture mail checked")])
+    for name in ["PostToolUse", "Stop"] {
+        let data = try JSONEncoder().encode(["session_id": "owner", "hook_event_name": name])
+        _ = try JSONDecoder().decode(HookEvent.self, from: data).apply(to: store)
+    }
+    model.refresh()
+    #expect(model.belongs(try store.task(task.id), to: .waiting))
+    #expect(!model.isUnread(try store.task(task.id)))
+    #expect(try store.newCounts().isEmpty)
 }
 
 @MainActor @Test func newTaskIsOnlyComposerAndSavedRequestsStayInForYou() async throws {
@@ -443,7 +456,7 @@ private func conversationResponse(_ threadID: String, answer: String) -> JSONVal
     #expect(reopened.conversation == nil && reopened.result == nil)
 }
 
-@MainActor @Test func directChatImportReadsExactConversationAndCreatesNoDispatch() async throws {
+@MainActor @Test func directChatImportLinksTheExactRequestWithoutDownloadingTheConversation() async throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-import-\(UUID().uuidString)/tasks.sqlite"))
     let bridge = CodexBridge()
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "FaciendaBridgeTests/Fixtures/server.py")
@@ -457,6 +470,12 @@ private func conversationResponse(_ threadID: String, answer: String) -> JSONVal
     #expect(model.selectedTask?.title == "Original exact request")
     #expect(model.selectedTask?.displayName == "Short chat title")
     #expect(model.selectedTask?.returnAt == nil && model.selectedTask?.definitionOfDone == "")
+    #expect(model.conversation?.turns.isEmpty == true)
+    let requests = try await bridge.request("fixture/threadReads")["requests"].array ?? []
+    #expect(requests.count == 2)
+    #expect(requests[0]["includeTurns"].bool == false)
+    #expect(requests[1]["sortDirection"].string == "asc" && requests[1]["itemsView"].string == "summary")
+    await model.loadConversation(for: try #require(model.selectedTask))
     #expect(model.conversation?.turns[0].items[1]["text"].string == "Full source answer")
     #expect(try store.dispatches().isEmpty)
     await model.importThread(thread)
@@ -478,6 +497,35 @@ private func conversationResponse(_ threadID: String, answer: String) -> JSONVal
     let task = try #require(model.selectedTask)
     #expect(task.displayName == "Original chat")
     #expect(try store.groupMembers().first { $0.taskId == task.id }?.groupId == group.id)
+    await bridge.disconnect()
+}
+
+@MainActor @Test(arguments: [true, false]) func chatImportWithUnreadableHistoryUsesThePreviewOrLeavesNoPartialTask(hasPreview: Bool) async throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-import-preview-\(UUID().uuidString)/tasks.sqlite"))
+    let bridge = CodexBridge()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "FaciendaBridgeTests/Fixtures/server.py")
+    try await bridge.connect(executable: "/usr/bin/python3", arguments: [fixture.path])
+    var response = conversationResponse("owner", answer: "Answer")["thread"].object ?? [:]
+    response["preview"] = .string(hasPreview ? "Original preview request" : "")
+    response["cwd"] = .string("/tmp/original-project")
+    _ = try await bridge.request("fixture/setThread", params: .object([
+        "threadId": .string("owner"), "response": .object(["thread": .object(response)]), "failSummary": .bool(true)
+    ]))
+    let model = try AppModel(store: store, codex: CodexConnection(bridge: bridge))
+    model.connected = true
+    #expect(await model.importThread(CodexThread(id: "owner", title: "", cwd: "", updatedAt: Date())) == hasPreview)
+    #expect(try store.tasks().count == (hasPreview ? 1 : 0))
+    #expect(try store.dispatches().isEmpty)
+    if hasPreview {
+        let task = try #require(model.selectedTask)
+        #expect(task.title == "Original preview request" && task.cwd == "/tmp/original-project")
+        #expect(model.conversation?.turns.isEmpty == true && model.error == nil)
+        await model.loadConversation(for: task)
+        #expect(model.resultErrors[task.id] != nil)
+        #expect(try store.links().first?.threadId == "owner")
+    } else {
+        #expect(try store.links().isEmpty && model.error != nil)
+    }
     await bridge.disconnect()
 }
 
@@ -695,11 +743,17 @@ private struct FakePainter: CoverPainting {
                                 model: TaskModelChoice.claudeStandard.choosing("claude-sonnet-5-5")))
     let task = try #require(model.tasks.first { $0.title == "Draft the venue email" })
     #expect(task.provider == .claude && task.workerModel == "claude-sonnet-5-5" && task.workerServiceTier == nil)
-    // Codex is not connected and neither is Claude: the task waits in Facienda instead of opening Claude's composer.
+    // Codex is not connected and neither is Claude: the task is kept but not queued, and Claude's composer stays shut.
     #expect(!model.workspaceReady)
     await model.dispatch(task)
-    #expect(model.error == nil)
-    #expect(opened.isEmpty)
+    #expect(model.error?.contains("Connect Claude") == true)
+    model.error = nil
+    #expect(opened.isEmpty && model.pendingDispatch(for: task.id) == nil)
+    #expect(model.status(for: task) == .notStarted)
+    // Work queued before Claude went away still waits for the runner.
+    _ = try store.prepareWorkingFolder(taskId: task.id)
+    _ = try store.enqueueDispatch(taskId: task.id)
+    model.refresh()
     #expect(model.status(for: task) == .waitingForClaude)
     #expect(!model.canOpen(task))
     #expect(model.agent(for: task) == .claude)
@@ -817,7 +871,24 @@ private struct FakePainter: CoverPainting {
     #expect(model.linkedChats(for: try store.task(task.id)).isEmpty)
 }
 
-@MainActor @Test func claudeTasksWaitForTheRunnerAndStartOnceItWakes() async throws {
+@MainActor @Test func aChatOfATaskInAnotherWorkspaceIsNotOffered() throws {
+    let library = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-taken-\(UUID().uuidString)/facienda.sqlite"))
+    let home = try library.defaultWorkspace()
+    let studio = try library.createWorkspace(name: "Studio")
+    let store = library.scoped(to: home.id)
+    let model = try AppModel(store: store) { _ in }
+    let task = try store.create(FaciendaTask(title: "Look at codex://threads/swoosh", state: .needsMe))
+    let elsewhere = library.scoped(to: studio.id)
+    let other = try elsewhere.create(FaciendaTask(title: "Fix the swoosh lines", state: .done))
+    try elsewhere.link(ThreadLink(taskId: other.id, codexThreadId: "swoosh", title: other.title))
+    model.refresh()
+    // The chat's task isn't on this board, yet the chat is still taken: offering it would only end in a refusal.
+    #expect(model.links.isEmpty)
+    #expect(model.owner(ofChat: "swoosh")?.id == other.id)
+    #expect(model.linkedChats(for: try store.task(task.id)).isEmpty)
+}
+
+@MainActor @Test func claudeTasksDoNotQueueWhileTheRunnerSleeps() async throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-claude-wake-\(UUID().uuidString)/facienda.sqlite"))
     let model = try AppModel(store: store) { _ in }
     var opened: [URL] = []
@@ -831,10 +902,14 @@ private struct FakePainter: CoverPainting {
     #expect(await model.capture(title: "Draft the venue email", intention: "", area: "Personal", date: Date(), startNow: false, model: .claudeStandard))
     let task = try #require(model.tasks.first { $0.title == "Draft the venue email" })
     await model.dispatch(task)
-    #expect(opened.isEmpty && model.status(for: task) == .waitingForClaude)
-    // The runner checks in: the waiting task starts without a click.
+    #expect(model.error?.contains("asleep") == true)
+    #expect(opened.isEmpty && model.pendingDispatch(for: task.id) == nil && model.status(for: task) == .notStarted)
+    #expect(!model.canStart(.claude) && model.agentsDown()["Claude"] != nil)
+    // The runner checks in: starting now hands the task to Claude without a click.
+    model.error = nil
     try store.claudeRunnerHeartbeat("local_runner")
-    model.refresh(); await model.startWaitingClaudeTasks()
+    await model.dispatch(task)
+    #expect(model.error == nil && model.agentsDown().isEmpty)
     #expect(opened.last?.host == "resume")
     #expect(model.status(for: task) == .startingInClaude)
 }
@@ -948,4 +1023,21 @@ private struct FakePainter: CoverPainting {
     let learned = try store.routeCorrections()
     #expect(learned.map(\.text) == ["another idea for lunar rings"])
     #expect(learned.first?.groupID == rings.id && learned.first?.workspaceID == model.workspaceID)
+}
+
+@MainActor @Test func codexCountsAsDownOnceTheDispatcherStopsCheckingIn() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-codex-down-\(UUID().uuidString)/facienda.sqlite"))
+    _ = try store.prepareWorkspaceSetup()
+    try store.bindCodexDispatcher()
+    try store.verifyDispatcherSetup(projectId: "project")
+    let model = try AppModel(store: store) { _ in }
+    #expect(model.workspaceReady && model.canStart(.codex) && model.agentsDown().isEmpty)
+    // Minutes without a check-in: Codex can't take new work, and the sidebar says so. Claude was never set up.
+    let later = Date().addingTimeInterval(600)
+    #expect(model.whyDown(.codex, at: later)?.contains("Codex") == true)
+    #expect(model.agentsDown(at: later).keys.sorted() == ["Codex"])
+    // Taking a turn on the queue is not a check-in; only reaching Codex is.
+    let seen = try #require(try store.runnerState()?.lastSeen)
+    #expect(try store.beginRunnerTurn(runnerId: FaciendaStore.codexDispatcherId, holder: "run"))
+    #expect(try store.runnerState()?.lastSeen == seen)
 }

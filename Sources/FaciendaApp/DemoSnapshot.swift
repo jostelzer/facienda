@@ -53,14 +53,22 @@ extension AppDelegate {
             // with several planets.
             if CommandLine.arguments.contains("--islands") {
                 let library = model.store.library
+                var made: [String: Workspace] = [:]
                 for (name, fresh, running) in [("Studio", 3, 1), ("Garden", 0, 2), ("Travel", 1, 0), ("Lab", 2, 1)] {
                     let workspace = try library.createWorkspace(name: name)
+                    made[name] = workspace
                     for index in 0..<fresh {
                         _ = try library.scoped(to: workspace.id).create(FaciendaTask(title: "Came back \(index + 1)", state: .needsMe, nextAction: "Review"))
                     }
                     for index in 0..<running {
                         _ = try library.scoped(to: workspace.id).create(FaciendaTask(title: "Working \(index + 1)", state: .running, nextAction: "Wait"))
                     }
+                }
+                // The open workspace reads two memories, and Garden reads Studio's, so the island's links show.
+                if let open = workspaces.current, let studio = made["Studio"], let lab = made["Lab"], let garden = made["Garden"] {
+                    try library.setMemoryRead(reader: open.memorySpaceId, source: studio.memorySpaceId)
+                    try library.setMemoryRead(reader: open.memorySpaceId, source: lab.memorySpaceId, understanding: true)
+                    try library.setMemoryRead(reader: garden.memorySpaceId, source: studio.memorySpaceId)
                 }
                 workspaces.reload()
             }
@@ -109,21 +117,25 @@ extension AppDelegate {
                 UserDefaults.standard.register(defaults: ["dashboardMode": DashboardMode.plan.rawValue, "planGroup:" + model.storageKey: group.id])
                 model.refresh()
             }
-            // `--sources`: a group with a work folder, linked documents and an agent's proposal; `--sources-popover` draws its popover.
-            var sourcesGroup: TaskGroup?
+            // `--sources`: a workspace with two work folders, one group that chose one of them, linked documents and an
+            // agent's proposal; `--places` draws the Memory page's list of them.
+            var showPlaces = false
             if CommandLine.arguments.contains("--sources"),
                let group = model.groups.first(where: { group in model.tasks.contains { model.groupMembers[$0.id] == group.id } }),
                let task = model.tasks.first(where: { model.groupMembers[$0.id] == group.id }) {
-                let folder = FileManager.default.temporaryDirectory.appending(path: "facienda-demo/studio-plans")
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                try model.store.linkFolder(folder.path, groupId: group.id)
-                try model.store.linkSource("https://drive.google.com/drive/folders/demo-quotes", title: "Furniture quotes", groupId: group.id)
-                try model.store.linkSource("https://docs.google.com/spreadsheets/d/demo-budget/edit", title: "Studio budget", groupId: group.id)
-                try model.store.linkSource("https://docs.google.com/document/d/demo-brief/edit", title: "Room brief", groupId: group.id)
-                try model.store.linkSource("https://www.ikea.com/pt/en/cat/desks-20649/", title: "Desk shortlist", groupId: group.id)
+                let plans = FileManager.default.temporaryDirectory.appending(path: "facienda-demo/studio-plans")
+                let site = FileManager.default.temporaryDirectory.appending(path: "facienda-demo/studio-site")
+                for folder in [plans, site] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+                let linked = try model.store.linkFolder(plans.path)
+                try model.store.linkFolder(site.path)
+                try model.store.setWorkPlace(.folders([linked]), groupId: group.id)
+                try model.store.linkWorkspaceSource("https://drive.google.com/drive/folders/demo-quotes", title: "Furniture quotes")
+                try model.store.linkWorkspaceSource("https://docs.google.com/spreadsheets/d/demo-budget/edit", title: "Studio budget")
+                try model.store.linkWorkspaceSource("https://docs.google.com/document/d/demo-brief/edit", title: "Room brief")
+                try model.store.linkWorkspaceSource("https://www.ikea.com/pt/en/cat/desks-20649/", title: "Desk shortlist")
                 try model.store.proposeSource("https://docs.google.com/spreadsheets/d/demo-lighting/edit", title: "Lighting quotes", note: "Every lamp task asks for these prices.", taskId: task.id)
                 model.refresh()
-                sourcesGroup = model.groups.first { $0.id == group.id }
+                showPlaces = true
             }
             // `--memory`: the Memory page with a source the user described, a proposed source and a proposed rule from an agent.
             if CommandLine.arguments.contains("--memory"), let loose = model.tasks.first(where: { model.groupMembers[$0.id] == nil }) {
@@ -182,8 +194,8 @@ extension AppDelegate {
                 content = AnyView(WorkspaceWindow(model: model, workspaces: workspaces, fixedIsland: island))
             }
             if CommandLine.arguments.contains("--settings") { content = AnyView(SettingsView(model: model)) }
-            if CommandLine.arguments.contains("--sources-popover"), let group = sourcesGroup {
-                content = AnyView(SourcesPopover(model: model, group: group, folders: model.groupFolders[group.id] ?? [], sources: model.groupSources[group.id] ?? [])
+            if CommandLine.arguments.contains("--places"), showPlaces {
+                content = AnyView(PlacesList(model: model).frame(width: 340).padding(20)
                     .background(Palette.card).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(.top, 20).background(Palette.paper))
             }
             if CommandLine.arguments.contains("--claude-settings") {
@@ -260,7 +272,7 @@ extension AppDelegate {
                     : CommandLine.arguments.contains("--task-choices") || !Self.values("--choices").isEmpty || !Self.values("--watch").isEmpty ? NSRect(x: 0, y: 0, width: 360, height: 420)
                     : CommandLine.arguments.contains("--chat-choice") ? NSRect(x: 0, y: 0, width: 460, height: 560)
                     : CommandLine.arguments.contains("--linked-chat") ? NSRect(x: 0, y: 0, width: 360, height: 420)
-                    : CommandLine.arguments.contains("--sources-popover") ? NSRect(x: 0, y: 0, width: 340, height: 420) : NSRect(x: 0, y: 0, width: 1040, height: 740))
+                    : CommandLine.arguments.contains("--places") ? NSRect(x: 0, y: 0, width: 400, height: 460) : NSRect(x: 0, y: 0, width: 1040, height: 740))
                 let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
                 window.contentView = view
                 window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)

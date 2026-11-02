@@ -26,18 +26,18 @@ extension AppModel {
         dispatching = true; startingTaskID = task.id
         defer { dispatching = false; startingTaskID = nil }
         do {
-            let claude = agent(for: task) == .claude
-            if claude {
-                guard claudeInstalled else { throw StoreError.invalid("Install the Claude app to run tasks with Claude models. Your task is saved.") }
-            } else {
-                guard workspaceReady else {
-                    error = "Finish connecting Codex in Settings before starting tasks. Your task is saved."
-                    showSettings = true
-                    return nil
-                }
+            let provider = agent(for: task), claude = provider == .claude
+            // A task the agent cannot take now is kept, not queued: it would only sit there without saying why.
+            rereadCheckIns()
+            if let reason = whyDown(provider) {
+                error = reason + " Your task is saved; start it once \(provider.name) is back."
+                if !claude && !workspaceReady { showSettings = true }
+                return nil
             }
             let task = try store.prepareWorkingFolder(taskId: task.id)
-            if !claude, task.folders?.isEmpty == false, let group = groupMembers[task.id] { await syncCodexProject(group) }
+            if !claude, let folders = task.folders, !folders.isEmpty {
+                if let group = groupMembers[task.id] { await syncCodexProject(group) } else { await syncWorkspaceProject(folders) }
+            }
             let item = try store.enqueueDispatch(taskId: task.id)
             if reveal { destination = .dashboard; selection = task.id }
             refresh()
@@ -133,11 +133,9 @@ extension AppModel {
     func reply(to task: FaciendaTask, text: String, reveal: Bool = true, userAuthored: Bool = true) -> Bool {
         guard !demo, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         do {
-            if agent(for: task) == .claude {
-                guard claudeConnected else { throw StoreError.invalid("Connect Claude in Settings so Facienda can relay replies, or answer in the Claude app. Your reply is still here.") }
-            } else {
-                guard workspaceReady else { throw StoreError.invalid("Connect Codex in Settings first. Your reply is still here.") }
-            }
+            let provider = agent(for: task)
+            rereadCheckIns()
+            if let reason = whyDown(provider) { throw StoreError.invalid(reason + " Your reply is still here.") }
             guard pendingDispatch(for: task.id) == nil else { throw StoreError.invalid("A message is already queued for this task.") }
             _ = try store.enqueueDispatch(taskId: task.id, message: text, userAuthored: userAuthored)
             replyDrafts[task.id] = ""

@@ -29,7 +29,7 @@ struct MicButton: View {
                 switch dictation.phase {
                 case .idle: Image(systemName: "mic").foregroundStyle(look == .plain ? Palette.muted : Palette.ink)
                 case .listening: Image(systemName: "mic.fill").foregroundStyle(Palette.blue)
-                case .preparing, .downloading, .finishing: ProgressView().controlSize(.mini)
+                case .preparing, .downloading, .settingUp, .finishing: ProgressView().controlSize(.mini)
                 }
             }
             .font(.system(size: size)).frame(width: side, height: side)
@@ -67,6 +67,7 @@ struct MicButton: View {
         case .idle: return WhisperEngine.isDownloaded ? "Dictate in \(languageName)\(key). Right-click to choose the language."
             : "Dictate\(key). The first time, Facienda downloads a 630 MB speech model; speech then stays on this Mac."
         case .downloading: return "Downloading the speech model. This happens once."
+        case .settingUp: return "Setting up the speech model for this Mac, once. Listening starts when it is done."
         case .preparing: return "Getting ready to listen…"
         case .listening: return "Listening in \(languageName). Click or press Return to use it."
         case .finishing: return "Writing down what you said…"

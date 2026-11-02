@@ -11,6 +11,9 @@ signed_in = False
 projects = []
 thread_responses = {}
 thread_reads = []
+history_requests = []
+summary_failures = set()
+repeated_cursors = set()
 list_pages = {}
 archived = []
 for line in sys.stdin:
@@ -41,10 +44,16 @@ for line in sys.stdin:
         send({'method':'thread/status/changed','params':{'threadId':'fixture','status':{'type':'active','activeFlags':[]}}})
         send({'id':request['id'],'result':{'data':[{'id':'fixture','name':'Fixture thread','preview':'Read only','cwd':'/tmp','updatedAt':1791068400,'status':{'type':'notLoaded'}}],'nextCursor':'page2'}})
     elif method == 'fixture/setThread':
-        thread_responses[request['params']['threadId']] = request['params']['response']
+        params = request['params']
+        thread_id = params['threadId']
+        thread_responses[thread_id] = params['response']
+        if params.get('failSummary'):
+            summary_failures.add(thread_id)
+        if params.get('repeatCursor'):
+            repeated_cursors.add(thread_id)
         send({'id': request['id'], 'result': {}})
     elif method == 'fixture/threadReads':
-        send({'id': request['id'], 'result': {'ids': thread_reads}})
+        send({'id': request['id'], 'result': {'ids': thread_reads, 'requests': history_requests}})
     elif method == 'fixture/oversizedResponse':
         send({'id': request['id'], 'result': {'text': 'x' * (2 * 1024 * 1024)}})
     elif method == 'fixture/largeResponse':
@@ -52,27 +61,40 @@ for line in sys.stdin:
     elif method == 'thread/queue/list':
         send({'id': request['id'], 'result': {'data': [], 'nextCursor': None}})
     elif method == 'thread/turns/list':
-        thread_id = request['params']['threadId']
-        if thread_id in thread_responses:
-            turns = list(reversed(thread_responses[thread_id]['thread']['turns']))
-            send({'id': request['id'], 'result': {'data': turns, 'nextCursor': None}})
+        params = request['params']
+        history_requests.append({'method': method, **params})
+        thread_id = params['threadId']
+        assert params['itemsView'] == 'summary'
+        if thread_id in thread_responses and thread_id not in summary_failures:
+            turns = thread_responses[thread_id]['thread']['turns']
+            if params.get('sortDirection') != 'asc':
+                turns = list(reversed(turns))
+            start = int(params.get('cursor') or 0)
+            page = []
+            for turn in turns[start:start + params['limit']]:
+                items = [item for item in turn['items'] if item['type'] == 'userMessage' or
+                         (item['type'] == 'agentMessage' and item.get('phase') != 'commentary')]
+                page.append({**turn, 'items': items})
+            end = start + len(page)
+            next_cursor = str(end) if end < len(turns) else None
+            if thread_id in repeated_cursors:
+                next_cursor = params.get('cursor') or '0'
+            send({'id': request['id'], 'result': {'data': page, 'nextCursor': next_cursor}})
         else:
             send({'id': request['id'], 'error': {'code': -32000, 'message': 'Fixture chat unavailable'}})
     elif method == 'thread/read' and request['params']['includeTurns'] is False:
         # A details-only read, as setup uses to see whether the runner's chat still exists.
         thread_id = request['params']['threadId']
+        thread_reads.append(thread_id)
+        history_requests.append({'method': method, **request['params']})
         if thread_id in thread_responses:
-            send({'id': request['id'], 'result': {'thread': thread_responses[thread_id]['thread']}})
+            send({'id': request['id'], 'result': {'thread': {**thread_responses[thread_id]['thread'], 'turns': []}}})
         else:
             send({'id': request['id'], 'error': {'code': -32000, 'message': 'Fixture chat unavailable'}})
     elif method == 'thread/read':
         assert request['params']['includeTurns'] is True
-        thread_id = request['params']['threadId']
-        thread_reads.append(thread_id)
-        if thread_id in thread_responses:
-            send({'id': request['id'], 'result': thread_responses[thread_id]})
-        else:
-            send({'id': request['id'], 'error': {'code': -32000, 'message': 'Fixture chat unavailable'}})
+        history_requests.append({'method': method, **request['params']})
+        send({'id': request['id'], 'error': {'code': -32000, 'message': 'Whole history reads are not allowed'}})
     elif method == 'project/list':
         send({'id': request['id'], 'result': {'data': projects, 'nextCursor': None}})
     elif method == 'fixture/registerProject' or method == 'project/create':

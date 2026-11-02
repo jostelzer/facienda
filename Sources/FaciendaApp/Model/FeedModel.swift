@@ -1,8 +1,8 @@
 import Foundation
 import FaciendaCore
 
-/// What came in through the bar, across every workspace: the bar's History pill shows the latest that finished, and
-/// the Feed opens over the island and the board to show all of it, by place and by group. It belongs to the window, as
+/// What came in through the bar, across every workspace: the bar's Incoming pill shows what is at work or came back, and
+/// Incoming opens over the island and the board to show all of it, newest first. It belongs to the window, as
 /// the bar does.
 @MainActor @Observable final class FeedModel {
     @ObservationIgnored weak var workspaces: WorkspaceController?
@@ -43,15 +43,18 @@ import FaciendaCore
 
     func close() { isOpen = false }
 
-    /// The latest request whose task finished or came back for you in the last day, for the bar to show. One you have
-    /// not looked at yet comes first.
-    var latestDone: FeedArrival? {
-        let since = Date().addingTimeInterval(-24 * 3600)
-        return arrivals.filter { arrival in
+    /// Requests that left the bar and are still being placed or made into tasks.
+    var placing = 0
+    /// Something sent from the bar is at work: being placed, just made and waiting for its agent, or running.
+    var working: Bool {
+        let fresh = Date().addingTimeInterval(-5 * 60)
+        return placing > 0 || arrivals.contains { arrival in
             guard let task = arrival.task else { return false }
-            return (task.state == .done || task.state == .needsMe) && task.updatedAt > since
-        }.max { ($0.isNew ? 1 : 0, $0.task?.updatedAt ?? .distantPast) < ($1.isNew ? 1 : 0, $1.task?.updatedAt ?? .distantPast) }
+            return task.state == .running || (task.state == .inbox && arrival.entry.at > fresh)
+        }
     }
+    /// Something sent from the bar came back and you have not looked at it yet.
+    var cameBack: Bool { arrivals.contains(where: \.isNew) }
 
     /// Where an arrival belongs in the Feed: the workspace of the task it became, or here when it needed no task.
     func place(of arrival: FeedArrival) -> String { arrival.task == nil ? Self.here : (arrival.workspaceId ?? Self.here) }

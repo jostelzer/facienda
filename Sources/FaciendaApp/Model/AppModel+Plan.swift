@@ -59,6 +59,7 @@ extension AppModel {
             draft.workerModel = choice.model; draft.workerReasoningEffort = choice.effort
             draft.workerServiceTier = choice.serviceTier; draft.workerProvider = choice.provider
             let task = try store.create(draft)
+            if draft.workerServiceTier != nil { composerModel.fast = false }
             try store.assignGroup(taskId: task.id, groupId: line.groupId)
             try store.linkPlanLine(line.id, taskId: task.id)
             refresh()

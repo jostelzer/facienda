@@ -51,49 +51,43 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     #expect(LinkedSource.documents(in: "[relative](docs)", relativeTo: nil).isEmpty)
 }
 
-@Test func agentsProposeAndTheUserDecides() throws {
+@Test func agentsProposeToTheWorkspaceAndTheUserDecides() throws {
     let root = try scratch(), store = try FaciendaStore(url: root.appending(path: "library/tasks.sqlite"))
-    let group = try store.createGroup(name: "Hardware hiring"), other = try store.createGroup(name: "Errands")
+    let group = try store.createGroup(name: "Hardware hiring")
     let task = try store.create(FaciendaTask(title: "Find the interview rating sheet"))
     try store.assignGroup(taskId: task.id, groupId: group.id)
     let loose = try store.create(FaciendaTask(title: "Book the dentist"))
 
     let proposal = try store.proposeSource(sheet, title: "Interview ratings", note: "Every hiring task asks for it.", taskId: task.id)
-    #expect(proposal.state == .proposed && proposal.kind == .sheet && proposal.taskId == task.id)
-    #expect(try store.groupSources()[group.id]?.map(\.title) == ["Interview ratings"])
+    #expect(proposal.state == .proposed && proposal.kind == .sheet && proposal.taskId == task.id && proposal.workspaceId == task.workspaceId)
+    #expect(try store.workspaceSources().map(\.title) == ["Interview ratings"])
     #expect(try store.linkedSources(forTask: task.id).isEmpty)
-    // Proposing it again changes nothing.
+    // Proposing it again changes nothing, whether the task is in a group or not: both reach the workspace.
     #expect(try store.proposeSource(sheet, title: "Other name", note: nil, taskId: task.id).id == proposal.id)
-    // A task in no group proposes to its workspace, where every task is told about it once linked.
-    let forAll = try store.proposeSource(sheet, title: "Ratings", note: nil, taskId: loose.id)
-    #expect(forAll.groupId == nil && forAll.workspaceId == loose.workspaceId && forAll.state == .proposed)
-    #expect(try store.linkedSources(forTask: loose.id).isEmpty)
-    try store.setSourceState(forAll.id, .linked)
-    try store.setSourceAbout(forAll.id, " How each candidate scored. ")
+    #expect(try store.proposeSource(sheet, title: "Ratings", note: nil, taskId: loose.id).id == proposal.id)
+    // Once linked, every task in the workspace is told about it.
+    try store.setSourceState(proposal.id, .linked)
+    try store.setSourceAbout(proposal.id, " How each candidate scored. ")
     #expect(try store.linkedSources(forTask: loose.id).map(\.about) == ["How each candidate scored."])
     #expect(try store.linkedSources(forTask: task.id).map(\.address) == [sheet])
-    #expect(try store.groupSources()[group.id]?.map(\.title) == ["Interview ratings"])
-    try store.setSourceState(forAll.id, .dismissed)
     #expect(throws: StoreError.self) { try store.proposeSource("not a link", title: "Ratings", note: nil, taskId: task.id) }
-
-    try store.setSourceState(proposal.id, .linked)
-    #expect(try store.linkedSources(forTask: task.id).map(\.address) == [sheet])
     // Dismissed stays dismissed, even when an agent proposes it again.
     try store.setSourceState(proposal.id, .dismissed)
-    #expect(try store.groupSources()[group.id] == nil)
+    #expect(try store.workspaceSources().isEmpty)
     #expect(try store.proposeSource(sheet, title: "Ratings", note: nil, taskId: task.id).state == .dismissed)
     // The user can always link it themselves.
-    #expect(try store.linkSource(sheet, title: "Ratings summary", groupId: group.id).state == .linked)
+    #expect(try store.linkWorkspaceSource(sheet, title: "Ratings summary").state == .linked)
     #expect(try store.linkedSources(forTask: task.id).map(\.title) == ["Ratings summary"])
     try store.renameSource(proposal.id, to: "Interview ratings")
-    #expect(try store.sources(groupId: group.id).map(\.title) == ["Interview ratings"])
-    #expect(try store.sources(groupId: other.id).isEmpty)
-
+    #expect(try store.workspaceSources().map(\.title) == ["Interview ratings"])
+    // Deleting a group leaves the workspace's sources; another workspace never sees them.
     try store.deleteGroup(group.id)
-    #expect(try store.groupSources().isEmpty)
+    #expect(try store.workspaceSources().map(\.title) == ["Interview ratings"])
+    let work = try store.createWorkspace(name: "Work")
+    #expect(try store.workspaceSources(workspaceID: work.id).isEmpty)
 }
 
-@Test func savedAnswersOfferTheirDocumentsToTheGroup() throws {
+@Test func savedAnswersOfferTheirDocumentsToTheWorkspace() throws {
     let root = try scratch(), store = try FaciendaStore(url: root.appending(path: "library/tasks.sqlite"))
     let repo = root.appending(path: "repo"), notes = root.appending(path: "notes")
     try FileManager.default.createDirectory(at: repo.appending(path: ".git"), withIntermediateDirectories: true)
@@ -101,16 +95,16 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
     try Data("x".utf8).write(to: notes.appending(path: "plan.md"))
     let group = try store.createGroup(name: "Launch")
-    try store.linkFolder(repo.path, groupId: group.id)
+    try store.linkFolder(repo.path)
     var task = try store.create(FaciendaTask(title: "Plan the launch"))
     try store.assignGroup(taskId: task.id, groupId: group.id)
     task = try store.update(task.id) { $0.cwd = repo.path }
 
     try store.saveResult(taskId: task.id, text: """
     Done. The plan is in [the launch plan](\(notes.appending(path: "plan.md").path)), next to [the notes](\(notes.path)); numbers in [Budget](\(sheet)).
-    I also updated [the docs](docs), which are in the repository the group works in.
+    I also updated [the docs](docs), which are in the repository the workspace works in.
     """)
-    let offered = try store.sources(groupId: group.id)
+    let offered = try store.workspaceSources()
     #expect(offered.map(\.title) == ["the notes", "Budget"])
     #expect(offered.allSatisfy { $0.state == .proposed && $0.taskId == task.id })
     #expect(offered.first?.note?.contains("Plan the launch") == true)
@@ -118,16 +112,16 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     // A second answer offers only what is new; a dismissed document is not offered again.
     try store.setSourceState(offered[1].id, .dismissed)
     try store.saveResult(taskId: task.id, text: "Still in [Budget](\(sheet)) and \(folder).")
-    #expect(try store.sources(groupId: group.id).map(\.address) == [notes.path, folder])
+    #expect(try store.workspaceSources().map(\.address) == [notes.path, folder])
 
-    // A task outside any group offers to its workspace, and its answer is still saved.
+    // A task outside any group offers to the same workspace, so the dismissal holds there too; its answer is still saved.
     let loose = try store.create(FaciendaTask(title: "Loose"))
     try store.saveResult(taskId: loose.id, text: "[Budget](\(sheet))")
     #expect(try store.latestEvent(taskId: loose.id, kind: "codex.result")?.payload == "[Budget](\(sheet))")
-    #expect(try store.workspaceSources(workspaceID: try #require(loose.workspaceId)).map(\.address) == [sheet])
+    #expect(try store.workspaceSources().map(\.address) == [notes.path, folder])
 }
 
-@Test func theProposeToolReachesTheTasksGroup() throws {
+@Test func theProposeToolReachesTheTasksWorkspace() throws {
     let root = try scratch(), store = try FaciendaStore(url: root.appending(path: "library/tasks.sqlite"))
     let group = try store.createGroup(name: "Storeroom")
     let task = try store.create(FaciendaTask(title: "Order the lamps"))
@@ -135,7 +129,7 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     let tools = ToolService(store: store)
     let result = try tools.call("propose_source", arguments: .object(["taskId": .string(try store.taskHandle(task.id)), "address": .string(folder), "title": .string("Storeroom - QUOTES"), "why": .string("Every order needs its quotes.")]))
     #expect(result["state"].string == "proposed" && result["kind"].string == "driveFolder")
-    #expect(try store.sources(groupId: group.id).first?.note == "Every order needs its quotes.")
+    #expect(try store.workspaceSources().first?.note == "Every order needs its quotes.")
     // Files on this Mac are the user's to link.
     let quote = root.appending(path: "quote.pdf")
     try Data("x".utf8).write(to: quote)
@@ -148,10 +142,9 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     let app = root.appending(path: "app")
     try FileManager.default.createDirectory(at: app.appending(path: ".git"), withIntermediateDirectories: true)
     try Data("[remote \"origin\"]\n\turl = git@github.com:example/app.git\n".utf8).write(to: app.appending(path: ".git/config"))
-    let group = try store.createGroup(name: "App")
-    try store.linkFolder(app.path, groupId: group.id)
+    try store.linkFolder(app.path)
     #expect(try store.offerAutomaticSources() == 0)
-    #expect(try store.sources(groupId: group.id).isEmpty)
+    #expect(try store.workspaceSources().isEmpty)
 }
 
 @Test func driveFoldersOfferTheirDocumentsAndLinkFilesBecomeWebAddresses() throws {
@@ -169,15 +162,14 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     #expect(LinkedSource.webAddress(ofStub: drive.appending(path: "Broken.gslides").path) == nil)
     #expect(Set(LinkedSource.driveDocuments(in: drive.path).map { URL(fileURLWithPath: $0.path).lastPathComponent }) == ["Storeroom Ordering.gsheet", "Procedure.gdoc", "Broken.gslides"])
 
-    let group = try store.createGroup(name: "Storeroom")
     // Linking a link file keeps the document's web address.
-    let ordering = try store.linkSource(drive.appending(path: "Storeroom Ordering.gsheet").path, groupId: group.id)
+    let ordering = try store.linkWorkspaceSource(drive.appending(path: "Storeroom Ordering.gsheet").path)
     #expect(ordering.address == "https://docs.google.com/spreadsheets/d/1aBcDeFgHiJk/edit" && ordering.title == "Storeroom Ordering" && ordering.kind == .sheet)
-    // A Drive folder offers the documents directly inside it, except those the group already has.
-    var folder = try store.linkSource(drive.path, groupId: group.id)
+    // A Drive folder offers the documents directly inside it, except those the workspace already has.
+    var folder = try store.linkWorkspaceSource(drive.path)
     folder.kind = .driveFolder; folder.account = "someone@example.org"
     #expect(store.offerDriveDocuments(in: folder, limit: 5) == 2)
-    let offered = try store.sources(groupId: group.id).filter { $0.state == .proposed }
+    let offered = try store.workspaceSources().filter { $0.state == .proposed }
     #expect(Set(offered.map(\.title)) == ["Procedure", "Broken"])
     #expect(offered.allSatisfy { $0.account == "someone@example.org" && $0.note == "In the Drive folder “Storeroom”." })
     // Later passes only offer what changed since the folder was linked.
@@ -200,11 +192,11 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
 
     // Filing the task offers what the user attached.
     try store.assignGroup(taskId: task.id, groupId: group.id)
-    #expect(try store.sources(groupId: group.id).map(\.title) == ["cv.pdf"])
-    #expect(try store.sources(groupId: group.id).first?.note == "Attached to “Compare the candidates”.")
+    #expect(try store.workspaceSources().map(\.title) == ["cv.pdf"])
+    #expect(try store.workspaceSources().first?.note == "Attached to “Compare the candidates”.")
     // What the agent made or cloned in its own folder stays there.
     try store.saveResult(taskId: task.id, text: "The comparison is in [comparison.pdf](comparison.pdf), from [the clone](clone).")
-    #expect(try store.sources(groupId: group.id).count == 1)
+    #expect(try store.workspaceSources().count == 1)
 }
 
 @Test func earlierFileProposalsArePutAway() throws {
@@ -220,7 +212,8 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
         try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'group_sources_narrowed'")
     }
     store = try FaciendaStore(url: url)
-    #expect(Set(try store.sources(groupId: group.id).map(\.address)) == ["/x/Work/1/Attachments/2/cv.pdf", sheet])
+    let kept = try store.db.read { try String.fetchAll($0, sql: "SELECT address FROM groupSources WHERE groupId = ? AND state = 'proposed'", arguments: [group.id]) }
+    #expect(Set(kept) == ["/x/Work/1/Attachments/2/cv.pdf", sheet])
 }
 
 @Test func agentsCannotPointTheUserAtAppsOrFoldersElsewhere() throws {
@@ -239,9 +232,9 @@ private let folder = "https://drive.google.com/drive/folders/1FaKeFoLdErIdAbCdEf
     let wide = try store.update(task.id) { $0.cwd = "/" }
     #expect(throws: StoreError.self) { try store.proposeSource(elsewhere.path, title: "Elsewhere", note: nil, taskId: wide.id) }
 
-    #expect(GroupSource(id: "s", groupId: group.id, kind: .link, address: "https://example.org", title: "x", state: .proposed, position: 0, createdAt: Date()).isWeb)
+    #expect(WorkspaceSource(id: "s", workspaceId: "w", kind: .link, address: "https://example.org", title: "x", state: .proposed, position: 0, createdAt: Date()).isWeb)
     for address in ["httpx://example.org", "http:/nohost", "javascript:alert(1)", "/Applications/Tool.app"] {
-        #expect(!GroupSource(id: "s", groupId: group.id, kind: .link, address: address, title: "x", state: .proposed, position: 0, createdAt: Date()).isWeb)
+        #expect(!WorkspaceSource(id: "s", workspaceId: "w", kind: .link, address: address, title: "x", state: .proposed, position: 0, createdAt: Date()).isWeb)
     }
     #expect(SourceKind.of("httpx://docs.google.com/spreadsheets/d/x") != .sheet)
 }

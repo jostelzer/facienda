@@ -5,14 +5,42 @@ import FaciendaBridge
 /// the same place. The names start on the gear's edge, so the footer has one left edge. Hovering names the plan and when the limit starts over.
 struct UsageMeters: View {
     let usage: [PlanUsage]
+    /// Agents that cannot take new work now, by name, with the reason. Their bars fade; one without bars gets a line.
+    var down: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             ForEach(usage, id: \.agent) { plan in
                 ForEach(Array(plan.windows.enumerated()), id: \.offset) { index, window in
-                    UsageMeter(agent: index == 0 ? plan.agent : "", plan: plan, window: window)
+                    UsageMeter(agent: index == 0 ? plan.agent : "", plan: plan, window: window, down: down[plan.agent])
                 }
             }
+            ForEach(down.keys.sorted().filter { name in !usage.contains { $0.agent == name } }, id: \.self) { name in
+                DownLine(agent: name, reason: down[name] ?? "")
+            }
+        }
+    }
+
+    /// An agent that is down and has no limits to show: its name and that it can't start tasks.
+    private struct DownLine: View {
+        let agent: String
+        let reason: String
+        @State private var hovering = false
+
+        var body: some View {
+            HStack(spacing: 8) {
+                Text(agent).frame(width: 42, alignment: .leading)
+                Text("Can’t start tasks")
+            }
+            .font(.system(size: 11)).lineLimit(1).foregroundStyle(Palette.muted).opacity(0.55)
+            .padding(.horizontal, 10).padding(.vertical, 3)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .popover(isPresented: $hovering, arrowEdge: .trailing) {
+                Text(reason).font(.system(size: 12)).foregroundStyle(Palette.ink).padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(agent) can’t start tasks. \(reason)")
         }
     }
 
@@ -20,6 +48,8 @@ struct UsageMeters: View {
         let agent: String
         let plan: PlanUsage
         let window: PlanUsage.Window
+        /// Why this agent can't take new work now; its bar fades until it can.
+        let down: String?
         @State private var hovering = false
 
         /// Grey until it matters: amber under a fifth left, red once this window is what blocks the agent.
@@ -49,6 +79,7 @@ struct UsageMeters: View {
             }
             .font(.system(size: 11)).monospacedDigit().lineLimit(1)
             .foregroundStyle(warning ?? Palette.muted)
+            .opacity(down == nil ? 1 : 0.55)
             .padding(.horizontal, 10).padding(.vertical, 3)
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
@@ -57,12 +88,13 @@ struct UsageMeters: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(plan.plan ?? plan.agent).font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.ink)
                     Text(detail).font(.system(size: 12)).foregroundStyle(Palette.muted)
+                    if let down { Text(down).font(.system(size: 12)).foregroundStyle(Palette.ink) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(plan.agent) \(window.name.lowercased()), \(window.leftPercent) percent left")
-            .accessibilityHint((plan.plan.map { $0 + ", " } ?? "") + detail)
+            .accessibilityHint((plan.plan.map { $0 + ", " } ?? "") + detail + (down.map { ". " + $0 } ?? ""))
         }
     }
 }

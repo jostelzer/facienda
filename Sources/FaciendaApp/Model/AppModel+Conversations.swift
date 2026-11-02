@@ -27,11 +27,10 @@ extension AppModel {
         defer { loadingResults.remove(task.id) }
         do {
             let fetchedAt = Date(), store = store, taskID = task.id, threadID = link.codexThreadId
-            let response = try await bridge.readThread(threadID)
+            let conversation = try await ThreadConversation.latest(threadID, bridge: bridge)
             try Task.checkCancellation()
-            // Long chats run to many megabytes; reading and saving them stays off the main thread.
             try await Task.detached(priority: .userInitiated) {
-                try store.saveConversation(taskId: taskID, conversation: ThreadConversation.read(response, threadId: threadID), fetchedAt: fetchedAt)
+                try store.saveConversation(taskId: taskID, conversation: conversation, fetchedAt: fetchedAt)
             }.value
             resultErrors[task.id] = nil
             refresh()
@@ -92,14 +91,20 @@ extension AppModel {
         defer { importingThreadID = nil }
         do {
             let response = try await bridge.readThread(thread.id)
-            // A long chat's history may come back without its first turns; Codex's preview still holds the request.
+            // A preview still lets a chat be linked when its messages cannot be read. Refresh is separate from import.
             let preview = response["thread"]["preview"].string.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            guard response["thread"]["id"].string == thread.id,
-                  let request = AgentReply.originalRequest(in: response) ?? preview else { throw StoreError.invalid("Could not read this chat's original request. Nothing was imported.") }
+            let original: String?
+            do { original = try await ThreadConversation.originalRequest(thread.id, bridge: bridge) }
+            catch {
+                guard preview != nil else { throw error }
+                original = nil
+            }
+            try Task.checkCancellation()
+            guard let request = original ?? preview else { throw StoreError.invalid("Could not read this chat's original request. Nothing was imported.") }
             let read = response["thread"], name = read["name"].string ?? ""
             let title = !thread.title.isEmpty ? thread.title : !name.isEmpty ? name : String((read["preview"].string ?? "").prefix(90))
             let task = try store.importThread(originalRequest: request, title: title, cwd: thread.cwd.isEmpty ? read["cwd"].string ?? "" : thread.cwd,
-                conversation: ThreadConversation.read(response, threadId: thread.id))
+                conversation: CodexConversation(threadId: thread.id, title: title, turns: []))
             if let groupID { try store.assignGroup(taskId: task.id, groupId: groupID == Self.unsortedGroup ? nil : groupID) }
             refresh()
             if reveal { showTask(task) }
@@ -145,9 +150,8 @@ extension AppModel {
             settledThreadStamps[thread.id] = thread.updatedAt
             do {
                 let fetchedAt = Date(), store = store, threadID = thread.id
-                let response = try await bridge.readThread(threadID)
+                let conversation = try await ThreadConversation.latest(threadID, bridge: bridge)
                 let status = try await Task.detached(priority: .utility) {
-                    let conversation = try ThreadConversation.read(response, threadId: threadID)
                     try store.saveConversation(taskId: task.id, conversation: conversation, fetchedAt: fetchedAt)
                     return conversation.observedStatus(for: task)
                 }.value
@@ -206,7 +210,7 @@ extension AppModel {
         let runners = Set([claudeRunner?.sessionId, nativeRunner?.threadId].compactMap { $0 })
         return found.prefix(3).compactMap { chat in
             guard !own.contains(chat.threadId), !runners.contains(chat.threadId),
-                  links.first(where: { $0.threadId == chat.threadId }).map({ $0.taskId == task.id }) ?? true else { return nil }
+                  chatOwners[chat.threadId].map({ $0 == task.id }) ?? true else { return nil }
             if chat.provider == .claude {
                 if claudeSessionLookups[chat.threadId] == nil { claudeSessionLookups[chat.threadId] = .some(ClaudeDesktop.session(id: chat.threadId)) }
                 guard let session = claudeSessionLookups[chat.threadId] ?? nil, !session.archived else { return nil }

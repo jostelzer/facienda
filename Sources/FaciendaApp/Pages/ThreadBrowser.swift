@@ -107,8 +107,12 @@ struct ThreadBrowser: View {
     private func continueButton(_ chat: ChatCandidate) -> some View {
         let target = taskID ?? chosenTask
         let current = model.links.first { $0.codexThreadId == chat.threadId }
+        // The owner is looked up across the library: a chat of a task in another workspace is taken too.
+        let owner = model.owner(ofChat: chat.threadId)
         return Button(current?.taskId == target && current?.role == "work" ? "Its chat" : "Continue here") {
             if model.handOver(chat, taskID: target), taskID != nil { dismiss() }
-        }.buttonStyle(QuietButton()).disabled(target.isEmpty || current != nil && !(current?.taskId == target && current?.role != "work"))
+        }.buttonStyle(QuietButton())
+            .disabled(target.isEmpty || owner != nil && !(current?.taskId == target && current?.role != "work"))
+            .help(owner.map { $0.id == target ? "" : "Taken by “\($0.displayName)”" } ?? "")
     }
 }

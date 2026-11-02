@@ -65,7 +65,7 @@ private func scratch() throws -> URL {
     let prepared = try store.prepareWorkingFolder(taskId: task.id)
     #expect(prepared.cwd == root.appending(path: "facienda/\(task.id)").path)
     #expect(store.isAutomaticWorkingDirectory(prepared.cwd!, taskID: task.id))
-    #expect(throws: StoreError.self) { try store.linkFolder(store.libraryDirectory.path, groupId: store.createGroup(name: "G").id) }
+    #expect(throws: StoreError.self) { try store.linkFolder(store.libraryDirectory.path) }
 }
 
 @Test func clearingArtifactsKeepsTheTaskAndOnlyTouchesFaciendasFolders() throws {

@@ -29,6 +29,32 @@ public struct MemoryDocument: Codable, FetchableRecord, Sendable {
     public var documentID: String { externalId ?? id }
 }
 
+/// A memory source, redacted and digested before any transaction starts. Nil when nothing is left to keep.
+struct PreparedMemoryDocument: Sendable {
+    let id: String, content: String, digest: String, source: String, at: Date, spaceID: String
+    let externalID: String?, sourceKind: MemorySourceKind, taskID: String?
+
+    init?(id: String, content: String, source: String, at: Date, spaceID: String, externalID: String? = nil,
+          sourceKind: MemorySourceKind, taskID: String? = nil) {
+        let content = MemoryRedaction.redact(content)
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        self.id = id; self.content = content; self.source = MemoryRedaction.redact(source); self.at = at; self.spaceID = spaceID
+        self.externalID = externalID; self.sourceKind = sourceKind; self.taskID = taskID
+        digest = SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// A user message for understanding, redacted before any transaction starts. Nil for a kind or envelope that is not kept.
+struct PreparedUtterance: Sendable {
+    let id: String, text: String, source: String, kind: MemorySourceKind, taskID: String?, spaceID: String, at: Date, priorResult: String?
+
+    init?(id: String, text: String, source: String, kind: MemorySourceKind, taskID: String?, spaceID: String, at: Date, priorResult: String?) {
+        guard FaciendaStore.utteranceKinds.contains(kind), !MemoryUserMessages.isEnvelope(text) else { return nil }
+        self.id = id; self.text = MemoryRedaction.redact(text); self.source = MemoryRedaction.redact(source); self.kind = kind
+        self.taskID = taskID; self.spaceID = spaceID; self.at = at; self.priorResult = priorResult
+    }
+}
+
 public struct WorkspaceMemoryStatus: Codable, Equatable, Sendable {
     public var pending: Int
     public var processing: Int
@@ -60,23 +86,52 @@ extension FaciendaStore {
     /// A source stays in the workspace where it was first captured, even when its task moves.
     public func enqueueMemoryDocument(id: String, content: String, source: String, at: Date, spaceID: String, externalID: String? = nil,
                                       sourceKind: MemorySourceKind = .legacy, taskID: String? = nil) throws {
-        let content = MemoryRedaction.redact(content), source = MemoryRedaction.redact(source)
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let digest = SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
-        try db.write { db in
-            try db.execute(sql: """
-                INSERT INTO memoryDocuments(id, content, digest, source, at, operationId, state, nextAttempt, spaceId, externalId, sourceKind, taskId)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET content = excluded.content, digest = excluded.digest,
-                  source = excluded.source, at = excluded.at, operationId = excluded.operationId,
-                  sourceKind = excluded.sourceKind, taskId = excluded.taskId,
-                  state = 'pending', leaseUntil = NULL, attempts = 0, nextAttempt = excluded.nextAttempt, error = NULL
-                WHERE memoryDocuments.digest != excluded.digest
-                  OR memoryDocuments.sourceKind != excluded.sourceKind
-                """, arguments: [id, content, digest, source, at, UUID().uuidString, Date(), spaceID, externalID, sourceKind.rawValue, taskID])
+        try enqueueMemoryDocuments([PreparedMemoryDocument(id: id, content: content, source: source, at: at, spaceID: spaceID,
+                                                           externalID: externalID, sourceKind: sourceKind, taskID: taskID)])
+    }
+
+    /// Every sync offers each source again. Redacted beforehand, only the new or changed ones are written, in a few
+    /// short transactions, so the library's single write lock is never held long enough for a helper or the runner
+    /// to give up waiting. Utterances come before documents: a message's own earlier reply outranks the one found
+    /// from events, and the first one kept stays.
+    func enqueueMemoryDocuments(_ documents: [PreparedMemoryDocument?], utterances: [PreparedUtterance] = []) throws {
+        typealias Capture = (needed: (Database) throws -> Bool, apply: (Database) throws -> Void)
+        let captures: [Capture] = utterances.map { utterance in (
+            { try Self.pendingUtterance($0, id: utterance.id, text: utterance.text, kind: utterance.kind, taskID: utterance.taskID,
+                                        at: utterance.at, priorResult: utterance.priorResult).needed },
+            { try Self.captureUtterance($0, id: utterance.id, text: utterance.text, source: utterance.source, kind: utterance.kind,
+                                        taskID: utterance.taskID, spaceID: utterance.spaceID, at: utterance.at, priorResult: utterance.priorResult) }
+        ) } + documents.compactMap { $0 }.map { document in ({ try Self.documentNeeded($0, document) }, { try Self.enqueue($0, document) }) }
+        // Most syncs find everything already kept; looking in a read leaves the write lock alone.
+        let pending = try db.read { db in try captures.filter { try $0.needed(db) } }
+        for start in stride(from: 0, to: pending.count, by: 50) {
+            try db.write { db in for capture in pending[start..<min(start + 50, pending.count)] { try capture.apply(db) } }
         }
-        let originalSpace = try db.read { try String.fetchOne($0, sql: "SELECT spaceId FROM memoryDocuments WHERE id = ?", arguments: [id]) } ?? spaceID
-        try captureUtterance(id: id, text: content, source: source, kind: sourceKind, taskID: taskID, spaceID: originalSpace, at: at)
+    }
+
+    private static func documentNeeded(_ db: Database, _ document: PreparedMemoryDocument) throws -> Bool {
+        let kept = try Row.fetchOne(db, sql: "SELECT digest, sourceKind FROM memoryDocuments WHERE id = ?", arguments: [document.id])
+        guard let kept, kept["digest"] as String? == document.digest, kept["sourceKind"] as String? == document.sourceKind.rawValue else { return true }
+        return try pendingUtterance(db, id: document.id, text: document.content, kind: document.sourceKind, taskID: document.taskID,
+                                    at: document.at, priorResult: nil).needed
+    }
+
+    /// Writes only a new or changed source; an unchanged one leaves the row alone.
+    private static func enqueue(_ db: Database, _ document: PreparedMemoryDocument) throws {
+        try db.execute(sql: """
+            INSERT INTO memoryDocuments(id, content, digest, source, at, operationId, state, nextAttempt, spaceId, externalId, sourceKind, taskId)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET content = excluded.content, digest = excluded.digest,
+              source = excluded.source, at = excluded.at, operationId = excluded.operationId,
+              sourceKind = excluded.sourceKind, taskId = excluded.taskId,
+              state = 'pending', leaseUntil = NULL, attempts = 0, nextAttempt = excluded.nextAttempt, error = NULL
+            WHERE memoryDocuments.digest != excluded.digest
+              OR memoryDocuments.sourceKind != excluded.sourceKind
+            """, arguments: [document.id, document.content, document.digest, document.source, document.at, UUID().uuidString, Date(),
+                             document.spaceID, document.externalID, document.sourceKind.rawValue, document.taskID])
+        let originalSpace = try String.fetchOne(db, sql: "SELECT spaceId FROM memoryDocuments WHERE id = ?", arguments: [document.id]) ?? document.spaceID
+        try captureUtterance(db, id: document.id, text: document.content, source: document.source, kind: document.sourceKind,
+                             taskID: document.taskID, spaceID: originalSpace, at: document.at)
     }
 
     /// Gathers sources for every memory. Each source goes to the memory of the workspace its task is in.
@@ -102,9 +157,9 @@ extension FaciendaStore {
             }
             return result
         }
-        for (id, content, source, at, space, kind, taskID) in sources {
-            try enqueueMemoryDocument(id: id, content: content, source: source, at: at, spaceID: space, sourceKind: kind, taskID: taskID)
-        }
+        try enqueueMemoryDocuments(sources.map { id, content, source, at, space, kind, taskID in
+            PreparedMemoryDocument(id: id, content: content, source: source, at: at, spaceID: space, sourceKind: kind, taskID: taskID)
+        })
         for space in try memorySpaces() {
             // Rules are instructions, not knowledge to learn from.
             let notes = try memory(spaceID: space.id).filter { $0.kind != Self.ruleKind && $0.confirmedAt != nil }, id = Self.curatedNotesID(space.id)

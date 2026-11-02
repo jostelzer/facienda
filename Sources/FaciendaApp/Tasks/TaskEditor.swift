@@ -35,7 +35,7 @@ struct TaskEditor: View {
                     }
                 }
                 if let folders = draft.folders, folders.count > 1 {
-                    Text("Also works in its group’s linked folders: " + folders.map(LinkedFolder.name(of:)).joined(separator: ", "))
+                    Text("Also works in its workspace folders: " + folders.map(LinkedFolder.name(of:)).joined(separator: ", "))
                         .font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
             }.formStyle(.grouped)

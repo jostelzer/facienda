@@ -45,6 +45,8 @@ extension AppModel {
     func links(for taskID: String) -> [ThreadLink] { linksByTask[taskID] ?? [] }
     /// Any task in the library, for prerequisites and waits that name one in another workspace.
     func libraryTask(_ id: String) -> FaciendaTask? { libraryTasksByID[id] }
+    /// The task a chat already carries, in any workspace. Nil when the chat is free.
+    func owner(ofChat threadID: String) -> FaciendaTask? { chatOwners[threadID].flatMap(libraryTask) }
     func isMet(_ blocker: TaskBlocker) -> Bool {
         blocker.kind == "task" ? blocker.prerequisiteId.flatMap(libraryTask)?.state == .done : blocker.isMet(tasks: [])
     }

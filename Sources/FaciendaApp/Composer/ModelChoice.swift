@@ -80,7 +80,7 @@ struct ModelChoicePanel: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Fast mode").font(.system(size: 12, weight: .medium))
-                    Text(choice.offersFast ? "Faster replies, billed at a higher rate." : "\(choice.name) has no Fast mode.")
+                    Text(choice.offersFast ? "For the next task only. Faster, billed higher." : "\(choice.name) has no Fast mode.")
                         .font(.system(size: 11)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
@@ -95,34 +95,16 @@ struct ModelChoicePanel: View {
     /// model's app cannot start the task yet, so the footnote can say why.
     private func pick(_ id: String) {
         model.chooseComposerModel(id)
-        guard let close, startsOnItsOwn(model.composerModel.provider) else { return }
+        guard let close, model.canStart(model.composerModel.provider) else { return }
         Task { try? await Task.sleep(for: .milliseconds(150)); close() }
     }
 
-    private func startsOnItsOwn(_ provider: AgentProvider) -> Bool {
-        switch provider {
-        case .codex: model.workspaceReady
-        case .claude: model.claudeInstalled && model.claudeRunner?.isAwake() == true
-        }
-    }
-
     private func availability(_ provider: AgentProvider) -> String {
-        switch provider {
-        case .codex: model.workspaceReady ? "Connected" : "Not connected"
-        case .claude: !model.claudeInstalled ? "App not installed" : model.claudeConnected ? (model.claudeRunner?.isAwake() == true ? "Connected" : "Runner asleep") : "Not connected"
-        }
+        model.canStart(provider) ? "Connected" : "Not connected"
     }
 
     private func footnote(_ choice: TaskModelChoice) -> String {
-        switch choice.provider {
-        case .codex:
-            return model.workspaceReady ? "Starts on its own in a new Codex chat." : "Connect Codex in Settings to start Codex tasks."
-        case .claude:
-            guard model.claudeInstalled else { return "Install the Claude app to run tasks with Claude." }
-            if model.claudeRunner?.isAwake() == true { return "Starts on its own in a new Claude session." }
-            return model.claudeConnected ? "Waits for the Claude runner, which is asleep; wake it in Settings and the task starts on its own."
-                : "Waits until you connect Claude in Settings; then it starts on its own in a new Claude session."
-        }
+        model.whyDown(choice.provider) ?? "Starts on its own in a new \(choice.provider.name) \(choice.provider == .claude ? "session" : "chat")."
     }
 }
 

@@ -51,6 +51,8 @@ extension AppModel {
                 draft.workerServiceTier = choice.serviceTier; draft.workerProvider = choice.provider
             }
             let task = try store.create(draft)
+            // Fast costs more of the user's allowance, so it is for the task it was switched on for, not every task after.
+            if draft.workerServiceTier != nil { composerModel.fast = false }
             lastCaptured = task.id
             if let groupID { try store.assignGroup(taskId: task.id, groupId: groupID == Self.unsortedGroup ? nil : groupID) }
             if reveal { destination = .dashboard; selection = task.id }

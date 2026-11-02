@@ -2,10 +2,11 @@ import SwiftUI
 import FaciendaCore
 
 /// The workspaces as an island floating over the window, seen from further out than the board. Each is a small planet
-/// of its painting, all the same size, wherever you put it; the open one comes closer where it stands, so nothing ever
-/// moves on its own. The island tells two things: what agents are still working on, as a fine green dotted ring each,
-/// breathing in, out and resting, ring after ring; and what came back new, as a soft blue glow and one fine blue ring
-/// each. Then the agents' limits and Settings. The island fills whatever frame the window gives it, and stays there.
+/// of its painting, all the same size, wherever you put it, open or not; the open one glows softly in its painting's own
+/// colour where it stands, so nothing ever grows or moves on its own. The island tells two things: what agents are still
+/// working on, as a fine green dotted ring each, breathing in, out and resting, ring after ring; and what came back new,
+/// as a soft blue glow and one fine blue ring each. Then the agents' limits and Settings. The island fills whatever frame
+/// the window gives it, and stays there.
 struct WorkspaceSidebar: View {
     @Bindable var model: AppModel
     var workspaces: WorkspaceController?
@@ -25,7 +26,7 @@ struct WorkspaceSidebar: View {
     /// The planets so low on the island that their names sit above them.
     @State private var namesAbove: Set<String> = []
     /// The planet last set down, which holds still where it was put while the others make room round it, until another
-    /// planet is opened.
+    /// planet is set down. Opening a workspace never changes who holds still, so a switch moves nothing.
     @State private var dropped: String?
     /// The planet under a pressed pointer, which answers before the click is even finished.
     @State private var pressed: String?
@@ -34,12 +35,17 @@ struct WorkspaceSidebar: View {
     @State private var wish = ""
     /// Bumped each time something new lands in a workspace, to send one ripple out from its planet.
     @State private var arrivals: [String: Int] = [:]
+    /// A memory link being made: with ⌥, a memory dragged onto the workspace that should read it; from a planet's menu,
+    /// that planet waiting for the memory it should read to be clicked. Links draw no lines; the planet menu lists them.
+    @State private var linking: MemoryLinking?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The room at the island's top: for the window's traffic lights when it sits under them, else for the + alone.
     private static let lights: CGFloat = 48, header: CGFloat = 38
     static let island = RoundedRectangle(cornerRadius: 26, style: .continuous)
-    /// The open workspace comes close until its planet covers 1.6 times the area of the others. Its painting stays whole.
-    private static let near: CGFloat = 1.6.squareRoot()
+    /// The open planet's glow: its painting's mean colour, about 1.75 times across the planet.
+    private static let glowAcross: CGFloat = 1.75
+    @Environment(\.colorScheme) private var colorScheme
+    private static let fieldSpace = "island field"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,7 +55,10 @@ struct WorkspaceSidebar: View {
             let claudeUsagePrompt = model.claudeConnected && !model.demo && ClaudeUsage.shared.usage == nil
             HStack(spacing: 4) {
                 VStack(alignment: .leading, spacing: 1) {
-                    UsageMeters(usage: model.usage)
+                    // Check-ins go stale without anything changing, so the faded bars are judged again every half minute.
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        UsageMeters(usage: model.usage, down: model.agentsDown(at: context.date))
+                    }
                     if claudeUsagePrompt { ClaudeUsagePrompt() }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 settingsButton
@@ -80,18 +89,18 @@ struct WorkspaceSidebar: View {
 
     /// Every workspace on the island, near its own place. Places are kept for an upright island; on a wide one, along a top
     /// or bottom wall, the same arrangement lies on its side. The planets keep a little space round each other: one that is
-    /// carried, set down or opened holds still, and the others lean out of its way and drift home once there is room
-    /// again. A carried planet clicks into line with the others, and is set down exactly where it shows. However small the
+    /// carried or set down holds still, and the others lean out of its way and drift home once there is room again.
+    /// Which workspace is open plays no part, so switching leaves every planet where it is. A carried planet clicks into line with the others, and is set down exactly where it shows. However small the
     /// island gets, every planet stays whole inside it.
     private func field(_ workspaces: WorkspaceController) -> some View {
         GeometryReader { proxy in
             let all = workspaces.ordered, area = proxy.size, wide = area.width > area.height
             let size = Self.planetSize(area: area, count: all.count)
             let openID = workspaces.current?.id
-            // How far each planet reaches, rings included; the open one is nearer, so larger.
+            // How far each planet reaches, rings included.
             let reach = Dictionary(uniqueKeysWithValues: all.map { workspace -> (String, CGFloat) in
                 let rings = WorkRings.reach(new: workspaces.newCount(for: workspace), running: workspaces.runningCount(for: workspace))
-                return (workspace.id, (size / 2 + rings) * (workspace.id == openID ? Self.near : 1) + 2)
+                return (workspace.id, size / 2 + rings + 1)
             })
             // Where each planet rests when nothing pushes it: its own place, with all of it inside the island.
             let rest = Dictionary(uniqueKeysWithValues: all.map { workspace -> (String, CGPoint) in
@@ -103,19 +112,47 @@ struct WorkspaceSidebar: View {
                 let home = carried.flatMap { $0.id == workspace.id ? $0.snap.point : nil } ?? rest[workspace.id] ?? .zero
                 return (workspace.id, ForceField.Body(home: home, radius: reach[workspace.id] ?? 0))
             })
-            let at = ForceField.settle(bodies, held: carried?.id ?? dropped ?? openID, in: CGRect(origin: .zero, size: area), lean: size * 0.35)
+            let at = ForceField.settle(bodies, held: carried?.id ?? dropped, in: CGRect(origin: .zero, size: area), lean: size * 0.175)
+            // How far each painting reaches, without its rings: where a pointer drawing a memory link finds a planet.
+            let radii = Dictionary(uniqueKeysWithValues: all.map { ($0.id, size / 2) })
             ZStack(alignment: .topLeading) {
-                Color.clear
+                // A click on the open island lets go of a link being chosen.
+                Color.clear.contentShape(Rectangle()).onTapGesture { if linking?.anchorReads == true { withAnimation(Motion.fade) { linking = nil } } }
+                // The glow lies under every planet, so it never tints a neighbour.
+                ForEach(all) { workspace in
+                    if workspace.id == openID, let colour = workspaces.coverColours[workspace.id] {
+                        glow(Color(nsColor: colour), size: size).position(at[workspace.id] ?? .zero).transition(.opacity)
+                    }
+                }
                 guides(at)
+                linkTarget(at: at, radii: radii)
                 ForEach(all) { workspace in
                     let point = at[workspace.id] ?? .zero
                     planet(workspace, workspaces, size: size, at: point, in: area)
                         .offset(glider == workspace.id ? glide : .zero)
                         .position(point)
                         .zIndex(carried?.id == workspace.id ? 3 : hovered == workspace.id ? 2 : workspace.id == workspaces.current?.id ? 1 : 0)
-                        .gesture(carry(workspace, workspaces, from: point, reach: reach[workspace.id] ?? 0, rest: rest, in: area, wide: wide))
+                        .gesture(carry(workspace, workspaces, from: point, reach: reach[workspace.id] ?? 0, rest: rest, at: at, radii: radii, in: area, wide: wide))
                 }
             }
+            .coordinateSpace(.named(Self.fieldSpace))
+            .onContinuousHover(coordinateSpace: .named(Self.fieldSpace)) { phase in
+                guard var chosen = linking, chosen.anchorReads else { return }
+                if case .active(let pointer) = phase {
+                    chosen.target = Self.planet(at: pointer, except: chosen.anchor, all: all, at: at, radii: radii)
+                } else { chosen.target = nil }
+                if chosen.target != linking?.target, chosen.target != nil { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+                linking = chosen
+            }
+            .overlay(alignment: .top) {
+                if let chosen = linking, chosen.anchorReads, let reader = all.first(where: { $0.id == chosen.anchor }) {
+                    Text("Click the memory \(reader.name) should read").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Palette.card, in: Capsule()).overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
+                        .padding(.top, 2).transition(.opacity).allowsHitTesting(false)
+                }
+            }
+            .animation(Motion.fade, value: linking?.anchorReads)
             // The others follow a carried planet at once; anything else that moves them, on the shared curve.
             .animation(carried == nil ? Motion.move : nil, value: at)
         }
@@ -124,7 +161,8 @@ struct WorkspaceSidebar: View {
     /// About ninety points of planet on a usual island, smaller as the island shrinks or fills up, so all of them fit.
     private static func planetSize(area: CGSize, count: Int) -> CGFloat {
         let short = min(area.width, area.height), long = max(area.width, area.height)
-        let fit = min(short * 0.21, long / (CGFloat(max(count, 1)) * 0.9 + 1)) * near
+        // Every planet has the size the open one used to grow to.
+        let fit = min(short * 0.21, long / (CGFloat(max(count, 1)) * 0.9 + 1)) * 1.6.squareRoot()
         return (min(max(fit, 38), 94) * (count > 6 ? 0.88 : 1)).rounded()
     }
 
@@ -152,6 +190,30 @@ struct WorkspaceSidebar: View {
         .accessibilityHidden(true)
     }
 
+    /// While a memory link is being made, the planet it would join gets a fine halo. Links themselves draw nothing on the
+    /// island; the planet menu and the Memory page list them.
+    private func linkTarget(at: [String: CGPoint], radii: [String: CGFloat]) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let target = linking?.target, let point = at[target] {
+                Circle().stroke(Palette.muted, lineWidth: 1)
+                    .frame(width: ((radii[target] ?? 0) + 7) * 2, height: ((radii[target] ?? 0) + 7) * 2)
+                    .position(point)
+                    .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+        .animation(Motion.fade, value: linking?.target)
+        .accessibilityHidden(true)
+    }
+
+    /// The planet whose painting is under a point, if any but the one named.
+    private static func planet(at point: CGPoint, except id: String, all: [Workspace], at places: [String: CGPoint], radii: [String: CGFloat]) -> String? {
+        all.first { other in
+            guard other.id != id, let place = places[other.id] else { return false }
+            return hypot(place.x - point.x, place.y - point.y) <= (radii[other.id] ?? 0) + 8
+        }?.id
+    }
+
     private static func guide(from start: CGPoint, to end: CGPoint) -> some View {
         Path { path in path.move(to: start); path.addLine(to: end) }
             .stroke(Palette.muted.opacity(0.75), lineWidth: 0.8)
@@ -161,10 +223,9 @@ struct WorkspaceSidebar: View {
     private func planet(_ workspace: Workspace, _ workspaces: WorkspaceController, size: CGFloat, at point: CGPoint, in area: CGSize) -> some View {
         let open = workspace.id == workspaces.current?.id
         let fresh = workspaces.newCount(for: workspace), running = workspaces.runningCount(for: workspace)
-        let shown = open ? size * Self.near : size
         let image = workspaces.coverImages[workspace.id]
         let painting = workspaces.paintingCovers.contains(workspace.id)
-        let reach = shown / 2 + WorkRings.reach(new: fresh, running: running) * (open ? Self.near : 1) + 6
+        let reach = size / 2 + WorkRings.reach(new: fresh, running: running) + 6
         // A name stays under the middle of its planet until it would touch the island's edge, then waits there while the
         // planet goes on. Only when there is no room below does it cross over, fading, to sit above the planet; it comes
         // back a little later than it left, so it never flickers on the line.
@@ -174,10 +235,9 @@ struct WorkspaceSidebar: View {
         let above = namesAbove.contains(workspace.id)
         let showsName = open || carried?.id == workspace.id || (hovered == workspace.id && carried == nil)
         return ZStack {
-            // Drawn for a far planet and brought close with it, so the rings only grow and shrink.
-            WorkRings(new: fresh, running: running, radius: size / 2, phase: WorkRings.phase(for: workspace.id)).scaleEffect(open ? Self.near : 1)
-            ArrivalRipple(trigger: arrivals[workspace.id] ?? 0, radius: shown / 2)
-            disc(workspace, image: image, painting: painting, shown: shown, open: open)
+            WorkRings(new: fresh, running: running, radius: size / 2, phase: WorkRings.phase(for: workspace.id))
+            ArrivalRipple(trigger: arrivals[workspace.id] ?? 0, radius: size / 2)
+            disc(workspace, image: image, painting: painting, size: size, open: open)
         }
         .frame(width: size, height: size)
         .overlay(alignment: .top) {
@@ -218,32 +278,46 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// The painting as a small sphere; the open one comes close, showing the same picture larger. Its initial until a
-    /// picture exists.
-    private func disc(_ workspace: Workspace, image: NSImage?, painting: Bool, shown: CGFloat, open: Bool) -> some View {
+    /// The painting as a small sphere, the same size open or not. Its initial until a picture exists.
+    private func disc(_ workspace: Workspace, image: NSImage?, painting: Bool, size: CGFloat, open: Bool) -> some View {
         ZStack {
             Palette.line
             if let image {
                 Image(nsImage: image).resizable().scaledToFill()
                     .opacity(painting ? 0.5 : 1)
             } else if !painting {
-                // Set large and scaled down, so the initial grows with its planet rather than jumping a size.
-                Text(workspace.name.prefix(1).uppercased()).font(.system(size: 100, design: .serif)).foregroundStyle(Palette.muted)
-                    .fixedSize().scaleEffect(shown * 0.42 / 100)
+                Text(workspace.name.prefix(1).uppercased()).font(.system(size: size * 0.42, design: .serif)).foregroundStyle(Palette.muted)
             }
             if painting { ProgressView().controlSize(.small) }
         }
-        .frame(width: shown, height: shown)
+        .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay { Circle().strokeBorder(Palette.ink.opacity(0.12), lineWidth: open ? 0.6 : 1) }
+        .overlay { Circle().strokeBorder(Palette.ink.opacity(0.12), lineWidth: 1) }
         .brightness(hovered == workspace.id && !open ? 0.04 : 0)
         .opacity(pressed == workspace.id ? 0.8 : 1)
-        .shadow(color: .black.opacity(open ? 0.22 : 0.12), radius: open ? 11 : 4, y: open ? 8 : 3)
+        .shadow(color: .black.opacity(0.12), radius: 4, y: 3)
         .contentShape(Circle())
     }
 
+    /// The open planet's glow: one soft disc of its painting's mean colour, lifted a little so a muddy mean still
+    /// glows, and even all round whatever the picture holds. Quieter in Dark, where colour carries further.
+    private func glow(_ colour: Color, size: CGFloat) -> some View {
+        let across = size * Self.glowAcross
+        return Circle()
+            .fill(RadialGradient(stops: [.init(color: colour, location: 0), .init(color: colour, location: 0.5),
+                                         .init(color: colour.opacity(0.45), location: 0.75), .init(color: colour.opacity(0), location: 1)],
+                                 center: .center, startRadius: 0, endRadius: across / 2))
+            .frame(width: across, height: across)
+            .blur(radius: size * 0.06)
+            .saturation(1.7)
+            .brightness(0.05)
+            .opacity(colorScheme == .dark ? 0.7 : 0.85)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     /// The open workspace's name, or, on hover, any other's. Set the same way for both, so a planet chosen under the
-    /// pointer keeps its name while it comes close, and the one drawing back lets its name fade as it was. Only names:
+    /// pointer keeps its name while it opens, and the one it leaves lets its name fade as it was. Only names:
     /// the rings already say what is new and running.
     private func label(_ workspace: Workspace, painting: Bool) -> some View {
         VStack(spacing: 2) {
@@ -257,15 +331,27 @@ struct WorkspaceSidebar: View {
     /// A click opens the workspace; a drag carries its planet to a new place, where it stays. On the way it clicks into
     /// line with the other planets: it glides the last few points onto the line, the trackpad taps once, and a fine line
     /// joins it to the planet it lines up with. Let go, and it stays exactly where it shows.
+    ///
+    /// With ⌥ held, the drag draws a memory link instead: let go over another planet and that workspace reads this one's
+    /// memory, or stops reading it if it already did. While a link is chosen from a planet's menu, a click on another
+    /// planet picks the memory it reads.
     private func carry(_ workspace: Workspace, _ workspaces: WorkspaceController, from point: CGPoint, reach: CGFloat,
-                       rest: [String: CGPoint], in area: CGSize, wide: Bool) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+                       rest: [String: CGPoint], at: [String: CGPoint], radii: [String: CGFloat], in area: CGSize, wide: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.fieldSpace))
             .onChanged { drag in
-                guard carried?.id == workspace.id || hypot(drag.translation.width, drag.translation.height) > 4 else {
+                let dragging = linking.map { $0.anchor == workspace.id && !$0.anchorReads } ?? false
+                guard linking?.anchorReads != true,
+                      carried?.id == workspace.id || dragging || hypot(drag.translation.width, drag.translation.height) > 4 else {
                     if pressed != workspace.id { pressed = workspace.id }
                     return
                 }
                 pressed = nil
+                if dragging || (carried == nil && !workspaces.demo && NSEvent.modifierFlags.contains(.option)) {
+                    let target = Self.planet(at: drag.location, except: workspace.id, all: workspaces.ordered, at: at, radii: radii)
+                    if let target, target != linking?.target { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+                    linking = MemoryLinking(anchor: workspace.id, anchorReads: false, target: target)
+                    return
+                }
                 let before = carried?.id == workspace.id ? carried?.snap : nil
                 let start = before == nil ? point : carried!.start
                 let pointer = Self.inside(CGPoint(x: start.x + drag.translation.width, y: start.y + drag.translation.height), reach: reach, area)
@@ -288,6 +374,19 @@ struct WorkspaceSidebar: View {
             }
             .onEnded { _ in
                 pressed = nil
+                if let drawn = linking {
+                    // A memory dragged onto a reader, or, from a reader's menu, the memory clicked for it to read.
+                    let reader = drawn.anchorReads ? drawn.anchor : drawn.target
+                    let source = drawn.anchorReads ? workspace.id : drawn.anchor
+                    if drawn.anchorReads || drawn.anchor == workspace.id {
+                        if let reader, reader != source, let readerSpace = workspaces.workspaces.first(where: { $0.id == reader }),
+                           let sourceSpace = workspaces.workspaces.first(where: { $0.id == source }) {
+                            withAnimation(Motion.fade) { workspaces.toggleRead(readerSpace, sourceSpace); hovered = reader }
+                        }
+                        withAnimation(Motion.fade) { linking = nil }
+                        return
+                    }
+                }
                 guard let held = carried, held.id == workspace.id else { choose(workspace, workspaces); return }
                 var still = Transaction(); still.disablesAnimations = true
                 withTransaction(still) {
@@ -300,12 +399,12 @@ struct WorkspaceSidebar: View {
             }
     }
 
-    /// The chosen planet comes close and the open one draws back as one board fades into the next, all starting at the
+    /// The chosen planet's glow comes as the open one's fades and one board fades into the next, all starting at the
     /// click and landing together. Reading the workspace and building its board hold the first frame for a moment.
     private func choose(_ workspace: Workspace, _ workspaces: WorkspaceController) {
         if workspace.id == workspaces.current?.id { model.search = ""; model.destination = .dashboard; return }
         guard !workspaces.demo else { return }
-        withAnimation(reduceMotion ? Motion.fade : Motion.move) { dropped = nil; workspaces.open(workspace) }
+        withAnimation(reduceMotion ? Motion.fade : Motion.move) { workspaces.open(workspace) }
     }
 
     /// What is new in every workspace, and which is open.
@@ -330,6 +429,30 @@ struct WorkspaceSidebar: View {
             choose(workspace, workspaces)
         }
         Button("Edit workspace…", systemImage: "pencil") { workspaces.error = nil; workspaces.sheet = .edit(workspace) }
+        let others = workspaces.ordered.filter { $0.id != workspace.id }
+        if !others.isEmpty, !workspaces.demo {
+            Button("Read another memory…", systemImage: "arrow.down.forward.circle") {
+                withAnimation(Motion.fade) { linking = MemoryLinking(anchor: workspace.id, anchorReads: true) }
+            }
+            Menu("Reads memory of", systemImage: "link") {
+                ForEach(others) { other in
+                    Toggle(other.name, isOn: Binding(get: { workspaces.read(workspace, other) != nil },
+                                                     set: { _ in withAnimation(Motion.fade) { workspaces.toggleRead(workspace, other) } }))
+                }
+                // Whether each memory read here lends what it has understood too, marked as inferred.
+                let sources = others.filter { workspaces.read(workspace, $0) != nil }
+                if !sources.isEmpty {
+                    Section("With what they have understood") {
+                        ForEach(sources) { other in
+                            Toggle(other.name, isOn: Binding(get: { workspaces.read(workspace, other)?.understanding ?? false },
+                                                             set: { workspaces.setRead(workspace, other, understanding: $0) }))
+                        }
+                    }
+                }
+                Divider()
+                Text("Or hold ⌥ and drag another planet onto this one")
+            }
+        }
         if workspaces.coverPainter != nil, !workspaces.demo {
             let painting = workspaces.paintingCovers.contains(workspace.id)
             Divider()
@@ -505,3 +628,12 @@ private enum Breath {
         return rest
     }
 }
+
+/// A memory link on its way: the planet it starts at, whether that planet is the one that will read, and the planet under
+/// the pointer.
+private struct MemoryLinking: Equatable {
+    var anchor: String
+    var anchorReads: Bool
+    var target: String? = nil
+}
+

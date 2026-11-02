@@ -33,6 +33,8 @@ public struct WorkspaceMemoryService: Sendable {
         let notes = try store.memory(spaceID: space.id).filter { $0.confirmedAt != nil }
         var context: [String: JSONValue] = ["memory": .string(space.name), "userConfirmed": try .encoded(notes), "bankId": .string(space.bankId)]
         context["entries"] = try .encoded(store.findMemoryEntries(query, spaceID: space.id))
+        let linked = try store.linkedMemoryEntries(query, spaceID: space.id)
+        if !linked.isEmpty { context["readFromOtherWorkspaces"] = .array(linked.map(\.forAgent)) }
         context["understanding"] = try .encoded(await MemoryReasoningSearch(store: store).understanding(query, spaceID: space.id).map(\.forInference))
         context["learning"] = try .encoded(store.memoryLearningProgress(spaceID: space.id))
         if try store.memoryWasMigrated(space.id) {

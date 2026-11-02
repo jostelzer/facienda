@@ -271,7 +271,10 @@ public final class FaciendaStore: Sendable {
         if needsInput { task.state = .needsMe }
         else if active { task.state = .running }
         else if try Self.hasPendingDecision(db, taskId: taskId) { task.state = .needsMe }
-        else if task.state == .running { task.state = .needsMe; task.nextAction = "Review the latest \(provider.name) result" }
+        else if task.state == .running {
+            task.state = try stateAfterTurn(db, taskId: taskId)
+            if task.state == .needsMe { task.nextAction = "Review the latest \(provider.name) result" }
+        }
         else { return }
         guard task.state != original.state || task.nextAction != original.nextAction || task.returnAt == nil else { return }
         task.returnAt = task.returnAt ?? at; task.updatedAt = at; task.revision += 1
@@ -307,7 +310,13 @@ public final class FaciendaStore: Sendable {
         guard !decision.question.isEmpty, !decision.recommendation.isEmpty, !decision.options.isEmpty, decision.options.contains(decision.recommendation) else { throw StoreError.invalid("Decisions need a question, options, and a recommendation from those options.") }
         return try write { db in
             guard var task = try FaciendaTask.fetchOne(db, key: decision.taskId), task.state.isOpen else { throw StoreError.invalid("The task is closed or missing.") }
-            if let existing = try Decision.fetchOne(db, sql: "SELECT * FROM decisions WHERE taskId = ? AND question = ? AND state = 'pending'", arguments: [decision.taskId, decision.question]) { return existing }
+            if var existing = try Decision.fetchOne(db, sql: "SELECT * FROM decisions WHERE taskId = ? AND question = ? AND state = 'pending'", arguments: [decision.taskId, decision.question]) {
+                // Proposing to close again brings the latest evidence; the first proposal may describe older work.
+                guard existing.kind == "completion", decision.kind == "completion" else { return existing }
+                existing.context = decision.context; existing.createdAt = Date()
+                try existing.update(db)
+                return existing
+            }
             try decision.insert(db)
             if try task.state != .running || !Self.claudeTurnRuns(db, taskId: task.id) { task.state = .needsMe }
             task.nextAction = decision.question; task.returnAt = Date(); task.revision += 1; task.updatedAt = Date()

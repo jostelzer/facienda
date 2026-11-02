@@ -74,7 +74,7 @@ extension FaciendaStore {
 
     /// Tasks already moved to another chat. The choice is made: their request and answers stop offering chats to continue in.
     public func handedOverTasks() throws -> Set<String> {
-        try db.read { db in Set(try String.fetchAll(db, sql: "SELECT DISTINCT taskId FROM events WHERE kind = 'thread.handover'")) }
+        try db.read { db in Set(try String.fetchAll(db, sql: "SELECT DISTINCT taskId FROM events WHERE kind = 'thread.handover' AND taskId IS NOT NULL")) }
     }
 
     /// A chat a task may continue in: not a runner's, not another task's, and for Claude a session the app still has.
@@ -82,14 +82,23 @@ extension FaciendaStore {
         guard !chat.threadId.trimmingCharacters(in: .whitespaces).isEmpty else { throw StoreError.invalid("Name the chat to continue in.") }
         guard try !isRunner(db, chat.threadId) else { throw StoreError.invalid("A Facienda runner's chat cannot carry a task.") }
         if let owner = try ThreadLink.fetchOne(db, sql: "SELECT * FROM threadLinks WHERE codexThreadId = ?", arguments: [chat.threadId]), owner.taskId != taskId {
-            let other = try FaciendaTask.fetchOne(db, key: owner.taskId)
-            throw StoreError.invalid("This chat already belongs to the task “\(other?.displayName ?? "another task")”. Bring that task back instead.")
+            throw StoreError.invalid(try takenMessage(db, owner: owner.taskId, asking: taskId))
         }
         if chat.provider == .claude {
             guard chat.threadId.hasPrefix("local_"), chat.cliSessionId?.isEmpty == false else {
                 throw StoreError.invalid("Only sessions of the Claude app can carry a task.")
             }
         }
+    }
+
+    /// Says which task has the chat, and where it is when that isn't where you are: a task in another workspace or a
+    /// finished one is easy to forget, and without its place the refusal reads like a riddle.
+    static func takenMessage(_ db: Database, owner: String, asking taskId: String) throws -> String {
+        guard let other = try FaciendaTask.fetchOne(db, key: owner) else { return "This chat is taken by another task. A chat carries one task." }
+        let here = try FaciendaTask.fetchOne(db, key: taskId)?.workspaceId
+        let place = other.workspaceId == here ? nil : try other.workspaceId.flatMap { try Workspace.fetchOne(db, key: $0)?.name }
+        let notes = [other.state.isOpen ? nil : "done", place.map { "in \($0)" }].compactMap { $0 }
+        return "This chat is taken by “\(other.displayName)”\(notes.isEmpty ? "" : " (\(notes.joined(separator: ", ")))"). A chat carries one task."
     }
 
     /// A Claude app session as a new task, its first message as the original request. A session that already carries
@@ -158,6 +167,9 @@ extension ClaudeDesktop {
         /// What the session is set to now in the Claude app, such as `claude-sonnet-5-5` and `medium`.
         public var model: String? = nil
         public var effort: String? = nil
+        /// The error that ended its last turn, as the app shows it, such as a usage limit and when it resets.
+        public var error: String? = nil
+        public var errorAt: Date? = nil
         public var chat: ChatCandidate { ChatCandidate(threadId: id, provider: .claude, title: title, cwd: cwd, cliSessionId: cliSessionId) }
     }
 
@@ -210,7 +222,9 @@ extension ClaudeDesktop {
         return Session(id: id, cliSessionId: cli, title: (root["title"] as? String) ?? "", cwd: cwd,
                        lastActivityAt: Date(timeIntervalSince1970: activity / 1000),
                        archived: (root["isArchived"] as? Bool) == true || archived.contains(id),
-                       model: root["model"] as? String, effort: root["effort"] as? String)
+                       model: root["model"] as? String, effort: root["effort"] as? String,
+                       error: (root["error"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                       errorAt: (root["errorAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
     }
 
     private static func archivedSessions(in organisation: URL) -> Set<String> {

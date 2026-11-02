@@ -206,6 +206,10 @@ extension FaciendaStore {
         registerMemoryCollections(&migrator)
         registerMemoryUnderstanding(&migrator)
         registerUnifiedIntake(&migrator)
+        registerClaudeSidebar(&migrator)
+        registerWorkspacePlaces(&migrator)
+        registerMemoryReads(&migrator)
+        registerOvertakenCompletions(&migrator)
         return migrator
     }
 }

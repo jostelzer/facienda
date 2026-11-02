@@ -44,3 +44,24 @@ import Testing
     try Data().write(to: root.appending(path: "tokenizer_config.json"))
     #expect(SpeechModelSnapshot.isReady(defaults: defaults, folder: folder))
 }
+
+@Test func aSpeechModelIsSetUpOnlyOnceLoadedFromItsFolderOnThisSystem() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "speech-prepared-\(UUID().uuidString)")
+    let folder = root.appending(path: "model"), suite = "FaciendaSpeechTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    for name in ["AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc", "config.json"] {
+        try Data().write(to: folder.appending(path: name))
+    }
+    for name in ["tokenizer.json", "tokenizer_config.json"] { try Data().write(to: root.appending(path: name)) }
+    defaults.set(folder.path, forKey: SpeechModelSnapshot.readyKey)
+    // Downloaded but never loaded: the first load still has to compile it.
+    #expect(!SpeechModelSnapshot.isPrepared(defaults: defaults, folder: folder))
+    defaults.set(folder.path + "|an older macOS", forKey: SpeechModelSnapshot.preparedKey)
+    #expect(!SpeechModelSnapshot.isPrepared(defaults: defaults, folder: folder))
+    defaults.set(SpeechModelSnapshot.preparedMark(folder: folder), forKey: SpeechModelSnapshot.preparedKey)
+    #expect(SpeechModelSnapshot.isPrepared(defaults: defaults, folder: folder))
+    defaults.removeObject(forKey: SpeechModelSnapshot.readyKey)
+    #expect(!SpeechModelSnapshot.isPrepared(defaults: defaults, folder: folder))
+}

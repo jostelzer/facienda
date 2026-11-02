@@ -11,6 +11,17 @@ enum SpeechModelSnapshot {
     static let storage = LibraryHome.supportDirectory.appending(path: "Speech/\(model.revision)-\(tokenizer.revision)", directoryHint: .isDirectory)
     static let modelFolder = storage.appending(path: modelName, directoryHint: .isDirectory)
     static let readyKey = "whisperModelFolder"
+    /// Set once the model has loaded from its folder on this macOS. Before that, loading compiles it for this Mac,
+    /// which can take minutes; afterwards it takes seconds. A macOS update compiles it again.
+    static let preparedKey = "whisperModelPrepared"
+
+    static func preparedMark(folder: URL = modelFolder) -> String {
+        folder.path + "|" + ProcessInfo.processInfo.operatingSystemVersionString
+    }
+
+    static func isPrepared(defaults: UserDefaults = .standard, folder: URL = modelFolder) -> Bool {
+        isReady(defaults: defaults, folder: folder) && defaults.string(forKey: preparedKey) == preparedMark(folder: folder)
+    }
 
     static func isReady(defaults: UserDefaults = .standard, folder: URL = modelFolder) -> Bool {
         guard defaults.string(forKey: readyKey) == folder.path else { return false }

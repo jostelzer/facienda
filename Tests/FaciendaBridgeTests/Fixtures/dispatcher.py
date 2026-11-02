@@ -55,6 +55,16 @@ for line in sys.stdin:
             page = newest[start:start + params.get("limit", 25)]
             end = start + len(page)
             result = {"data": page, "nextCursor": str(end) if end < len(newest) else None}
+        elif method == "thread/list":
+            wanted = set(params.get("cwd") or [])
+            result = {"data": [t for t in settings.get("threads", []) if t["cwd"] in wanted and t.get("archived", False) == params.get("archived", False)], "nextCursor": None}
+        elif method == "thread/metadata/update":
+            for thread in settings.get("threads", []):
+                if thread["id"] == params["threadId"]:
+                    thread["projectId"] = params["projectId"]
+            result = {"thread": {"id": params["threadId"]}}
+        elif method == "fixture/threads":
+            result = {"threads": settings.get("threads", [])}
         elif method == "thread/queue/list":
             result = {"data": queued, "nextCursor": None}
         elif method == "thread/queue/add":

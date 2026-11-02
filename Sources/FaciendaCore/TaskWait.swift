@@ -98,19 +98,11 @@ extension FaciendaStore {
 
     /// Observed conditions are checked by the task's chat at the wait's cadence, until the wait gives up.
     private func watchObservedConditions(_ db: Database, taskId: String, plan: WaitPlan, hasChat: Bool, now: Date) throws {
-        try arrangeBlockerCheck(db, taskId: taskId, threadId: nil, reset: true, now: now)
+        try arrangeBlockerCheck(db, taskId: taskId, threadId: nil, reset: true, waitPlan: plan, now: now)
         if !hasChat {
             // Something has to look. A small chat is created for the checks only.
             try Self.queueAssessment(db, taskId: taskId, now: now)
         }
-        guard var check = try CheckPlan.fetchOne(db, key: taskId) else { return }
-        if check.paused && check.lastOutcome != "All conditions met" { check.paused = false; check.failures = 0; check.checks = 0 }
-        if let giveUpAt = plan.giveUpAt { check.deadline = giveUpAt; check.nextCheck = min(check.nextCheck, giveUpAt) }
-        else if check.deadline <= now { check.deadline = now.addingTimeInterval(30 * 86400) }
-        // The cadence is both the floor the store enforces and the rhythm the chat is asked to keep.
-        check.minimumInterval = plan.checkInterval
-        check.reason = "Look about " + WaitPlan.cadenceLabel(plan.checkInterval) + (plan.giveUpAt.map { ", giving up " + $0.formatted(date: .abbreviated, time: .shortened) } ?? "") + "."
-        check.revision += 1; try check.update(db)
     }
 
     /// The user ends the wait early and takes the task back.
@@ -198,6 +190,17 @@ extension FaciendaStore {
 
     func hasActiveWait(_ db: Database, taskId: String) throws -> Bool {
         try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM waits WHERE taskId = ? AND state = 'active'", arguments: [taskId]) ?? 0 > 0
+    }
+
+    /// Quiet work returns directly to its wait, without briefly announcing a result to the user.
+    func stateAfterTurn(_ db: Database, taskId: String) throws -> TaskState {
+        if try Self.hasPendingDecision(db, taskId: taskId) { return .needsMe }
+        if let wait = try TaskWait.fetchOne(db, key: taskId), wait.isActive {
+            if try needsAttention(db, wait: wait) { return .needsMe }
+            return wait.plan.conditions.allSatisfy { $0.kind == .time } ? .scheduled : .waiting
+        }
+        if let check = try CheckPlan.fetchOne(db, key: taskId), !check.paused { return .waiting }
+        return .needsMe
     }
 
     /// Decides every active wait: still waiting, met, given up, or impossible. No model needed.

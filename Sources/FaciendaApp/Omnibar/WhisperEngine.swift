@@ -20,12 +20,16 @@ actor WhisperEngine {
         SpeechModelSnapshot.isReady() ? SpeechModelSnapshot.modelFolder : nil
     }
     nonisolated static var isDownloaded: Bool { modelFolder != nil }
+    /// Whether the model has been set up on this Mac, so loading it takes seconds rather than minutes.
+    nonisolated static var isPrepared: Bool { SpeechModelSnapshot.isPrepared() }
 
     /// Downloads the model and its tokenizer if needed, one file at a time. Progress runs from 0 to 1.
     /// Files already complete from an earlier attempt are kept.
     /// (WhisperKit's own downloader fails on the model's nested folders.)
     func download(progress: @escaping @Sendable (Double) -> Void) async throws {
         guard Self.modelFolder == nil else { return }
+        // New files need setting up again.
+        UserDefaults.standard.removeObject(forKey: SpeechModelSnapshot.preparedKey)
         let modelName = SpeechModelSnapshot.modelName, folder = SpeechModelSnapshot.modelFolder
         let model = SpeechModelSnapshot.model, tokenizer = SpeechModelSnapshot.tokenizer
         var files = try await Self.files(in: model, under: modelName).map { file in
@@ -88,7 +92,8 @@ actor WhisperEngine {
         try outcome.check()
     }
 
-    /// Loads the model into memory. The first load after an OS update can take a minute while Core ML compiles it.
+    /// Loads the model into memory. The first load after a download or an OS update can take minutes while Core ML
+    /// compiles it for the Neural Engine.
     func load() async throws {
         if kit != nil { return }
         if let loading { return try await loading.value }
@@ -99,12 +104,14 @@ actor WhisperEngine {
             let kit = try await WhisperKit(config)
             try await kit.loadTokenizerIfNeeded()
             self.kit = kit
+            UserDefaults.standard.set(SpeechModelSnapshot.preparedMark(folder: folder), forKey: SpeechModelSnapshot.preparedKey)
         }
         loading = task
         defer { loading = nil }
         do { try await task.value } catch {
             // Damaged files: the next start checks every file again and fetches what is wrong.
             UserDefaults.standard.removeObject(forKey: Self.readyKey)
+            UserDefaults.standard.removeObject(forKey: SpeechModelSnapshot.preparedKey)
             throw error
         }
     }

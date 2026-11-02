@@ -82,11 +82,11 @@ extension FaciendaStore {
         let summary = "Facienda routed this start itself; the new chat searches related history with facienda_chat_search."
         let project: DispatchContext.Project?
         if let folders = task.folders, !folders.isEmpty {
-            // Folders the user linked to the task's group decide where it works.
+            // The workspace folders the task's group works in decide where it works.
             let wanted = Set(folders.map(normal))
             let id = try linkedProjectId(task: task) ?? projects.first { Set($0.paths.map(normal)) == wanted }?.id
-            guard let id else { throw StoreError.invalid("This task's group has no Codex project for its linked folders yet. Open the group's folders in Facienda to create it.") }
-            project = .init(id: id, path: folders[0], reason: "The folders linked to the task's group.")
+            guard let id else { throw StoreError.invalid("There is no Codex project for this task's folders yet. Start it again from Facienda to create one.") }
+            project = .init(id: id, path: folders[0], reason: "The workspace folders the task works in.")
         } else if task.cwd == nil || isAutomaticWorkingDirectory(task.cwd!, taskID: task.id) {
             guard let id = try workspaceSetup()?.projectId else { throw StoreError.invalid("Connect Codex in Settings first.") }
             let folder = task.cwd ?? taskFolder(task.id).path

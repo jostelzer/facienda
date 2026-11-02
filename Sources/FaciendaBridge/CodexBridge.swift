@@ -163,11 +163,20 @@ public actor CodexBridge {
         process = nil
         failPending(BridgeError.disconnected)
     }
-    /// Waits for an owned server to release its chat writer locks before handing them to another app.
-    func disconnectAndWait() async {
+    /// Waits for an owned server to release its chat writer locks before handing them to another app. It polls
+    /// rather than calling waitUntilExit, which once missed a server's exit and held the dispatcher for good, so
+    /// Codex read as down. A server still running after the limit is killed.
+    func disconnectAndWait(within limit: Duration = .seconds(10)) async {
         let owned = process
         disconnect()
-        if let owned { await Task.detached { owned.waitUntilExit() }.value }
+        guard let owned else { return }
+        let deadline = ContinuousClock.now + limit
+        while owned.isRunning {
+            guard ContinuousClock.now < deadline, (try? await Task.sleep(for: .milliseconds(50))) != nil else {
+                kill(owned.processIdentifier, SIGKILL)
+                return
+            }
+        }
     }
     private func failPending(_ error: any Error) {
         let requests = pending; pending.removeAll()
@@ -233,7 +242,10 @@ public actor CodexBridge {
         if let cursor { params["cursor"] = .string(cursor) }; if let search, !search.isEmpty { params["searchTerm"] = .string(search) }
         return try await request("thread/list", params: .object(params)).decoded(ThreadPage.self)
     }
+    /// Metadata only. Conversation text is read separately in small summary pages.
     public func readThread(_ id: String) async throws -> JSONValue {
-        try await request("thread/read", params: .object(["threadId": .string(id), "includeTurns": .bool(true)]))
+        let response = try await request("thread/read", params: .object(["threadId": .string(id), "includeTurns": .bool(false)]))
+        guard response["thread"]["id"].string == id else { throw BridgeError.server("Codex returned a different chat.") }
+        return response
     }
 }

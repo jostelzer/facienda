@@ -53,7 +53,7 @@ struct DashboardModes<Beside: View>: View {
             line(compact: false)
             line(compact: true)
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 18) { DashboardModeSwitch(); Spacer(minLength: 0); newGroup }
+                HStack(spacing: 18) { DashboardModeSwitch(waiting: model.workspaceSources.contains { $0.state == .proposed }); Spacer(minLength: 0); newGroup }
                 legend(compact: false)
             }
         }
@@ -63,7 +63,7 @@ struct DashboardModes<Beside: View>: View {
 
     private func line(compact: Bool) -> some View {
         HStack(spacing: 18) {
-            DashboardModeSwitch()
+            DashboardModeSwitch(waiting: model.workspaceSources.contains { $0.state == .proposed })
             legend(compact: compact)
             Spacer(minLength: 0)
             newGroup
@@ -97,6 +97,8 @@ struct DashboardModes<Beside: View>: View {
 
 /// Board, Plan or Memory, at the start of the page row. The highlight slides from one to the other.
 struct DashboardModeSwitch: View {
+    /// A source an agent offered waits in Memory's Places: Memory shows the blue dot.
+    var waiting = false
     @AppStorage("dashboardMode") private var mode = DashboardMode.board.rawValue
     @Namespace private var pill
 
@@ -120,6 +122,7 @@ struct DashboardModeSwitch: View {
             HStack(spacing: 5) {
                 Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
                 Text(title).font(.system(size: 12, weight: .semibold))
+                if value == .memory && waiting { Circle().fill(Palette.blue).frame(width: 5, height: 5).transition(.opacity) }
             }
             .foregroundStyle(on ? Palette.ink : Palette.muted)
             .padding(.horizontal, 10).padding(.vertical, 4)
@@ -131,7 +134,8 @@ struct DashboardModeSwitch: View {
             }
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain).help(help)
+        .buttonStyle(.plain).help(value == .memory && waiting ? help + ". A proposed source waits in Places." : help)
+        .animation(Motion.fade, value: waiting)
         .accessibilityLabel(title).accessibilityAddTraits(on ? .isSelected : [])
     }
 }

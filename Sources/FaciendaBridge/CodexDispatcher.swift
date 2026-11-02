@@ -27,6 +27,8 @@ public actor CodexDispatcher {
     private var releasing: Set<String> = []
     private var releasesInFlight: [String: Task<Void, Error>] = [:]
     private var listening: Task<Void, Never>?
+    /// Whether this launch has put older task chats into the Facienda project.
+    private var filedTaskChats = false
 
     public init(store: FaciendaStore, helper: String, executable: String? = CodexBridge.discoverExecutable(), approvalPolicy: String? = nil, bridge: CodexBridge = CodexBridge(), wake: (@Sendable (String) async throws -> Void)? = nil, log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.store = store; self.executable = executable; self.approvalPolicy = approvalPolicy; self.bridge = bridge; self.log = log
@@ -63,6 +65,9 @@ public actor CodexDispatcher {
         // A nearly full disk holds the queue: a task started now could fill it. Facienda shows why on the board.
         if let free = DiskUsage.available(at: store.workFolder), free < DiskUsage.lowSpaceThreshold { return false }
         if await !bridge.isConnected { try await connect() }
+        // Checked in only once Codex answers, so the app can tell a dispatcher that reaches Codex from one that keeps failing.
+        try store.runnerHeartbeat(Self.runnerId)
+        if !filedTaskChats { await fileTaskChats() }
         await releaseFinishedChats()
         try await inspectUnreportedChecks()
         let store = store
@@ -70,6 +75,40 @@ public actor CodexDispatcher {
         try store.renewRunnerLease(runnerId: Self.runnerId, holder: holder)
         if let item { await deliver(item) }
         return true
+    }
+
+    /// Chats started before Facienda named their project have none. Codex's phone app then lists each one under
+    /// its task folder's ID, so they join the Facienda project here. Only chats in task folders are touched.
+    func fileTaskChats() async {
+        guard let project = try? store.workspaceSetup()?.projectId else { return }
+        // Built from the names, since a listing may resolve symlinks and Codex matches folders exactly.
+        let folders = ((try? FileManager.default.contentsOfDirectory(atPath: store.workFolder.path)) ?? [])
+            .filter { UUID(uuidString: $0) != nil }.map { JSONValue.string(store.workFolder.appending(path: $0).path) }
+        do {
+            var filed = 0
+            if !folders.isEmpty {
+                for archived in [false, true] {
+                    var cursor: String?
+                    repeat {
+                        var params: [String: JSONValue] = ["limit": .number(100), "cwd": .array(folders), "archived": .bool(archived), "useStateDbOnly": .bool(true)]
+                        if let cursor { params["cursor"] = .string(cursor) }
+                        let page = try await bridge.request("thread/list", params: .object(params), timeout: .seconds(60))
+                        for thread in page["data"].array ?? [] where thread["projectId"].string == nil {
+                            guard let id = thread["id"].string else { continue }
+                            _ = try await bridge.request("thread/metadata/update", params: .object(["threadId": .string(id), "projectId": .string(project)]))
+                            filed += 1
+                        }
+                        let next = page["nextCursor"].string
+                        if next == cursor && next != nil { throw BridgeError.server("Codex repeated a chat page.") }
+                        cursor = next
+                    } while cursor != nil
+                }
+            }
+            filedTaskChats = true
+            if filed > 0 { log("Put \(filed) task chats into the Facienda project.") }
+        } catch {
+            log("File task chats: \(error.localizedDescription)")
+        }
     }
 
     // MARK: Delivery
@@ -110,6 +149,8 @@ public actor CodexDispatcher {
                 guard let executable else { throw BridgeError.unavailable }
                 let folder = delivery["workingFolder"].string ?? delivery["targetProject"]["path"].string ?? store.workFolder.path
                 var params: [String: JSONValue] = ["cwd": .string(folder)]
+                // Codex's phone app groups chats by their project, not by a folder inside one, so name the project.
+                if let project = delivery["targetProject"]["id"].string { params["projectId"] = .string(project) }
                 if let model = delivery["workerModel"].string { params["model"] = .string(model) }
                 if let tier = delivery["workerServiceTier"].string { params["serviceTier"] = .string(tier) }
                 if let approvalPolicy { params["approvalPolicy"] = .string(approvalPolicy) }

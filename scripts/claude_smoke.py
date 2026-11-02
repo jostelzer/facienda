@@ -81,6 +81,10 @@ with sqlite3.connect(database) as db:
 handoff = as_json(run('--claude', 'handoff', '--dispatch-id', start['id']))
 assert handoff['url'].startswith('claude://code/new?') and handoff['prompt'].startswith(f"Facienda dispatch: {start['id']}\n")
 assert f"--claude attach --dispatch-id {start['id']}" in handoff['prompt']
+# Idle, the runner is asked once for its hourly alarm; reporting it ends the asking.
+idle = as_json(run('--claude', 'next', session=RUNNER))
+assert idle['status'] == 'idle' and 'CronCreate' in idle['alarm'] and '--alarm set' in idle['alarm'], idle
+run('--claude', 'capabilities', '--can-start-sessions', 'false', '--alarm', 'set', session=RUNNER)
 assert as_json(run('--claude', 'next', session=RUNNER)) == {'status': 'idle'}
 
 # The task session links itself and waits while the runner applies the model.

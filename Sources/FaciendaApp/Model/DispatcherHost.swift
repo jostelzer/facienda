@@ -54,7 +54,8 @@ import FaciendaBridge
         guard inApp?.library != library else { return }
         stopInApp()
         let helper = model.mcpHelperPath, executable = model.executable
-        inApp = (library, Task.detached(priority: .utility) {
+        // Not utility: the dispatcher holds the library's write lock, and throttled it held it for seconds.
+        inApp = (library, Task.detached(priority: .medium) {
             guard let store = try? LibraryHome.open(at: library) else { return }
             await CodexDispatcher(store: store, helper: helper, executable: executable, log: { NSLog("%@", $0) }).run()
         })

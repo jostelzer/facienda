@@ -123,7 +123,7 @@ extension FaciendaStore {
                     try item.update(db)
                 }
             }
-            // Folders the user linked to the task's group decide where a new chat works.
+            // The workspace folders the task works in decide where a new chat works.
             if context.route == .new, let folders = task.folders, folders.count > 1 {
                 let path = context.project.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
                 guard let path, folders.contains(path) else {

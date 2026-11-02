@@ -64,3 +64,25 @@ struct ClaudeAccessPrompt: ViewModifier {
         }
     }
 }
+
+/// Whether the runner files task sessions into one group in Claude's sidebar, instead of under each task folder's ID.
+struct ClaudeSidebarGroupSetting: View {
+    @Bindable var model: AppModel
+    @State private var on = true
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Keep Facienda chats together in Claude", isOn: Binding(get: { on }, set: set)).disabled(model.demo)
+            Text("The runner files each new task chat under a “\(FaciendaStore.claudeSidebarGroupName)” group in Claude’s sidebar. Otherwise a task without a linked folder shows under its folder’s ID.")
+                .font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            if let error { Text(error).font(.system(size: 12)).foregroundStyle(Palette.accent) }
+        }
+        .task { on = (try? model.store.groupsClaudeSessions()) ?? true }
+    }
+
+    private func set(_ value: Bool) {
+        do { try model.store.setGroupsClaudeSessions(value); on = value; error = nil }
+        catch { self.error = error.localizedDescription }
+    }
+}

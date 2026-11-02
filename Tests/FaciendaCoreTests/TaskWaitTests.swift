@@ -82,10 +82,88 @@ private let hour: TimeInterval = 3600
     let task = try store.create(FaciendaTask(title: "Draft", state: .running, nextAction: "Draft"))
     try store.park(task.id, plan: WaitPlan(conditions: [.time(now.addingTimeInterval(hour))]), now: now)
     #expect(try store.task(task.id).state == .running)
+    let read = try store.readMarks()[task.id]
     try store.saveResult(taskId: task.id, text: "Done drafting")
     #expect(try store.task(task.id).state == .scheduled)
+    #expect(try store.readMarks()[task.id] == read)
     _ = try store.claimWaitNotices(now: now.addingTimeInterval(2 * hour))
     #expect(try store.task(task.id).state == .needsMe)
+}
+
+@Test(arguments: [false, true])
+func weeklyWaitChecksAtItsCadenceAndOnlySurfacesWhenReady(ready: Bool) throws {
+    let store = try waitStore(), now = Date(), week = 7 * 24 * hour
+    let task = try store.create(FaciendaTask(title: "Mail Robin", state: .needsMe, nextAction: "Wait"))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    try store.markSeen([task.id: Date()])
+    let read = try store.readMarks()[task.id]
+    try store.park(task.id, plan: WaitPlan(conditions: [.observed("Robin", source: "Mail", criterion: "Robin replied")], giveUpAt: now.addingTimeInterval(90 * 24 * hour), checkEvery: week), now: now)
+    let check = try #require(try store.checkPlan(task.id))
+    #expect(abs(check.nextCheck.timeIntervalSince(now.addingTimeInterval(week))) < 0.01)
+    #expect(check.minimumInterval == week)
+    try store.enqueueDueChecks(runnerId: "runner", now: check.nextCheck.addingTimeInterval(-1))
+    #expect(try store.dispatches().isEmpty)
+    try store.enqueueDueChecks(runnerId: "runner", now: check.nextCheck)
+    let item = try #require(try store.claimDispatch(runnerId: "runner"))
+    _ = try store.beginDispatch(item.id, runnerId: "runner")
+    try store.acknowledgeDispatch(item.id, runnerId: "runner", threadId: "owner")
+    try store.observe(threadId: "owner", status: "active", source: .hook, verified: true)
+    let reports = try store.blockers(taskId: task.id).map {
+        BlockerObservation(blockerId: $0.id, expectedRevision: $0.revision, status: ready ? "met" : "notMet", evidence: "Fixture mail checked")
+    }
+    _ = try store.reportCheck(taskId: task.id, dispatchId: item.id, expectedRevision: check.revision, outcome: ready ? "changed" : "unchanged", summary: "Fixture mail checked", nextCheck: nil, reason: "", blockerReports: reports)
+    _ = try HookEvent(session_id: "owner", hook_event_name: "PostToolUse", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    _ = try HookEvent(session_id: "owner", hook_event_name: "Stop", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    #expect(try store.task(task.id).state == (ready ? .needsMe : .waiting))
+    if ready {
+        #expect(try store.readMarks()[task.id]?.isNew == true)
+        #expect(try store.readMarks()[task.id]?.finishedAt != read?.finishedAt)
+        #expect(try store.wait(task.id)?.state == "met")
+    } else {
+        #expect(try store.readMarks()[task.id] == read)
+        #expect(try store.wait(task.id)?.isActive == true)
+    }
+}
+
+@Test func weeklyWaitKeepsItsCadenceWhenItsCheckingChatIsCreatedLater() throws {
+    let store = try waitStore(), now = Date(), week = 7 * 24 * hour
+    let task = try store.create(FaciendaTask(title: "Mail Robin", state: .needsMe, nextAction: "Wait"))
+    try store.park(task.id, plan: WaitPlan(conditions: [.observed("Robin", source: "Mail", criterion: "Robin replied")], checkEvery: week), now: now)
+    let assessment = try #require(try store.claimDispatch(runnerId: "runner"))
+    #expect(assessment.kind == "assess")
+    try saveEmptyDiscovery(store, assessment)
+    _ = try store.beginDispatch(assessment.id, runnerId: "runner")
+    try store.acknowledgeDispatch(assessment.id, runnerId: "runner", threadId: "owner")
+    let check = try #require(try store.checkPlan(task.id))
+    #expect(check.minimumInterval == week)
+    #expect(abs(check.nextCheck.timeIntervalSince(now.addingTimeInterval(week))) < 0.01)
+}
+
+@Test func aQuestionWhileWaitingStillComesBackAsNew() throws {
+    let store = try waitStore()
+    let other = try store.create(FaciendaTask(title: "Other")), task = try store.create(FaciendaTask(title: "Draft", state: .needsMe, nextAction: "Wait"))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    try store.markSeen([task.id: Date()])
+    try store.park(task.id, plan: WaitPlan(conditions: [.task(other.id)]))
+    try store.requestDecision(Decision(taskId: task.id, question: "Which source?", recommendation: "Mail", options: ["Mail", "Files"]))
+    _ = try HookEvent(session_id: "owner", hook_event_name: "PostToolUse", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    _ = try HookEvent(session_id: "owner", hook_event_name: "Stop", turn_id: nil, cwd: nil, transcript_path: nil).apply(to: store)
+    #expect(try store.task(task.id).state == .needsMe)
+    #expect(try store.readMarks()[task.id]?.isNew == true)
+}
+
+@Test func editingAConditionPreservesTheUsersCheckControls() throws {
+    let store = try waitStore(), now = Date()
+    let task = try store.create(FaciendaTask(title: "Mail Robin", state: .needsMe, nextAction: "Wait"))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    try store.park(task.id, plan: WaitPlan(conditions: [.observed("Robin", source: "Mail", criterion: "Robin replied")], checkEvery: 7 * 24 * hour), now: now)
+    let check = try #require(try store.checkPlan(task.id))
+    let pinned = try store.controlCheck(taskId: task.id, expectedRevision: check.revision, paused: true, pinned: true, nextCheck: now.addingTimeInterval(24 * hour), minimumInterval: hour)
+    let blocker = try #require(try store.blockers(taskId: task.id).first)
+    _ = try store.setExternalBlocker(taskId: task.id, id: blocker.id, expectedRevision: blocker.revision, kind: blocker.kind, title: blocker.title, sourceReference: "Mail", criterion: "Robin approved", freshnessSeconds: nil)
+    let saved = try #require(try store.checkPlan(task.id))
+    #expect(saved.paused && saved.pinned)
+    #expect(saved.minimumInterval == hour && saved.nextCheck == pinned.nextCheck)
 }
 
 @Test func wakingReplyingAndClosingEndTheWait() throws {

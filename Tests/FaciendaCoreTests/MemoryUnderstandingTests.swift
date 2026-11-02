@@ -45,6 +45,28 @@ private actor UnderstandingWorker: MemoryInference {
     }
 }
 
+@Test func repeatedMemorySyncNeedsNoWriteLock() throws {
+    let (store, space, task) = try understandingLibrary()
+    try store.record(TaskEvent(taskId: task.id, source: .user, kind: "user.reply", payload: "Invented reply: calibrate the humidity sensor first"))
+    try store.captureWorkspaceMemory()
+    try store.prepareMemoryEvidence(spaceID: space)
+    let sources = try store.memoryLearningProgress(spaceID: space).sources
+    #expect(sources > 0)
+    // Another process holds the library's write lock. A sync that finds nothing new must not wait for it.
+    var holding = Configuration()
+    holding.allowsUnsafeTransactions = true
+    let other = try DatabaseQueue(path: store.url.path, configuration: holding)
+    try other.inDatabase { try $0.execute(sql: "BEGIN IMMEDIATE") }
+    try store.captureWorkspaceMemory()
+    try store.prepareMemoryEvidence(spaceID: space)
+    try other.inDatabase { try $0.execute(sql: "ROLLBACK") }
+    // A new message is still captured and becomes evidence.
+    try store.record(TaskEvent(taskId: task.id, source: .user, kind: "user.reply", payload: "Invented reply: then log the greenhouse readings"))
+    try store.captureWorkspaceMemory()
+    try store.prepareMemoryEvidence(spaceID: space)
+    #expect(try store.memoryLearningProgress(spaceID: space).sources > sources)
+}
+
 @Test func understandingLearnsAcrossSourcesChecksEvidenceAndRevises() async throws {
     let (store, space, _) = try understandingLibrary()
     try source(store, space, "one", "The greenhouse sensor drifted. Check its reference before the next batch.")

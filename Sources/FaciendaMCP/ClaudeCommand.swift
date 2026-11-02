@@ -27,9 +27,12 @@ enum ClaudeCommand {
         case "bind":
             let state = try store.bindClaudeRunner(sessionId: session, challenge: arguments.required("--challenge"), canStartSessions: false)
             store.removeRetiredClaudeRunnerFolders(keeping: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
-            return "This session is now the Facienda runner for Claude. Title this session \(ClaudeRunnerState.name) with mcp__ccd_session_mgmt__set_session_title (session_id = \(session)) if you have that tool. Complete the steps below now. Then answer the user with exactly this sentence and nothing else: \"Connected — Facienda can now run your tasks in Claude. Leave this session open and go back to Facienda.\"\n\n" + instructions(base: base, runner: state, store: store)
+            let sidebar = try store.groupsClaudeSessions() ? " Then file it under the Claude sidebar group named exactly \"\(FaciendaStore.claudeSidebarGroupName)\": find its id with mcp__ccd_sidebar__list_groups (create it with mcp__ccd_sidebar__create_group only if it is missing) and call mcp__ccd_sidebar__move_sessions with session_ids [\"self\"], if you have those tools." : ""
+            return "This session is now the Facienda runner for Claude. Title this session \(ClaudeRunnerState.name) with mcp__ccd_session_mgmt__set_session_title (session_id = \(session)) if you have that tool.\(sidebar) Complete the steps below now. Then answer the user with exactly this sentence and nothing else: \"Connected — Facienda can now run your tasks in Claude. Leave this session open and go back to Facienda.\"\n\n" + instructions(base: base, runner: state, store: store)
         case "capabilities":
             try store.setClaudeRunnerCapabilities(session, canStartSessions: arguments.value("--can-start-sessions") == "true")
+            // Rides on this command, which the runner's folder already allows without asking.
+            if let alarm = arguments.value("--alarm") { try store.recordClaudeRunnerAlarm(session, available: alarm == "set") }
         case "instructions":
             guard let state = try store.claudeRunner(), state.isBound, state.sessionId == session else {
                 throw StoreError.invalid("This session is not the connected Claude runner. Use Connect Claude in Facienda to set one up.")
@@ -41,11 +44,18 @@ enum ClaudeCommand {
                 "queue": .encoded(store.dispatches().filter { $0.agent == .claude && !["started", "finished", "cancelled"].contains($0.state) })]).json
         case "watch":
             let seconds = Double(arguments.value("--seconds") ?? "3000") ?? 3000
-            let work = try store.waitForClaudeWork(runnerId: session, seconds: seconds)
+            var work = try store.waitForClaudeWork(runnerId: session, seconds: seconds)
+            // With its alarm set, the runner wakes for work only. Every idle wake is a turn Claude may refuse.
+            while !work, case .set = try store.claudeRunnerAlarm(session) {
+                work = try store.waitForClaudeWork(runnerId: session, seconds: seconds)
+            }
             return work ? "{\"status\":\"work\",\"next\":\"Run \(base) --claude next until it returns idle.\"}"
                 : "{\"status\":\"timeout\",\"next\":\"Run \(base) --claude next once, then start this wait again in the background.\"}"
         case "next":
-            guard let work = try store.claimClaudeWork(runnerId: session) else { return "{\"status\":\"idle\"}" }
+            guard let work = try store.claimClaudeWork(runnerId: session) else {
+                guard try store.claudeRunnerAlarm(session) == .missing else { return "{\"status\":\"idle\"}" }
+                return JSONValue.object(["status": .string("idle"), "alarm": .string(alarmStep(base: base, store: store, session: session))]).json
+            }
             return try describe(work, store: store, base: base, helper: helper).json
         case "configured":
             let thread = try arguments.required("--thread-id")
@@ -162,7 +172,8 @@ enum ClaudeCommand {
                 "effort": session.effort.map(JSONValue.string) ?? .null, "fast": .bool(session.fast),
                 "needsTitle": .bool(task.displayTitle == nil), "title": .string(task.displayName),
                 "originalRequest": .string(String(task.title.prefix(1200))), "groups": .array(groups),
-                "start": start.map { startJob($0, base: base) } ?? .null
+                "start": start.map { startJob($0, base: base) } ?? .null,
+                "sidebar": try store.claudeSidebarStep(threadId: session.threadId).map(JSONValue.string) ?? .null
             ].merging(start.map { ["next": .string("Apply the settings and title in one message. Once they return, send start.message verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId. Then run \(base) --claude configured --thread-id \(session.threadId) --applied true --note \"…\" && \(base) --claude ack --dispatch-id \($0.id) && \(base) --claude next.")] } ?? [:]) { $1 })
         case .deliver(let item):
             let task = try store.task(item.taskId)
@@ -175,6 +186,18 @@ enum ClaudeCommand {
                             "folder": .string(store.claudeSessionFolder(for: task)),
                             "title": .string(task.displayName), "prompt": .string(try store.claudeBootstrapPrompt(dispatchId: item.id, helper: helper))])
         }
+    }
+
+    /// The prompt the runner's alarm puts into its session each hour.
+    static let alarmPrompt = "Facienda alarm: wake check."
+
+    /// Setting the runner's alarm: one recurring job in its own session, at an off-minute so runners don't all wake together.
+    static func alarmStep(base: String, store: FaciendaStore, session: String) -> String {
+        let minute = [Int](1...58).filter { $0 != 30 }.randomElement()!
+        let canStart = (try? store.claudeRunner()?.canStartSessions) == true
+        return """
+        Set your hourly alarm now. It wakes you even after a turn Claude refused, such as at a usage limit. Call CronList and delete with CronDelete every job whose prompt starts with "Facienda alarm", then call CronCreate with cron "\(minute) * * * *", recurring true and prompt "\(alarmPrompt)". When it returns, run \(base) --claude capabilities --can-start-sessions \(canStart) --alarm set. If you have no CronCreate tool, run it with --alarm unavailable instead.
+        """
     }
 
     /// A start begun with its session's settings, for the runner to send once they are applied.
@@ -205,17 +228,18 @@ enum ClaudeCommand {
         HOW YOU WAKE
         Keep exactly one background wait running. Start it with the Bash tool with run_in_background set to true:
           \(base) --claude watch --seconds 3000
-        It finishes when Facienda has work for you, or after 50 minutes, and that wakes you. Each time you wake, and once now:
-        1. If you have a tool for starting a new Claude Code session (such as mcp__ccd_session__start_session), run \(base) --claude capabilities --can-start-sessions true once; otherwise run it once with false. Facienda then knows whether it must open new task sessions in the Claude app for the user to send.
-        2. Run \(base) --claude next and handle the job it returns, as below. Repeat until it returns {"status":"idle"}, at most 8 jobs per wake.
-        3. Run \(base) --claude unreported. For each check it lists, read that session's latest messages with mcp__ccd_session_mgmt__list_events (limit 6). Only if its turn has clearly finished without a report, run \(base) --claude missed-report --dispatch-id DISPATCH_ID. Leave active sessions alone.
-        4. Start the background wait again unless one is still running (never run two at once).
-        5. End the turn. Stay silent when everything went normally: no summaries of jobs, queues, waits or capabilities, and no words between steps. Write one short plain sentence only when the user must act.
+        It finishes when Facienda has work for you, and that wakes you. An hourly alarm in this session wakes you too, with the prompt "\(alarmPrompt)"; when --claude next returns an "alarm" field, do what it says before step 2.
+        Once now, not on later wakes: if you have a tool for starting a new Claude Code session (such as mcp__ccd_session__start_session), run \(base) --claude capabilities --can-start-sessions true; otherwise run it with false. Facienda then knows whether it must open new task sessions in the Claude app for the user to send.
+        Each wake rereads this whole conversation, so keep wakes short: no plan or to-do list, no notes to yourself, and one Bash call where one will do. Each time you wake, and once now:
+        1. Run \(base) --claude next; \(base) --claude unreported as one Bash command. Handle the job next returned, as below, and run next again until it returns "status": "idle", at most 8 jobs per wake.
+        2. For each check unreported listed, read that session's latest messages with mcp__ccd_session_mgmt__list_events (limit 6). Only if its turn has clearly finished without a report, run \(base) --claude missed-report --dispatch-id DISPATCH_ID. Leave active sessions alone.
+        3. Start the background wait again unless one is still running (never run two at once).
+        4. End the turn. Stay silent when everything went normally: no summaries of jobs, queues, waits or capabilities, and no words between steps. Write one short plain sentence only when the user must act.
 
         JOBS FROM --claude next
         Every step you take rereads this whole conversation, and the user is waiting, so make the calls of each step together in one message.
         type "configure": a new task session has linked and waits for its settings before it starts work.
-          a. In one message, call together: mcp__ccd_session_mgmt__set_session_model with exactly "model" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with "effort" (when not null), mcp__ccd_session_mgmt__set_session_fast_mode with enabled true (when "fast" is true), and mcp__ccd_session_mgmt__set_session_title (session_id = threadId) with the title. The title is "title", unless "needsTitle" is true: then write a concise title for originalRequest (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language), and in the same message run one Bash command that saves task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and then runs \(base) --claude name --task-id TASK_ID --title-file FILE.
+          a. In one message, call together: mcp__ccd_session_mgmt__set_session_model with exactly "model" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with "effort" (when not null), mcp__ccd_session_mgmt__set_session_fast_mode with enabled true (when "fast" is true), and mcp__ccd_session_mgmt__set_session_title (session_id = threadId) with the title. The title is "title", unless "needsTitle" is true: then write a concise title for originalRequest (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language), and in the same message run one Bash command that saves task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and then runs \(base) --claude name --task-id TASK_ID --title-file FILE. When "sidebar" is not null, do what it says.
           b. If the app refused the model but listed an id for the same model, set that id. Any other refused step is not retried.
           c. If "start" is not null, send its "message" verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId, once the calls in a have returned. It starts the session's work on the settings you just applied.
           d. Always finish with one Bash command: \(base) --claude configured --thread-id THREAD_ID --applied true (or false when a step was refused) --note "what was applied or refused", then, when you sent the start and the result said delivered or queued, && \(base) --claude ack --dispatch-id START_DISPATCH_ID, then && \(base) --claude next, and handle what it returns. If sending the start failed, defer it as for a delivery (c below) instead of ack. A session without a start is waiting for configured, so never put it off.

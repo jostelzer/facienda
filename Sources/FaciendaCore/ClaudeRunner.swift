@@ -173,6 +173,39 @@ extension FaciendaStore {
         try write { db in try Self.requireClaudeRunner(db, sessionId); try db.execute(sql: "UPDATE claudeRunner SET lastSeen = ? WHERE id = 1", arguments: [now]) }
     }
 
+    /// The runner's own hourly alarm in the Claude app. Its background wait ends only when a turn starts the next one,
+    /// so a turn Claude refuses (a usage limit) would leave it asleep for good. The alarm wakes it outside any turn.
+    public enum ClaudeRunnerAlarm: Equatable, Sendable {
+        /// Not set in this session, set before a gap (the Claude app may have quit since), or due to be renewed.
+        case missing
+        case set(Date)
+        /// This Claude app offers no scheduler, so the runner keeps waking on its wait's timeout.
+        case unavailable
+    }
+    /// Claude deletes a recurring job after seven days; asking a day early keeps one always running.
+    public static let claudeRunnerAlarmRenewal: TimeInterval = 6 * 86_400
+
+    public func claudeRunnerAlarm(_ sessionId: String, now: Date = Date()) throws -> ClaudeRunnerAlarm {
+        try db.read { db in
+            guard let latest = try TaskEvent.fetchOne(db, sql: """
+                SELECT * FROM events WHERE threadId = ? AND kind IN ('claude.runner.alarm', 'claude.runner.noalarm', 'claude.runner.resumed')
+                ORDER BY at DESC LIMIT 1
+                """, arguments: [sessionId]) else { return .missing }
+            switch latest.kind {
+            case "claude.runner.noalarm": return .unavailable
+            case "claude.runner.alarm" where latest.at > now.addingTimeInterval(-Self.claudeRunnerAlarmRenewal): return .set(latest.at)
+            default: return .missing
+            }
+        }
+    }
+
+    public func recordClaudeRunnerAlarm(_ sessionId: String, available: Bool, now: Date = Date()) throws {
+        try write { db in
+            try Self.requireClaudeRunner(db, sessionId)
+            try TaskEvent(threadId: sessionId, source: .mcp, kind: available ? "claude.runner.alarm" : "claude.runner.noalarm", verified: false, at: now).insert(db)
+        }
+    }
+
     @discardableResult static func requireClaudeRunner(_ db: Database, _ sessionId: String) throws -> ClaudeRunnerState {
         guard let runner = try Self.claudeRunner(db),
               runner.isBound, runner.sessionId == sessionId else { throw StoreError.invalid("This is not the connected Claude runner.") }
@@ -269,6 +302,10 @@ extension FaciendaStore {
         try enqueueDueChecks(runnerId: runnerId, now: now)
         return try write { db in
             let runner = try Self.requireClaudeRunner(db, runnerId)
+            // Waking after a gap: the Claude app may have quit and dropped the alarm, so the runner sets it again.
+            if !runner.isAwake(at: now) {
+                try TaskEvent(threadId: runnerId, source: .mcp, kind: "claude.runner.resumed", verified: false, at: now).insert(db)
+            }
             try db.execute(sql: "UPDATE claudeRunner SET lastSeen = ? WHERE id = 1", arguments: [now])
             try db.execute(sql: "UPDATE dispatches SET state = 'cancelled' WHERE provider = 'claude' AND state IN ('queued', 'claimed') AND taskId IN (SELECT id FROM tasks WHERE state IN ('done', 'dropped'))")
             try Self.expireClaudeConfiguring(db, now: now)

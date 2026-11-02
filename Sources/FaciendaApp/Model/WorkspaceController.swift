@@ -51,10 +51,14 @@ enum WorkspaceSheet: Identifiable {
     private var fresh: [String: Int] = [:]
     /// Tasks in progress in each workspace, read with the new counts.
     private var running: [String: Int] = [:]
+    /// Which workspace's memory reads which. Only the user sets these, on the island.
+    private(set) var reads: [MemoryRead] = []
     /// Paints the sidebar pictures through Codex. nil in the demo and tests, so they never reach Codex.
     @ObservationIgnored var coverPainter: (any CoverPainting)?
     /// Painted pictures by workspace ID.
     var coverImages: [String: NSImage] = [:]
+    /// Each picture's mean colour, measured once when it loads: the glow round the open planet.
+    var coverColours: [String: NSColor] = [:]
     /// Workspaces whose picture is being painted right now.
     var paintingCovers: Set<String> = []
     /// What a picture looked like before its last change, so the change can be undone.
@@ -129,6 +133,7 @@ enum WorkspaceSheet: Identifiable {
             workspaces = try library.workspaces()
             fresh = try library.newCounts()
             running = try library.runningCounts()
+            reads = try library.memoryReads()
         } catch { self.error = error.localizedDescription }
         settlePlaces(); loadCovers(); paintMissingCovers()
     }
@@ -146,6 +151,33 @@ enum WorkspaceSheet: Identifiable {
 
 
     func isPinned(_ workspace: Workspace) -> Bool { pinned.contains(workspace.id) }
+
+    // MARK: Memory reads
+
+    /// How one workspace reads another's memory, if it does.
+    func read(_ reader: Workspace, _ source: Workspace) -> MemoryRead? {
+        reads.first { $0.readerSpaceId == reader.memorySpaceId && $0.sourceSpaceId == source.memorySpaceId }
+    }
+
+    /// The workspace that owns a memory.
+    func workspace(ofSpace id: String) -> Workspace? { workspaces.first { $0.memorySpaceId == id } }
+
+    /// Starts reading with entries only, or stops when it already reads.
+    func toggleRead(_ reader: Workspace, _ source: Workspace) {
+        if read(reader, source) == nil { setRead(reader, source, understanding: false) } else { stopReading(reader, source) }
+    }
+
+    func setRead(_ reader: Workspace, _ source: Workspace, understanding: Bool) {
+        guard !demo, let library, reader.id != source.id else { return }
+        do { try library.setMemoryRead(reader: reader.memorySpaceId, source: source.memorySpaceId, understanding: understanding); reads = try library.memoryReads() }
+        catch { self.error = error.localizedDescription }
+    }
+
+    func stopReading(_ reader: Workspace, _ source: Workspace) {
+        guard !demo, let library else { return }
+        do { try library.removeMemoryRead(reader: reader.memorySpaceId, source: source.memorySpaceId); reads = try library.memoryReads() }
+        catch { self.error = error.localizedDescription }
+    }
 
     private func visited(_ workspace: Workspace) {
         recent.removeAll { $0 == workspace.id }
@@ -303,8 +335,33 @@ enum WorkspaceSheet: Identifiable {
         guard let library else { return }
         for workspace in workspaces where coverStamps[workspace.id] != workspace.coverPaintedAt {
             coverStamps[workspace.id] = workspace.coverPaintedAt
-            coverImages[workspace.id] = workspace.coverPaintedAt == nil ? nil : NSImage(contentsOf: library.coverURL(workspaceId: workspace.id))
+            let image = workspace.coverPaintedAt == nil ? nil : NSImage(contentsOf: library.coverURL(workspaceId: workspace.id))
+            coverImages[workspace.id] = image
+            coverColours[workspace.id] = image.flatMap(Self.meanColour)
         }
+    }
+
+    /// The mean colour of the round part of a picture, the part a planet shows. Read from a 16-point copy, so it costs
+    /// next to nothing.
+    static func meanColour(of image: NSImage) -> NSColor? {
+        let side = 16
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return nil }
+        context.interpolationQuality = .medium
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        var sum = (r: 0.0, g: 0.0, b: 0.0), count = 0.0
+        let middle = Double(side) / 2
+        for y in 0..<side {
+            for x in 0..<side where hypot(Double(x) + 0.5 - middle, Double(y) + 0.5 - middle) <= middle {
+                let at = (y * side + x) * 4
+                sum.r += Double(pixels[at]); sum.g += Double(pixels[at + 1]); sum.b += Double(pixels[at + 2]); count += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        return NSColor(srgbRed: sum.r / count / 255, green: sum.g / count / 255, blue: sum.b / count / 255, alpha: 1)
     }
 
     /// Every workspace gets a picture once Codex is ready, one at a time so a new library does not start a crowd of runs.

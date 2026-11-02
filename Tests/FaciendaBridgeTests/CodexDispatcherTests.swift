@@ -166,3 +166,23 @@ private func requestCount(_ bridge: CodexBridge, _ method: String) async throws 
     #expect(try await requestCount(bridge, "thread/unsubscribe") == 1)
     await bridge.disconnect()
 }
+
+@Test func olderTaskChatsJoinTheFaciendaProject() async throws {
+    let (store, bridge, dispatcher, _) = try await dispatchFixture()
+    let taskFolder = store.workFolder.appending(path: UUID().uuidString).path
+    let ownFolder = store.workFolder.appending(path: "notes").path
+    for folder in [taskFolder, ownFolder] { try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+    _ = try await bridge.request("fixture/configure", params: .object(["threads": .array([
+        .object(["id": .string("task-chat"), "cwd": .string(taskFolder)]),
+        .object(["id": .string("archived-task-chat"), "cwd": .string(taskFolder), "archived": .bool(true)]),
+        .object(["id": .string("filed-chat"), "cwd": .string(taskFolder), "projectId": .string("other-project")]),
+        .object(["id": .string("own-chat"), "cwd": .string(ownFolder)])
+    ])]))
+    await dispatcher.fileTaskChats()
+    let threads = try await bridge.request("fixture/threads")["threads"].array ?? []
+    let projects = Dictionary(uniqueKeysWithValues: threads.map { ($0["id"].string!, $0["projectId"].string) })
+    #expect(projects["task-chat"] == "fixture-project" && projects["archived-task-chat"] == "fixture-project")
+    #expect(projects["filed-chat"] == "other-project" && projects["own-chat"] == .some(nil))
+    #expect(try await requestCount(bridge, "thread/metadata/update") == 2)
+    await bridge.disconnect()
+}

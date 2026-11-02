@@ -145,7 +145,7 @@ public struct FaciendaTask: Codable, FetchableRecord, PersistableRecord, Identif
     public var automationScope: AutomationScope
     public var brief: String
     public var cwd: String?
-    /// The folders linked to the task's group when it started, primary first. Nil when it started without any.
+    /// The workspace folders the task worked in when it started, primary first. Nil when it started without any.
     public var folders: [String]?
     /// The model, reasoning effort and service tier chosen when the task launched. Nil means the workspace default.
     public var workerModel: String?

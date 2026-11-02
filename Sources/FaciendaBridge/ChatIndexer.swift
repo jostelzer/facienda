@@ -82,11 +82,18 @@ public actor ChatIndexer {
         for chat in try index.pending(limit: reads) {
             try Task.checkCancellation()
             do {
-                let response = try await bridge.request("thread/read", params: .object(["threadId": .string(chat.threadId), "includeTurns": .bool(true)]), timeout: .seconds(90))
-                guard response["thread"]["id"].string == chat.threadId else { throw BridgeError.server("Codex returned a different chat.") }
-                let messages = PublicChatMessages.extract(response).map {
-                    ChatText(messageId: $0.messageId, role: $0.role == .user ? .user : .codex, at: $0.at, text: $0.text)
-                }
+                let response = try await bridge.readThread(chat.threadId)
+                var thread = response["thread"].object ?? [:], messages: [ChatText] = [], cursor: String?
+                var seen = Set<String>()
+                repeat {
+                    let page = try await ThreadConversation.summaryPage(chat.threadId, bridge: bridge, cursor: cursor)
+                    thread["turns"] = .array(page.turns)
+                    messages += PublicChatMessages.extract(.object(["thread": .object(thread)])).map {
+                        ChatText(messageId: $0.messageId, role: $0.role == .user ? .user : .codex, at: $0.at, text: $0.text)
+                    }
+                    cursor = page.nextCursor
+                    if let cursor, !seen.insert(cursor).inserted { throw BridgeError.server("Codex repeated a conversation page.") }
+                } while cursor != nil
                 try index.replace(threadId: chat.threadId, messages: messages, updatedAt: chat.updatedAt)
             } catch let error as BridgeError {
                 if case .disconnected = error { throw error }

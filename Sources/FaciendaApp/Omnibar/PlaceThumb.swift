@@ -3,7 +3,7 @@ import FaciendaCore
 
 /// Where a task lives, as pictures: its group's cover with its workspace's planet on the corner, or the workspace's
 /// picture alone when it has no group or the group has no cover. The planet is ringed in blue for another workspace than
-/// the one open. The bar's results and History draw tasks the same way.
+/// the one open. The bar's results and Incoming draw tasks the same way.
 struct PlaceThumb: View {
     let place: BarPlace?
     let workspaces: WorkspaceController?

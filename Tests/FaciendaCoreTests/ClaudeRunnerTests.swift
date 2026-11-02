@@ -279,6 +279,31 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(try store.claudeRunner()?.isAwake(at: Date().addingTimeInterval(ClaudeRunnerState.awakeWindow + 1)) == false)
 }
 
+private func isSet(_ alarm: FaciendaStore.ClaudeRunnerAlarm) -> Bool { if case .set = alarm { true } else { false } }
+
+@Test func theRunnersAlarmLastsUntilAGapOrItsRenewal() throws {
+    let store = try claudeStore()
+    let now = Date()
+    try bindClaude(store)
+    #expect(try store.claudeRunnerAlarm("local_runner", now: now) == .missing)
+    try store.recordClaudeRunnerAlarm("local_runner", available: true, now: now)
+    #expect(try isSet(store.claudeRunnerAlarm("local_runner", now: now)))
+    // Claude deletes the job after seven days, so the runner is asked a day early.
+    #expect(try store.claudeRunnerAlarm("local_runner", now: now.addingTimeInterval(FaciendaStore.claudeRunnerAlarmRenewal + 1)) == .missing)
+    // A step while awake keeps it.
+    _ = try store.claimClaudeWork(runnerId: "local_runner", now: now.addingTimeInterval(60))
+    #expect(try isSet(store.claudeRunnerAlarm("local_runner", now: now.addingTimeInterval(61))))
+    // Waking after a gap asks again: the Claude app may have quit and taken the alarm with it.
+    let later = now.addingTimeInterval(60 + ClaudeRunnerState.awakeWindow + 1)
+    _ = try store.claimClaudeWork(runnerId: "local_runner", now: later)
+    #expect(try store.claudeRunnerAlarm("local_runner", now: later) == .missing)
+    try store.recordClaudeRunnerAlarm("local_runner", available: false, now: later.addingTimeInterval(1))
+    #expect(try store.claudeRunnerAlarm("local_runner", now: later.addingTimeInterval(2)) == .unavailable)
+    // Only the runner sets it.
+    #expect(throws: StoreError.self) { try store.recordClaudeRunnerAlarm("local_other", available: true) }
+    #expect(try store.claudeRunnerAlarm("local_other") == .missing)
+}
+
 @Test func runnerWaitReturnsWhenWorkArrives() async throws {
     let store = try claudeStore()
     try bindClaude(store)
@@ -301,7 +326,7 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(server["mcpServers"]["facienda"]["args"].array?.last?.string == store.url.path)
     let settings = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: folder.appending(path: ".claude/settings.local.json")))
     #expect(settings["enabledMcpjsonServers"].array == [.string("facienda")])
-    #expect(settings["autoCompactWindow"] == .null)
+    #expect(settings["autoCompactWindow"].number == Double(FaciendaStore.claudeTaskContext))
     // Only Facienda's tools and exactly the helper commands a task session's instructions name, pinned to this library.
     let base = "/Apps/facienda-mcp --database \(store.url.path)"
     #expect(settings["permissions"]["allow"].array == ["mcp__facienda", "Bash(\(base) --call *)", "Bash(\(base) --tools)", "Bash(\(base) --claude attach --dispatch-id *)",
