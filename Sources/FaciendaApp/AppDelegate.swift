@@ -9,6 +9,7 @@ import FaciendaCore
     private var hotKeys: [EventHotKeyRef] = []
     private var eventHandler: EventHandlerRef?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        TextualFirstClick.install()
         if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), CommandLine.arguments.indices.contains(index + 1) {
             let path = CommandLine.arguments[index + 1]
             NSApp.setActivationPolicy(.accessory)

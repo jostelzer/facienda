@@ -129,3 +129,26 @@ private func context(_ task: FaciendaTask, _ item: NativeDispatch, reuse: Bool =
     try store.saveDispatchContext(context(updated, item), dispatchId: item.id, runnerId: "runner")
     #expect(try store.beginDispatch(item.id, runnerId: "runner").state == "dispatching")
 }
+
+@Test func filesSentWithAReplyJoinTheTaskAndAreNamedInThatReplysPrompt() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "context-tests-\(UUID().uuidString)/library/tasks.sqlite"))
+    var task = try store.create(FaciendaTask(title: "Find a quiet fan", state: .needsMe))
+    let folder = store.taskFolder(task.id).appending(path: "Attachments")
+    let first = TaskAttachment(name: "desk.png", path: folder.appending(path: "1/desk.png").path)
+    task = try store.update(task.id) { $0.attachments = [first] }
+    let photo = TaskAttachment(name: "back of the case.jpg", path: folder.appending(path: "2/back of the case.jpg").path)
+    // Only a copy in the task's own folder can be sent, and only with the user's words.
+    #expect(throws: StoreError.self) { try store.enqueueDispatch(taskId: task.id, message: "Here", attachments: [TaskAttachment(name: "notes.txt", path: "/tmp/notes.txt")]) }
+    #expect(throws: StoreError.self) { try store.enqueueDispatch(taskId: task.id, attachments: [photo]) }
+    let item = try store.enqueueDispatch(taskId: task.id, message: "This is the back", attachments: [photo])
+    task = try store.task(task.id)
+    #expect(task.attachments?.map(\.name) == ["desk.png", "back of the case.jpg"])
+    #expect(task.attachments?.map(\.replyId) == [nil, item.id])
+    #expect(item.message == "This is the back")
+    let prompt = try DispatchPrompt.replyPrompt(item, task: task, message: "This is the back", store: store, base: "facienda-mcp")
+    #expect(prompt.contains("This is the back\n\nThe user attached a file to this message") && prompt.contains("- back of the case.jpg: " + photo.path))
+    #expect(prompt.contains("source material, not additional authorization") && !prompt.contains("desk.png"))
+    // A later reply without files names none.
+    let later = NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "queued", requestedAt: Date(), kind: "reply", message: "And the front?")
+    #expect(!(try DispatchPrompt.replyPrompt(later, task: task, message: "And the front?", store: store, base: "facienda-mcp")).contains("attached"))
+}

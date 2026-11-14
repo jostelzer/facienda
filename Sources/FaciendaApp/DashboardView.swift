@@ -54,17 +54,12 @@ struct DashboardView: View {
                 if shared == nil || model.destination == .inbox { topBar.zIndex(1) }
                 if model.diskNearlyFull { lowSpaceBar }
                 if model.destination == .inbox && model.search.isEmpty { inbox }
-                // The task lists are the board with one state's chip on; a task opens in a panel over it.
-                // Beside the board rather than over it, so the board narrows and the task's row stays in view.
-                else {
-                    DashboardModes(model: model) {
-                        if let task = model.selectedTask {
-                            TaskPanel(model: model, task: task) { model.select(nil) }
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
-                        }
-                    }
-                }
-            })
+                // The task lists are the board with one state's chip on.
+                else { DashboardModes(model: model) }
+            }
+            // An opened task takes the whole panel: there is room to read the answer and decide without leaving for
+            // the agent's own app. The island stays, so the other workspaces are still one click away.
+            .overlay { TaskOpenLayer(model: model) })
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }

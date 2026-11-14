@@ -86,21 +86,73 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(try db.latestEvent(taskId: a.id, kind: "task.moved")?.payload == "Work")
     #expect(try db.memorySpace(forTask: b.id).id == work.memorySpaceId)
     let archive = try db.createWorkspace(name: "Archive")
-    try db.removeWorkspace(archive.id)
+    try db.archiveWorkspace(archive.id)
     #expect(throws: StoreError.self) { try db.moveGroup(group.id, toWorkspace: archive.id) }
 }
 
-@Test func removingAWorkspaceKeepsItsHistoryButNeverOpenWork() throws {
+@Test func aTaskMovesAloneToAnotherWorkspace() throws {
     let db = try library(), home = try db.defaultWorkspace()
-    #expect(throws: StoreError.self) { try db.removeWorkspace(home.id) }
-    let side = try db.createWorkspace(name: "Side project")
-    let task = try db.scoped(to: side.id).create(FaciendaTask(title: "Sketch"))
-    #expect(throws: StoreError.self) { try db.removeWorkspace(side.id) }
-    _ = try db.update(task.id) { $0.state = .done }
-    try db.removeWorkspace(side.id)
+    let work = try db.createWorkspace(name: "Work")
+    let personal = db.scoped(to: home.id), office = db.scoped(to: work.id)
+    let taxes = try personal.createGroup(name: "Taxes"), desk = try office.createGroup(name: "Desk")
+    let task = try personal.create(FaciendaTask(title: "File the return")), sibling = try personal.create(FaciendaTask(title: "Collect receipts"))
+    for each in [task, sibling] { try personal.assignGroup(taskId: each.id, groupId: taxes.id) }
+    let lamp = try office.create(FaciendaTask(title: "Order a lamp"))
+    try office.assignGroup(taskId: lamp.id, groupId: desk.id)
+    try db.link(ThreadLink(taskId: task.id, codexThreadId: "chat-a"))
+    // A group of another workspace is refused, and nothing moves.
+    #expect(throws: StoreError.self) { try db.moveTask(task.id, toWorkspace: work.id, groupID: taxes.id) }
+    #expect(try db.task(task.id).workspaceId == home.id)
+
+    try db.moveTask(task.id, toWorkspace: work.id, groupID: desk.id)
+    // It goes alone: its old group and its neighbour stay.
+    #expect(try personal.tasks().map(\.id) == [sibling.id])
+    #expect(try personal.groups().map(\.id) == [taxes.id])
+    #expect(Set(try office.tasks().map(\.id)) == [task.id, lamp.id])
+    #expect(try office.groupMembers().first { $0.taskId == task.id }?.groupId == desk.id)
+    // It arrives at the top of the card, above the newer lamp, with its chat, revision and history.
+    let places = try office.boardPlaces()
+    #expect(try #require(places[task.id]) < places[lamp.id] ?? TaskBoardPlace.unplaced(lamp))
+    #expect(try db.links(taskId: task.id).first?.codexThreadId == "chat-a")
+    #expect(try db.task(task.id).revision == task.revision)
+    #expect(try db.latestEvent(taskId: task.id, kind: "task.moved")?.payload == "Work")
+    #expect(try db.memorySpace(forTask: task.id).id == work.memorySpaceId)
+
+    // Back home into no group, which the runner then leaves alone.
+    try db.moveTask(task.id, toWorkspace: home.id)
+    #expect(try personal.groupMembers().map(\.taskId) == [sibling.id])
+    #expect(try db.latestEvent(taskId: task.id, kind: FaciendaStore.unsortedKind) != nil)
+    let archive = try db.createWorkspace(name: "Archive")
+    try db.archiveWorkspace(archive.id)
+    #expect(throws: StoreError.self) { try db.moveTask(task.id, toWorkspace: archive.id) }
+}
+
+@Test func archivingAWorkspaceTakesItsOpenWorkAlongAndRestoreBringsItBack() throws {
+    let db = try library(), home = try db.defaultWorkspace()
+    #expect(throws: StoreError.self) { try db.archiveWorkspace(home.id) }
+    let side = try db.createWorkspace(name: "Side project"), scoped = db.scoped(to: side.id)
+    let sketch = try scoped.create(FaciendaTask(title: "Sketch")), done = try scoped.create(FaciendaTask(title: "Buy paper"))
+    let later = try scoped.create(FaciendaTask(title: "Frame it"))
+    _ = try db.update(done.id) { $0.state = .done }
+    _ = try db.update(later.id) { $0.state = .scheduled; $0.returnAt = Date().addingTimeInterval(86400) }
+    let shelf = try scoped.createGroup(name: "Shelf"), shelved = try scoped.create(FaciendaTask(title: "Old idea"))
+    try scoped.assignGroup(taskId: shelved.id, groupId: shelf.id)
+    try scoped.archiveGroup(shelf.id)
+
+    try db.archiveWorkspace(side.id)
     #expect(try db.workspaces().map(\.id) == [home.id])
-    #expect(try db.workspaces(includeRemoved: true).count == 2)
-    #expect(try db.task(task.id).state == .done)
+    #expect(try db.archivedWorkspaces().map(\.id) == [side.id])
+    #expect(try db.task(sketch.id).state == .dropped && db.task(later.id).state == .dropped && db.task(done.id).state == .done)
+    #expect(throws: StoreError.self) { try scoped.restoreGroup(shelf.id) }
+
+    try db.restoreWorkspace(side.id)
+    #expect(try db.workspaces().map(\.id) == [home.id, side.id] && db.archivedWorkspaces().isEmpty)
+    #expect(try db.task(sketch.id).state == .inbox && db.task(done.id).state == .done)
+    #expect(try db.task(later.id).state == .scheduled && db.task(later.id).returnAt != nil)
+    // A group archived on its own stays archived until it is restored itself.
+    #expect(try scoped.groups().isEmpty && db.task(shelved.id).state == .dropped)
+    try scoped.restoreGroup(shelf.id)
+    #expect(try scoped.groups().map(\.id) == [shelf.id] && db.task(shelved.id).state == .inbox)
 }
 
 @Test func memoriesStaySeparateFromCaptureToRecall() async throws {
@@ -262,8 +314,9 @@ private final class BankRecorder: URLProtocol, @unchecked Sendable {
     #expect(try db.workspace(work.id).coverNoteList == ["no people"])
     #expect(throws: StoreError.self) { try db.saveCover(workspaceId: "missing", image: Data([1]), style: "") }
     #expect(!FileManager.default.fileExists(atPath: db.coverURL(workspaceId: "missing").path))
-    try db.removeWorkspace(work.id)
-    #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: db.previousCoverURL(workspaceId: work.id).path))
+    // An archived workspace keeps its picture for when it comes back.
+    try db.archiveWorkspace(work.id)
+    #expect(FileManager.default.fileExists(atPath: file.path))
 }
 
 @Test func reviewCountsLeaveOutClosedAndRunningWork() throws {

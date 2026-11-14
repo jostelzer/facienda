@@ -25,6 +25,8 @@ public struct TaskGroup: Codable, FetchableRecord, PersistableRecord, Identifiab
     public var codexProjectOwned: Bool?
     /// True when each of the group's tasks works in its own folder, even where the workspace has a folder to work in.
     public var ownFolders: Bool?
+    /// Set while the group is archived: off the board with its tasks, plan and cover, until the user restores it.
+    public var archivedAt: Date?
     public var coverNoteList: [String] { (coverNotes ?? "").split(whereSeparator: \.isNewline).map(String.init) }
 }
 
@@ -127,18 +129,19 @@ extension FaciendaStore {
         return group
     }
 
-    /// The scoped workspace's groups, or every group in the library.
+    /// The scoped workspace's groups, or every group in the library. Archived groups are left out.
     public func groups() throws -> [TaskGroup] {
         try db.read { db in
-            guard let workspaceID else { return try TaskGroup.fetchAll(db, sql: "SELECT * FROM taskGroups ORDER BY position, createdAt") }
-            return try TaskGroup.fetchAll(db, sql: "SELECT * FROM taskGroups WHERE workspaceId = ? ORDER BY position, createdAt", arguments: [workspaceID])
+            guard let workspaceID else { return try TaskGroup.fetchAll(db, sql: "SELECT * FROM taskGroups WHERE archivedAt IS NULL ORDER BY position, createdAt") }
+            return try TaskGroup.fetchAll(db, sql: "SELECT * FROM taskGroups WHERE workspaceId = ? AND archivedAt IS NULL ORDER BY position, createdAt", arguments: [workspaceID])
         }
     }
 
+    /// Who is in which group, for the groups above.
     public func groupMembers() throws -> [TaskGroupMember] {
         try db.read { db in
-            guard let workspaceID else { return try TaskGroupMember.fetchAll(db) }
-            return try TaskGroupMember.fetchAll(db, sql: "SELECT m.* FROM taskGroupMembers m JOIN taskGroups g ON g.id = m.groupId WHERE g.workspaceId = ?", arguments: [workspaceID])
+            guard let workspaceID else { return try TaskGroupMember.fetchAll(db, sql: "SELECT m.* FROM taskGroupMembers m JOIN taskGroups g ON g.id = m.groupId WHERE g.archivedAt IS NULL") }
+            return try TaskGroupMember.fetchAll(db, sql: "SELECT m.* FROM taskGroupMembers m JOIN taskGroups g ON g.id = m.groupId WHERE g.workspaceId = ? AND g.archivedAt IS NULL", arguments: [workspaceID])
         }
     }
 
@@ -195,13 +198,14 @@ extension FaciendaStore {
             }
             guard let group = try TaskGroup.fetchOne(db, key: groupId) else { throw StoreError.notFound }
             guard group.workspaceId == task.workspaceId else { throw StoreError.invalid("That group belongs to another workspace. Move the task there first.") }
+            guard group.archivedAt == nil else { throw StoreError.invalid("“\(group.name)” is archived. Restore it first.") }
             try TaskGroupMember(taskId: taskId, groupId: groupId, assignedBy: "user").save(db)
         }
         if groupId != nil { offerAttachments(of: taskId) }
     }
 
     static let unsortedKind = "group.unsorted"
-    private static func keptUnsorted(_ db: Database, _ taskId: String) throws -> Bool {
+    static func keptUnsorted(_ db: Database, _ taskId: String) throws -> Bool {
         try TaskEvent.filter(Column("taskId") == taskId && Column("kind") == unsortedKind).fetchCount(db) > 0
     }
 
@@ -212,8 +216,8 @@ extension FaciendaStore {
             guard try Self.isRunner(db, runnerID) else { throw StoreError.invalid("This is not the configured runner.") }
             guard let task = try FaciendaTask.fetchOne(db, key: taskId) else { throw StoreError.notFound }
             guard try TaskGroupMember.fetchOne(db, key: taskId) == nil, try Self.keptUnsorted(db, taskId) == false else { return nil }
-            // Filing stays inside the task's own workspace.
-            let group = try TaskGroup.fetchOne(db, sql: "SELECT * FROM taskGroups WHERE name = ? COLLATE NOCASE AND workspaceId = ?", arguments: [name, task.workspaceId])
+            // Filing stays inside the task's own workspace, and never puts new work into an archived group.
+            let group = try TaskGroup.fetchOne(db, sql: "SELECT * FROM taskGroups WHERE name = ? COLLATE NOCASE AND workspaceId = ? AND archivedAt IS NULL", arguments: [name, task.workspaceId])
                 ?? Self.insertGroup(db, name: name, workspaceID: task.workspaceId)
             try TaskGroupMember(taskId: taskId, groupId: group.id, assignedBy: "runner").insert(db)
             try TaskEvent(taskId: taskId, source: .mcp, kind: "group.proposed", payload: group.name, verified: false).insert(db)

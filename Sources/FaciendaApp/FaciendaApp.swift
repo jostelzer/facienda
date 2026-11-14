@@ -80,6 +80,7 @@ import FaciendaCore
                 Button("Find or Ask…") { delegate.reopenWindow?(); model?.omnibarFocusRequest += 1 }.keyboardShortcut("k").disabled(model == nil)
                 Button("Dictate") { delegate.reopenWindow?(); model?.dictationRequest += 1 }.keyboardShortcut("d").disabled(model == nil)
                 Button("Incoming") { delegate.reopenWindow?(); workspaces.feed.toggle() }.keyboardShortcut("k", modifiers: [.command, .shift]).disabled(model == nil)
+                Button("Goals") { delegate.reopenWindow?(); workspaces.goals.toggle() }.keyboardShortcut("g").disabled(model == nil)
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { EditHistory.undo(model) }.keyboardShortcut("z")
@@ -109,6 +110,12 @@ import FaciendaCore
                 Button("Keyboard shortcuts") { delegate.reopenWindow?(); model?.showShortcuts = true }.keyboardShortcut("/").disabled(model == nil)
             }
         }
+        // A page an agent made, such as a mock, opened from its answer.
+        WindowGroup(id: PagePreview.window, for: URL.self) { $file in
+            if let file { PagePreview(file: file).preferredColorScheme(appearance.colorScheme) }
+        }
+        .defaultSize(width: 1280, height: 860)
+        .restorationBehavior(.disabled)
         MenuBarExtra("Facienda", image: "MenuBarIcon") {
             WorkspaceMenu(model: model, delegate: delegate, workspaces: workspaces)
         }

@@ -37,20 +37,66 @@ extension AppDelegate {
                     $0.messages(originalRequest: "", dispatches: [])
                 }.first(where: { $0.role == .user })?.text ?? conversation.title
                 let task = try model.store.importThread(originalRequest: request, title: conversation.title, cwd: "", conversation: conversation)
+                // The opened task reads the chat from what was saved of it.
+                try model.store.saveConversation(taskId: task.id, conversation: conversation)
                 model.select(task.id)
+                var dispatches: [NativeDispatch]?
                 if context["dispatches"] != .null {
                     let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-                    var dispatches = try decoder.decode([NativeDispatch].self, from: JSONEncoder().encode(context["dispatches"]))
-                    for index in dispatches.indices { dispatches[index].taskId = task.id }
-                    model.nativeDispatches = dispatches
+                    dispatches = try decoder.decode([NativeDispatch].self, from: JSONEncoder().encode(context["dispatches"]))
+                    for index in dispatches!.indices { dispatches![index].taskId = task.id }
                 }
+                // A real task's open asks and its agent's last handover, so the opened task can be seen as it stands.
+                for ask in context["decisions"].array ?? [] {
+                    try model.store.requestDecision(Decision(taskId: task.id, question: ask["question"].string ?? "", context: ask["context"].string ?? "",
+                                                             recommendation: ask["recommendation"].string ?? "", options: ask["options"].array?.compactMap(\.string) ?? [],
+                                                             kind: ask["kind"].string ?? "decision"))
+                }
+                let handover = context["handover"]
+                if handover != .null {
+                    try model.store.saveHandover(taskId: task.id, {
+                        $0.wants = handover["wants"].string; $0.outcome = handover["outcome"].string; $0.tail = handover["tail"].string
+                        $0.recommendation = handover["recommendation"].string; $0.why = handover["why"].string; $0.reply = handover["reply"].string
+                        $0.alternatives = handover["alternatives"].array?.compactMap(\.string) ?? []; $0.memory = handover["memory"].string
+                    }, replacing: true)
+                }
+                if let state = context["state"].string.flatMap(TaskState.init(rawValue:)) { _ = try model.store.update(task.id) { $0.state = state } }
+                model.refresh()
+                // After the refresh, which reads dispatches from the library and would drop the fixture's.
+                if let dispatches { model.nativeDispatches = dispatches }
             }
             let workspaces = WorkspaceController(demo: true, load: false)
             workspaces.install(model)
             if let title = Self.values("--select").first { model.select(model.tasks.first { $0.title == title }?.id) }
+            // `--handover`: the selected task's agent left a recommendation, to see the opened task's dock with one.
+            if CommandLine.arguments.contains("--handover"), let id = model.selection {
+                try model.store.saveHandover(taskId: id, {
+                    $0.wants = "Pick the weekend that works"; $0.tail = "two places"
+                    $0.recommendation = "Take the first weekend of May"
+                    $0.why = "Both places are free then, and the trains run without a change."
+                    $0.reply = "The first weekend of May. Book Ericeira and the morning train."
+                    $0.alternatives = ["Take the last weekend of April", "Look for a third place"]
+                    $0.memory = "prefers trains to driving"
+                }, replacing: true)
+                model.refresh()
+            }
+            // `--group-cover`: a plain two-colour picture on every group, and the selected task in the first of them,
+            // to see what takes its colour from a group's cover without Codex painting one.
+            if CommandLine.arguments.contains("--group-cover") {
+                if let id = model.selection, model.groupMembers[id] == nil, let first = model.groups.first { model.move(taskID: id, to: first.id) }
+                let tones: [(NSColor, NSColor)] = [(.systemTeal, .systemIndigo), (.systemOrange, .systemBrown), (.systemGreen, .systemYellow)]
+                for (index, group) in model.groups.enumerated() {
+                    let (top, bottom) = tones[index % tones.count]
+                    model.coverImages[group.id] = NSImage(size: NSSize(width: 320, height: 160), flipped: false) { rect in
+                        bottom.setFill(); rect.fill()
+                        top.setFill(); NSRect(x: 0, y: 60, width: 320, height: 100).fill()
+                        return true
+                    }
+                }
+            }
             if let name = Self.values("--sheet").first { model.omnibarGroup = model.groups.first { $0.name == name }?.id }
             // `--islands`: a few more workspaces with work running and work that came back, to see the sidebar's island
-            // with several planets.
+            // with several tiles.
             if CommandLine.arguments.contains("--islands") {
                 let library = model.store.library
                 var made: [String: Workspace] = [:]
@@ -71,6 +117,19 @@ extension AppDelegate {
                     try library.setMemoryRead(reader: garden.memorySpaceId, source: studio.memorySpaceId)
                 }
                 workspaces.reload()
+                // Plain pictures, two colours each, so the open tile's ring and the island's wash show.
+                let tones: [(NSColor, NSColor)] = [(.systemTeal, .systemIndigo), (.systemOrange, .systemBrown), (.systemGreen, .systemYellow),
+                                                   (.systemPurple, .systemPink), (.systemGray, .systemBlue)]
+                for (index, workspace) in workspaces.ordered.enumerated() {
+                    let (top, bottom) = tones[index % tones.count]
+                    let picture = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+                        bottom.setFill(); rect.fill()
+                        top.setFill(); NSRect(x: 0, y: 24, width: 64, height: 40).fill()
+                        return true
+                    }
+                    workspaces.coverImages[workspace.id] = picture
+                    workspaces.coverColours[workspace.id] = WorkspaceController.meanColour(of: picture)
+                }
             }
             if let index = CommandLine.arguments.firstIndex(of: "--section"), CommandLine.arguments.indices.contains(index + 1),
                let section = Destination(rawValue: CommandLine.arguments[index + 1]) {
@@ -170,6 +229,14 @@ extension AppDelegate {
                 model.composerModel = CommandLine.arguments.contains("--codex") ? TaskModelChoice(model: "gpt-6.1-sol", effort: "xhigh", fast: true) : .claudeStandard
                 content = AnyView(ModelChoicePanel(model: model).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(Palette.paper))
             }
+            // `--chat-model`: the model chooser of the selected task, whose Codex chat runs on GPT-6.1 Sol.
+            if CommandLine.arguments.contains("--chat-model"), let id = model.selection {
+                _ = try model.store.update(id) { $0.workerModel = "gpt-6.1-sol"; $0.workerReasoningEffort = "medium" }
+                model.refresh()
+                if let task = model.tasksByID[id] {
+                    content = AnyView(ChatModelPanel(model: model, task: task).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(Palette.paper))
+                }
+            }
             if CommandLine.arguments.contains("--omnibar-attachments") {
                 // A screenshot pasted through the same path as ⌘V, beside a document picked with the paperclip.
                 let omnibar = OmnibarModel(model: model, workspaces: workspaces)
@@ -191,9 +258,35 @@ extension AppDelegate {
                 let island = index.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil }
                 // `--feed` opens what came in over the island and the board.
                 if CommandLine.arguments.contains("--feed") { workspaces.feed.open() }
+                // `--goals` turns the window to Goals; `--goal NAME` hangs out the minigoals of that goal or subgoal, and
+                // `--goal-box TEXT` opens that minigoal's box. `--today` opens today's list beside the map, and `--reached` shows what was reached.
+                if CommandLine.arguments.contains("--goals") {
+                    let goals = workspaces.goals
+                    // `--goal-picture FILE` gives the first goal that picture, to see a painted goal without Codex.
+                    if let file = Self.values("--goal-picture").first, let first = try model.store.library.goals().first(where: { $0.parentId == nil }) {
+                        try model.store.library.saveCover(goalId: first.id, image: Data(contentsOf: URL(fileURLWithPath: file)), style: "snapshot")
+                    }
+                    goals.open()
+                    // Said either way, so a picture never depends on how Today was left.
+                    goals.setToday(CommandLine.arguments.contains("--today"), reduceMotion: true)
+                    goals.setShowReached(CommandLine.arguments.contains("--reached"), reduceMotion: true)
+                    for name in Self.values("--goal") {
+                        guard let goal = goals.goals.first(where: { $0.text == name }) else { continue }
+                        if goal.parentId == nil { goals.toggle(goal: goal.id, reduceMotion: true) } else { goals.toggle(subgoal: goal.id, reduceMotion: true) }
+                    }
+                    if let text = Self.values("--goal-box").first, let line = goals.items.first(where: { $0.line.text == text && $0.task == nil }) {
+                        goals.toggle(box: GoalsModel.OpenBox(subgoalID: line.line.subgoalId, lineID: line.line.id), reduceMotion: true)
+                    }
+                    // `--goal-line TEXT` puts that written line in the bar, as its play button does.
+                    if let text = Self.values("--goal-line").first, let item = goals.items.first(where: { $0.line.text == text }) { goals.detail(item) }
+                }
                 content = AnyView(WorkspaceWindow(model: model, workspaces: workspaces, fixedIsland: island))
             }
-            if CommandLine.arguments.contains("--settings") { content = AnyView(SettingsView(model: model)) }
+            // `--settings` draws the Settings sheet; `--pane NAME` opens it on that pane, such as `memory`.
+            if CommandLine.arguments.contains("--settings") {
+                if let pane = Self.values("--pane").first.flatMap(SettingsPane.init(rawValue:)) { model.settingsPane = pane }
+                content = AnyView(SettingsView(model: model, workspaces: workspaces))
+            }
             if CommandLine.arguments.contains("--places"), showPlaces {
                 content = AnyView(PlacesList(model: model).frame(width: 340).padding(20)
                     .background(Palette.card).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(.top, 20).background(Palette.paper))
@@ -265,7 +358,8 @@ extension AppDelegate {
                     let parts = CommandLine.arguments[index + 1].split(separator: "x").compactMap { Double($0) }
                     return parts.count == 2 ? NSRect(x: 0, y: 0, width: parts[0], height: parts[1]) : nil
                 }
-                view.frame = size ?? (CommandLine.arguments.contains("--model-chooser") ? NSRect(x: 0, y: 0, width: 400, height: 640)
+                view.frame = size ?? (CommandLine.arguments.contains("--chat-model") ? NSRect(x: 0, y: 0, width: 320, height: 560)
+                    : CommandLine.arguments.contains("--model-chooser") ? NSRect(x: 0, y: 0, width: 400, height: 640)
                     : CommandLine.arguments.contains("--settings") ? NSRect(x: 0, y: 0, width: 820, height: 640)
                     : CommandLine.arguments.contains("--claude-settings") ? NSRect(x: 0, y: 0, width: 700, height: 640)
                     : CommandLine.arguments.contains("--runner-guide") ? NSRect(x: 0, y: 0, width: 700, height: 760)
@@ -317,6 +411,19 @@ extension AppDelegate {
             }
             try render(content)
         } catch { fputs("Snapshot failed: \(error)\n", stderr); NSApp.terminate(nil) }
+    }
+
+    /// With `--reply-files`: a pasted picture and a picked document waiting in an opened task's answer field.
+    static var demoReplyFiles: [URL] {
+        guard CommandLine.arguments.contains("--reply-files") else { return [] }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "facienda-demo")
+        let picture = folder.appending(path: "Pasted image 2026-11-13 at 12.40.02.png"), document = folder.appending(path: "Rack plan.pdf")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: picture.path) {
+            try? NSImage(named: "BrandIcon")?.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }?.write(to: picture)
+        }
+        if !FileManager.default.fileExists(atPath: document.path) { try? Data("%PDF-1.4".utf8).write(to: document) }
+        return [picture, document]
     }
 
     /// Every value given after `flag`, for flags that may repeat.

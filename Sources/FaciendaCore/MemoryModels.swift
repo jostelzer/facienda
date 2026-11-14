@@ -86,11 +86,15 @@ public actor MemoryModels {
     private func models() throws -> (tokenizer: MemoryTokenizer, embedder: MLModel, reranker: MLModel) {
         if let loaded { return loaded }
         guard let resources else { throw StoreError.invalid("Facienda's memory models are missing from this installation.") }
-        let configuration = MLModelConfiguration()
-        configuration.computeUnits = usingCPU ? .cpuOnly : .all
+        // The embedder takes any text length, and on the GPU Core ML keeps fresh buffers for each new length without
+        // ever giving them back: 33 GB after two days of memory work. Off the GPU it is just as fast and gives the same
+        // vectors. The reranker only sees four padded shapes, so its GPU memory stays put and it keeps the speed.
+        let embedding = MLModelConfiguration(), reranking = MLModelConfiguration()
+        embedding.computeUnits = usingCPU ? .cpuOnly : .cpuAndNeuralEngine
+        reranking.computeUnits = usingCPU ? .cpuOnly : .all
         let tokenizer = try MemoryTokenizer(vocabulary: resources.appendingPathComponent("vocab.txt"))
-        let embedder = try MLModel(contentsOf: try compiled("MemoryEmbedder", in: resources), configuration: configuration)
-        let reranker = try MLModel(contentsOf: try compiled("MemoryReranker", in: resources), configuration: configuration)
+        let embedder = try MLModel(contentsOf: try compiled("MemoryEmbedder", in: resources), configuration: embedding)
+        let reranker = try MLModel(contentsOf: try compiled("MemoryReranker", in: resources), configuration: reranking)
         loaded = (tokenizer, embedder, reranker)
         return (tokenizer, embedder, reranker)
     }

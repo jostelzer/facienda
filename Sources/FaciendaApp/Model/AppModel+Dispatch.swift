@@ -30,7 +30,7 @@ extension AppModel {
             // A task the agent cannot take now is kept, not queued: it would only sit there without saying why.
             rereadCheckIns()
             if let reason = whyDown(provider) {
-                error = reason + " Your task is saved; start it once \(provider.name) is back."
+                error = reason + " Your task is saved: once \(provider.name) is back, click it and choose Start."
                 if !claude && !workspaceReady { showSettings = true }
                 return nil
             }
@@ -130,16 +130,32 @@ extension AppModel {
             if destination != .dashboard, let taskID, let task = tasks.first(where: { $0.id == taskID }) { showTask(task) }
         }
     }
-    func reply(to task: FaciendaTask, text: String, reveal: Bool = true, userAuthored: Bool = true) -> Bool {
+    func reply(to task: FaciendaTask, text: String, reveal: Bool = true, userAuthored: Bool = true, attachments: [TaskAttachment] = []) -> Bool {
         guard !demo, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         do {
             let provider = agent(for: task)
             rereadCheckIns()
             if let reason = whyDown(provider) { throw StoreError.invalid(reason + " Your reply is still here.") }
             guard pendingDispatch(for: task.id) == nil else { throw StoreError.invalid("A message is already queued for this task.") }
-            _ = try store.enqueueDispatch(taskId: task.id, message: text, userAuthored: userAuthored)
+            _ = try store.enqueueDispatch(taskId: task.id, message: text, userAuthored: userAuthored, attachments: attachments)
             replyDrafts[task.id] = ""
             refresh(); if reveal { showTask(task) }; return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+
+    /// A reply with pictures or files. They are copied into the task's folder first, as a new task's are, and the
+    /// agent is told where the copies lie. Files alone go with a line naming them, which is not the user's wording.
+    func reply(to task: FaciendaTask, text: String, files: [URL], userAuthored: Bool = true) async -> Bool {
+        guard !demo, !files.isEmpty else { return false }
+        let directory = store.taskFolder(task.id).appending(path: "Attachments")
+        do {
+            let copies = try await Task.detached(priority: .userInitiated) { try Self.copyAttachments(files, into: directory) }.value
+            let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sent = reply(to: task, text: words.isEmpty ? "Attached: " + copies.map(\.name).joined(separator: ", ") : words, reveal: false,
+                             userAuthored: userAuthored && !words.isEmpty, attachments: copies)
+            // Not sent, as when a message is already on its way: the copies would lie in the task's folder unexplained.
+            if !sent { Self.discardCopies(copies) }
+            return sent
         } catch { self.error = error.localizedDescription; return false }
     }
 }

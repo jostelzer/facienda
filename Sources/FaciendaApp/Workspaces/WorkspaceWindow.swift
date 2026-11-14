@@ -5,8 +5,8 @@ import FaciendaCore
 /// beside it, as two equal panels on the window's ground. The bar is the window's, not a board's: it spans island and
 /// board alike, and what is typed in it stays while workspaces are switched. The island stays where it is; only its right
 /// edge moves, to make it wider or narrower. While that edge is dragged only the island redraws; let go, and the board
-/// takes its new room and slides over to it whole. A switch only brings the open planet close while one board fades
-/// into the next.
+/// takes its new room and slides over to it whole. A switch only rings the open tile while one board fades into the
+/// next.
 struct WorkspaceWindow: View {
     @Bindable var model: AppModel
     var appDelegate: AppDelegate?
@@ -34,10 +34,15 @@ struct WorkspaceWindow: View {
 
     var body: some View {
         let island = island, omnibar = bars.bar(for: model, workspaces: workspaces, preset: bar)
+        // Goals is the window's other side: the island and the board slide out to the left as Goals comes in from the right.
+        // Opened from a miniature beside a subgoal, the board grows out of it instead, and shrinks back into it.
+        let goalsOpen = workspaces.goals.isOpen, origin = reduceMotion ? nil : workspaces.goals.boardOrigin
+        let away: CGFloat = goalsOpen && !reduceMotion && origin == nil ? -window.width : 0
         ZStack(alignment: .topLeading) {
             // The title row is the bar's now; around it the window still moves the way a title bar does.
             Color.clear.frame(maxWidth: .infinity).frame(height: island.minY)
                 .contentShape(Rectangle()).gesture(WindowDragGesture())
+            ZStack(alignment: .topLeading) {
             // Both boards share the panel while one fades into the other, so the panel itself never fades.
             ZStack {
                 DashboardView(model: model, appDelegate: appDelegate, workspaces: workspaces, sidebar: false, omnibar: omnibar)
@@ -45,15 +50,30 @@ struct WorkspaceWindow: View {
             }
             .boardPanel()
             // Under what came in, the board waits as it was, out of reach of VoiceOver and the keyboard.
-            .accessibilityHidden(workspaces.feed.isOpen)
+            .accessibilityHidden(workspaces.feed.isOpen || goalsOpen)
             // As far from the island and the window's edges as the island is from its edges, and as far below the bar.
             .padding(.top, island.minY)
             .padding([.bottom, .trailing], IslandFrame.margin)
             .padding(.leading, island.maxX + IslandFrame.margin)
-            .offset(x: slide)
+            .offset(x: slide + away)
+            .opacity(goalsOpen && reduceMotion ? 0 : 1)
             if window.width > 0 {
                 ResizableIsland(model: model, workspaces: workspaces, settled: island, window: window, land: land)
-                    .accessibilityHidden(workspaces.feed.isOpen)
+                    .offset(x: away)
+                    .opacity(goalsOpen && reduceMotion ? 0 : 1)
+                    .accessibilityHidden(workspaces.feed.isOpen || goalsOpen)
+            }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .modifier(Miniature(frame: goalsOpen ? origin : nil, window: window))
+            // The same work by what it is for, across every workspace, in the whole room under the bar. The workspace side
+            // stays as it was out of sight, and comes back as it was.
+            if goalsOpen {
+                // Goals draws its own panels: the map, and today's list beside it when that is open.
+                GoalsView(goals: workspaces.goals, workspaces: workspaces)
+                    .padding(.top, island.minY)
+                    .padding([.leading, .bottom, .trailing], IslandFrame.margin)
+                    .transition(reduceMotion || origin != nil ? .opacity : .move(edge: .trailing))
             }
             // What came in spans every workspace, so it takes the whole room under the bar. The board stays where it
             // was underneath, and comes back as it was.
@@ -69,6 +89,8 @@ struct WorkspaceWindow: View {
             // Over both panels, since the bar grows down over them as you type. It starts after the traffic lights and
             // runs to the window's right edge, as far in from it as the panels are.
             HStack(spacing: 12) {
+                SideSwitch(goals: workspaces.goals)
+                if let sub = workspaces.goals.cameFrom, !goalsOpen { WayBack(goals: workspaces.goals, subgoal: sub) }
                 OmnibarField(omnibar: omnibar, reach: window.height, widest: .infinity,
                              accessory: AnyView(FeedTrail(feed: workspaces.feed, workspaces: workspaces)))
                 UpdatePill()
@@ -79,6 +101,7 @@ struct WorkspaceWindow: View {
             .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .coordinateSpace(name: WorkspaceWindow.space)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { window = $0 }
         // The title bar is hidden, but SwiftUI still keeps its height free above the content. The bar belongs in that
         // row, beside the traffic lights, so the window's content starts at its top edge.
@@ -93,8 +116,12 @@ struct WorkspaceWindow: View {
         .background(Palette.sidebar).foregroundStyle(Palette.ink).tint(Palette.accent)
         .frame(minWidth: 680, minHeight: 520)
         .animation(Motion.fade, value: workspaces.feed.isOpen)
-        .onAppear { workspaces.feed.start() }
+        .animation(reduceMotion ? Motion.fade : Motion.travel, value: workspaces.goals.isOpen)
+        .onAppear { workspaces.feed.start(); workspaces.goals.start() }
     }
+
+    /// Where a miniature board's frame is measured, so the real board can grow out of it.
+    static let space = "workspaceWindow"
 
     /// The island keeps the width it was let go at; the board takes its new room in one step and slides there from where it was.
     private func land(_ width: CGFloat) {
@@ -109,6 +136,45 @@ struct WorkspaceWindow: View {
         guard slide != 0 else { return }
         // A frame later, so the board is drawn once where it was before it sets off.
         DispatchQueue.main.async { withAnimation(Motion.move) { slide = 0 } }
+    }
+}
+
+/// The window's two sides, at the start of the bar: the workspaces with their boards, and Goals. The highlight slides
+/// from one to the other.
+private struct SideSwitch: View {
+    @Bindable var goals: GoalsModel
+    @Namespace private var pill
+
+    var body: some View {
+        HStack(spacing: 2) {
+            side(goals: false, symbol: "square.grid.2x2", title: "Workspaces", help: "Workspaces and their boards")
+            side(goals: true, symbol: "scope", title: "Goals", help: "Your goals, and the work that serves them (⌘G)")
+        }
+        .padding(2)
+        .background(Palette.sidebar, in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
+        .fixedSize()
+    }
+
+    private func side(goals isGoals: Bool, symbol: String, title: String, help: String) -> some View {
+        let on = goals.isOpen == isGoals
+        return Button {
+            if !on { goals.toggle() }
+        } label: {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(on ? Palette.ink : Palette.muted)
+                .frame(width: 34, height: 30)
+                .background {
+                    if on {
+                        Capsule().fill(Palette.card).overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
+                            .matchedGeometryEffect(id: "side", in: pill)
+                    }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).help(help)
+        .animation(Motion.move, value: goals.isOpen)
+        .accessibilityLabel(title).accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -203,5 +269,47 @@ extension View {
         clipShape(WorkspaceSidebar.island)
             .background { WorkspaceSidebar.island.fill(Palette.paper).shadow(color: .black.opacity(0.1), radius: 22, y: 12) }
             .overlay { WorkspaceSidebar.island.strokeBorder(Palette.line, lineWidth: 1).allowsHitTesting(false) }
+    }
+}
+
+/// The island and the board drawn small over a task's picture in Goals, unseen, so they grow out of it and shrink back.
+/// One scale for both sides, so the board keeps its shape as it grows.
+private struct Miniature: ViewModifier {
+    let frame: CGRect?
+    let window: CGSize
+
+    func body(content: Content) -> some View {
+        // One view either way, so the board keeps its state and eases between the two.
+        let on = frame != nil && window.width > 0 && window.height > 0, f = frame ?? .zero
+        let scale = on ? max(f.width / window.width, f.height / window.height) : 1
+        content
+            .scaleEffect(scale, anchor: .topLeading)
+            .offset(x: on ? f.midX - window.width * scale / 2 : 0, y: on ? f.midY - window.height * scale / 2 : 0)
+            .opacity(on ? 0 : 1)
+            .allowsHitTesting(!on)
+    }
+}
+
+/// After a board was opened from a task in a subgoal: back into that subgoal, still close.
+private struct WayBack: View {
+    let goals: GoalsModel
+    let subgoal: Goal
+
+    var body: some View {
+        Button { goals.returnToSubgoal() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "scope").font(.system(size: 11))
+                Text(subgoal.text).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            }
+            .padding(.horizontal, 12).frame(height: 30)
+            .frame(maxWidth: 240)
+            .background(Palette.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(Palette.firmLine, lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Back to this subgoal in Goals")
+        .transition(.opacity)
     }
 }

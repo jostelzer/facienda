@@ -16,6 +16,12 @@ public struct CodexThread: Codable, Identifiable, Equatable, Sendable {
     }
 }
 public struct ThreadPage: Decodable, Sendable { public let data: [CodexThread]; public let nextCursor: String? }
+/// Where the user stopped reading a chat in Codex. Without a first unread position, everything in it has been read.
+public struct ThreadReadState: Decodable, Equatable, Sendable {
+    public struct Position: Decodable, Equatable, Sendable { public let type: String; public let turnId: String? }
+    public let firstUnread: Position?
+    public var isRead: Bool { firstUnread == nil }
+}
 public struct BridgeMessage: Sendable {
     public let method: String
     public let params: JSONValue
@@ -89,11 +95,14 @@ public actor CodexBridge {
         closer = { try? input.close() }
         DispatchQueue(label: "org.facienda.codex.stdout", qos: .utility).async {
             defer { continuation.finish() }
-            while true {
+            // This loop lives as long as the connection, so the queue's own pool never drains.
+            // Each read's temporary Foundation buffers are released here instead.
+            while autoreleasepool(invoking: {
                 let data = stdout.fileHandleForReading.availableData
-                guard !data.isEmpty else { break }
+                guard !data.isEmpty else { return false }
                 continuation.yield(data)
-            }
+                return true
+            }) {}
         }
         try await begin(chunks)
     }
@@ -247,5 +256,11 @@ public actor CodexBridge {
         let response = try await request("thread/read", params: .object(["threadId": .string(id), "includeTurns": .bool(false)]))
         guard response["thread"]["id"].string == id else { throw BridgeError.server("Codex returned a different chat.") }
         return response
+    }
+    /// Whether the user has read the chat in Codex, and when the chat last changed. Nil when Codex keeps no read receipt for it.
+    public func reading(_ id: String) async throws -> ChatReading? {
+        let response = try await readThread(id)
+        guard let state = try? response["readState"].decoded(ThreadReadState.self), let updated = response["thread"]["updatedAt"].number else { return nil }
+        return ChatReading(turnEndedAt: Date(timeIntervalSince1970: updated), read: state.isRead)
     }
 }

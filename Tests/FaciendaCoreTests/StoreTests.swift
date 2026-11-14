@@ -37,6 +37,16 @@ private func workspaceStore() throws -> FaciendaStore {
     #expect(throws: StoreError.self) { try db.update(task.id, source: .mcp) { $0.state = .running } }
 }
 
+@Test func userTasksMadeUnderTheOldDefaultGoAheadAndAgentTasksStayPrepareOnly() throws {
+    let db = try workspaceStore()
+    let mine = try db.create(FaciendaTask(title: "Book the studio", state: .needsMe))
+    let agents = try db.create(FaciendaTask(title: "Follow up on the quote", state: .needsMe), source: .mcp)
+    #expect(mine.automationScope == .prepareOnly && agents.automationScope == .prepareOnly)
+    try db.db.write { try $0.execute(sql: FaciendaStore.userTasksGoAhead) }
+    #expect(try db.task(mine.id).automationScope == .autonomous)
+    #expect(try db.task(agents.id).automationScope == .prepareOnly)
+}
+
 @Test func optimisticEditsAndFTSSearch() throws {
     let db = try store(), original = try db.create(FaciendaTask(title: "Trip", brief: "Azores itinerary"))
     try db.update(original.id, expectedRevision: original.revision) { $0.brief = "Madeira ferry" }
@@ -334,4 +344,45 @@ private func rollout(_ reviewers: [String], trailing: Int = 0) throws -> URL {
     #expect(new?.intent == .new && new?.task == nil && new?.message == "")
     #expect(TaskFinder.read("not json", tasks: tasks) == nil)
     #expect(TaskLookup.asksForEarlier("we had some lamp offers recently added to the storeroom order sheet"))
+}
+
+@Test func newsCountsAsReadOnlyWhenTheChatsLatestTurnWasIt() {
+    let back = Date(timeIntervalSince1970: 10_000), later = back.addingTimeInterval(60)
+    let chat = UnreadChat(taskId: "task", threadId: "chat", provider: .codex, finishedAt: back)
+    #expect(chat.wasRead(in: ChatReading(turnEndedAt: back.addingTimeInterval(-5), read: true), now: later))
+    #expect(!chat.wasRead(in: ChatReading(turnEndedAt: back.addingTimeInterval(-5), read: false), now: later))
+    // Codex files its receipt just after the turn ends, so news that just came back waits.
+    #expect(!chat.wasRead(in: ChatReading(turnEndedAt: back.addingTimeInterval(-5), read: true), now: back.addingTimeInterval(10)))
+    // A wait or date that brings the task back long after the chat went quiet is Facienda's news, not the chat's.
+    #expect(!chat.wasRead(in: ChatReading(turnEndedAt: back.addingTimeInterval(-3_600), read: true), now: later))
+}
+
+@Test func newsReadInTheChatsOwnAppIsNoLongerNew() throws {
+    let library = try store(), workspace = try library.defaultWorkspace().id
+    let db = library.scoped(to: workspace)
+    let lamps = try db.create(FaciendaTask(title: "Compare lamps", state: .needsMe))
+    let invitation = try db.create(FaciendaTask(title: "Draft the invitation", state: .needsMe))
+    _ = try db.create(FaciendaTask(title: "Water the plants", state: .needsMe))
+    let shelf = try db.create(FaciendaTask(title: "Measure the shelf", state: .needsMe))
+    try db.link(ThreadLink(taskId: lamps.id, codexThreadId: "lamps-review", role: "review"))
+    try db.link(ThreadLink(taskId: lamps.id, codexThreadId: "lamps"))
+    try db.link(ThreadLink(taskId: invitation.id, codexThreadId: "local_invitation", provider: .claude))
+    try db.link(ThreadLink(taskId: shelf.id, codexThreadId: "shelf"))
+    try db.markSeen([shelf.id: Date().addingTimeInterval(60)])
+
+    // Each new task with a chat, in its work chat ahead of its review chat. Tasks already seen or without a chat are left out.
+    let unread = try library.unreadChats()
+    #expect(Set(unread.map(\.threadId)) == ["lamps", "local_invitation"])
+    #expect(unread.first { $0.taskId == invitation.id }?.provider == .claude)
+    #expect(try db.unreadChats().count == 2)
+
+    // A further result after the check stays new; the one read in its chat does not.
+    let lampsChat = try #require(unread.first { $0.taskId == lamps.id }), invitationChat = try #require(unread.first { $0.taskId == invitation.id })
+    try db.record(TaskEvent(taskId: invitation.id, source: .appServer, kind: "codex.result", payload: "Second draft", at: invitationChat.finishedAt.addingTimeInterval(60)))
+    try library.markReadInChat([lampsChat, invitationChat])
+    #expect(try db.readMarks()[lamps.id]?.isNew == false)
+    #expect(try db.readMarks()[invitation.id]?.isNew == true)
+    #expect(try library.unreadChats().map(\.taskId) == [invitation.id])
+    // The rest of the workspace's news is untouched.
+    #expect(try library.newCounts() == [workspace: 2])
 }

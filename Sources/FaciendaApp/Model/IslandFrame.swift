@@ -16,7 +16,10 @@ enum IslandFrame {
     /// How far the board sits in from its panel's edge. With the panel's 26 pt corners, the 12 pt corners of the field and
     /// the cards inside nest in them.
     static let inset: CGFloat = 14
-    /// The narrowest island that still holds its planets and limits.
+    /// Where the board's first cards start below its panel's top: the page row, one 26 pt line inset above and below,
+    /// then the board's own 8 pt. The island starts its first tiles there too.
+    static let firstLine: CGFloat = inset + 26 + inset + 8
+    /// The narrowest island that still holds two columns of tiles and the limits.
     static let narrowest: CGFloat = 190
     /// The least the board keeps beside the island.
     static let board = CGSize(width: 360, height: 260)

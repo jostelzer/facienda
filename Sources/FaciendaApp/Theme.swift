@@ -150,17 +150,6 @@ extension TaskStatus {
     }
 }
 
-struct TaskStatusBadge: View {
-    let status: TaskStatus
-    var body: some View {
-        Label(status.label, systemImage: status.symbol)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(status.tint)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(status.tint.opacity(0.10), in: Capsule())
-    }
-}
-
 struct Eyebrow: View {
     let text: String
     var body: some View { Text(text.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(1.8).foregroundStyle(Palette.muted) }

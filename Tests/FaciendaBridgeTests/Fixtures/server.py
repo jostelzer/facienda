@@ -88,7 +88,8 @@ for line in sys.stdin:
         thread_reads.append(thread_id)
         history_requests.append({'method': method, **request['params']})
         if thread_id in thread_responses:
-            send({'id': request['id'], 'result': {'thread': {**thread_responses[thread_id]['thread'], 'turns': []}}})
+            send({'id': request['id'], 'result': {'thread': {**thread_responses[thread_id]['thread'], 'turns': []},
+                                                  'readState': thread_responses[thread_id].get('readState')}})
         else:
             send({'id': request['id'], 'error': {'code': -32000, 'message': 'Fixture chat unavailable'}})
     elif method == 'thread/read':

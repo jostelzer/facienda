@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Synchronization
 
 /// A redacted, typed source. Conclusions refer to these records rather than citing themselves.
 public struct MemoryEvidence: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
@@ -113,26 +114,32 @@ extension FaciendaStore {
 
     /// Rebuildable from sources. Old captures are included, so an upgraded library gains understanding without re-importing it.
     public func prepareMemoryEvidence(spaceID: String) throws {
-        // This runs for every memory on every sync and almost always finds nothing new. Looking in a read first, and
-        // chunking there, keeps the library's write lock free for the app, the helpers and the runner.
-        let chunks = EvidenceChunks()
-        guard try db.read({ try Self.syncMemoryEvidence($0, spaceID: spaceID, chunks: chunks, apply: false) }) else { return }
-        try db.write { _ = try Self.syncMemoryEvidence($0, spaceID: spaceID, chunks: chunks, apply: true) }
+        // This runs for every memory on every sync and almost always finds nothing new. Looking in a read first keeps
+        // the library's write lock free for the app, the helpers and the runner.
+        guard try db.read({ try Self.syncMemoryEvidence($0, spaceID: spaceID, apply: false) }) else { return }
+        try db.write { _ = try Self.syncMemoryEvidence($0, spaceID: spaceID, apply: true) }
     }
 
-    /// Chunks of each source text, kept between the read that looks and the write that applies.
-    private final class EvidenceChunks {
-        private var byText: [String: [String]] = [:]
-        func split(_ text: String) -> [String] {
-            if let chunks = byText[text] { return chunks }
-            let chunks = MemoryChunker.split(MemoryRedaction.redact(text), limit: 3000)
-            byText[text] = chunks
-            return chunks
+    /// Each source's redacted chunks and their evidence ids, kept for the life of the process. Redacting every message
+    /// again on each 30-second sync took seconds of CPU once a library held a few thousand of them.
+    private static let evidencePieces = Mutex<[String: [(id: String, text: String)]]>([:])
+
+    private static func pieces(spaceID: String, sourceId: String, text: String) -> [(id: String, text: String)] {
+        let key = spaceID + "\n" + sourceId + "\n" + text
+        if let known = evidencePieces.withLock({ $0[key] }) { return known }
+        let pieces = MemoryChunker.split(MemoryRedaction.redact(text), limit: 3000).enumerated().map { index, chunk in
+            (id: MemoryChunker.digest(spaceID + "\n" + sourceId + "\n\(index)\n" + chunk), text: chunk)
         }
+        evidencePieces.withLock { cache in
+            // Edited and removed sources leave stale keys behind; starting over now and then keeps that bounded.
+            if cache.count > 50_000 { cache.removeAll() }
+            cache[key] = pieces
+        }
+        return pieces
     }
 
     /// Returns whether the evidence differs from its sources, and with `apply` brings it in line.
-    private static func syncMemoryEvidence(_ db: Database, spaceID: String, chunks: EvidenceChunks, apply: Bool) throws -> Bool {
+    private static func syncMemoryEvidence(_ db: Database, spaceID: String, apply: Bool) throws -> Bool {
         _ = try memorySpace(db, spaceID)
         var changed = false
         if apply {
@@ -140,44 +147,53 @@ extension FaciendaStore {
         } else if try Int.fetchOne(db, sql: "SELECT 1 FROM memoryReasoningState WHERE spaceId = ?", arguments: [spaceID]) == nil {
             return true
         }
-        let utterances = try MemoryUtterance.fetchAll(db, sql: "SELECT * FROM memoryUtterances WHERE spaceId = ? ORDER BY at", arguments: [spaceID])
-        let entries = try MemoryEntry.fetchAll(db, sql: "SELECT * FROM memoryEntries WHERE spaceId = ? AND state = 'live'", arguments: [spaceID])
+        // One look at what this memory already holds, without the embeddings, instead of a query per source and chunk.
+        // Evidence ids include the space and the source, so no source can touch another's rows during the pass.
+        var known: [String: Bool] = [:], activeBySource: [String: [String]] = [:]
+        let rows = try Row.fetchCursor(db, sql: "SELECT id, sourceId, active FROM memoryEvidence WHERE spaceId = ?", arguments: [spaceID])
+        while let row = try rows.next() {
+            let id: String = row["id"], active: Bool = row["active"]
+            known[id] = active
+            if active { activeBySource[row["sourceId"], default: []].append(id) }
+        }
         var present = Set<String>()
         func add(_ sourceId: String, text: String, source: String, at: Date) throws {
             present.insert(sourceId)
-            let old = try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND sourceId = ? AND active = 1", arguments: [spaceID, sourceId])
-            var ids = Set<String>()
-            for (index, chunk) in chunks.split(text).enumerated() {
-                let id = MemoryChunker.digest(spaceID + "\n" + sourceId + "\n\(index)\n" + chunk)
-                ids.insert(id)
-                if let current = try MemoryEvidence.fetchOne(db, key: id) {
-                    if !current.active {
+            let pieces = Self.pieces(spaceID: spaceID, sourceId: sourceId, text: text)
+            let ids = Set(pieces.map(\.id))
+            for piece in pieces {
+                if let active = known[piece.id] {
+                    if !active {
                         changed = true
-                        if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 1, processedAt = NULL, nextAttempt = NULL WHERE id = ?", arguments: [id]) }
+                        if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 1, processedAt = NULL, nextAttempt = NULL WHERE id = ?", arguments: [piece.id]) }
                     }
                 } else {
                     changed = true
                     if apply {
-                        try MemoryEvidence(id: id, spaceId: spaceID, sourceId: sourceId, source: MemoryRedaction.redact(source), text: chunk,
+                        try MemoryEvidence(id: piece.id, spaceId: spaceID, sourceId: sourceId, source: MemoryRedaction.redact(source), text: piece.text,
                                            at: at, active: true, processedAt: nil, embedding: Data()).insert(db)
                     }
                 }
             }
-            for item in old where !ids.contains(item.id) {
+            for id in activeBySource[sourceId] ?? [] where !ids.contains(id) {
                 changed = true
-                if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [item.id]) }
+                if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [id]) }
             }
         }
-        for utterance in utterances where utteranceKinds.contains(utterance.sourceKind) {
-            try add("utterance:" + utterance.id, text: utterance.text, source: utterance.source, at: utterance.at)
+        let kinds = utteranceKinds.map { "'\($0.rawValue)'" }.joined(separator: ",")
+        let utterances = try Row.fetchCursor(db, sql: "SELECT id, text, source, at FROM memoryUtterances WHERE spaceId = ? AND sourceKind IN (\(kinds)) ORDER BY at", arguments: [spaceID])
+        while let row = try utterances.next() {
+            try add("utterance:" + (row["id"] as String), text: row["text"], source: row["source"], at: row["at"])
         }
-        for entry in entries { try add("entry:" + entry.id, text: entry.text, source: "User-written or accepted entry: " + entry.subject, at: entry.updatedAt) }
+        for entry in try MemoryEntry.fetchAll(db, sql: "SELECT * FROM memoryEntries WHERE spaceId = ? AND state = 'live'", arguments: [spaceID]) {
+            try add("entry:" + entry.id, text: entry.text, source: "User-written or accepted entry: " + entry.subject, at: entry.updatedAt)
+        }
         for item in try MemoryUnderstanding.fetchAll(db, sql: "SELECT * FROM memoryUnderstanding WHERE spaceId = ? AND state = 'reviewed'", arguments: [spaceID]) {
             try add("reviewed:" + item.id, text: item.summary, source: "Understanding reviewed or corrected by the user: " + item.subject, at: item.updatedAt)
         }
-        for old in try MemoryEvidence.fetchAll(db, sql: "SELECT * FROM memoryEvidence WHERE spaceId = ? AND active = 1", arguments: [spaceID]) where !present.contains(old.sourceId) {
+        for (sourceId, ids) in activeBySource where !present.contains(sourceId) {
             changed = true
-            if apply { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [old.id]) }
+            if apply { for id in ids { try db.execute(sql: "UPDATE memoryEvidence SET active = 0 WHERE id = ?", arguments: [id]) } }
         }
         if changed && apply { try db.execute(sql: "UPDATE memoryReasoningState SET revision = revision + 1 WHERE spaceId = ?", arguments: [spaceID]) }
         return changed

@@ -51,6 +51,15 @@ extension AppModel {
         blocker.kind == "task" ? blocker.prerequisiteId.flatMap(libraryTask)?.state == .done : blocker.isMet(tasks: [])
     }
 
+    /// Reuse the omnibar's complete matches, including those beyond its eight visible results.
+    func filterBoard(_ query: String, matching ids: Set<String>) {
+        if search != query { search = query }
+        if derived.search?.query != query || derived.search?.ids != ids {
+            derived.search = (query, ids)
+            derived.board = nil
+        }
+    }
+
     /// The IDs of the tasks matching every word of the search that counts, read once per query. Nil without a search.
     var searchMatches: Set<String>? {
         let query = search

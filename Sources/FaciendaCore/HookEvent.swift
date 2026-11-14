@@ -75,8 +75,11 @@ public struct ClaudeHookEvent: Codable, Sendable {
 
     public func apply(to store: FaciendaStore) throws {
         guard let status, let session = try store.claudeSession(cliSessionId: session_id) else { return }
+        // The app reads a finished turn from the transcript every 30 s; told at once, it shows the answer at once.
+        // Nothing is written for it, as another hook may still carry the turn on.
+        if hook_event_name == "Stop" { FaciendaStore.postClaudeTurnEnded() }
         // Before the guard below: writing into a turn that already runs carries the work on too.
-        if hook_event_name == "UserPromptSubmit" { try store.setAsideCompletionInChat(session.taskId) }
+        if hook_event_name == "UserPromptSubmit" { try store.setAsideAsksInChat(session.taskId) }
         let current = try store.threadLink(threadId: session.threadId)?.lastKnownStatus
         switch status {
         case "waitingOnApproval": break

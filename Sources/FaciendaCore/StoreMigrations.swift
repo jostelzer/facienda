@@ -210,6 +210,22 @@ extension FaciendaStore {
         registerWorkspacePlaces(&migrator)
         registerMemoryReads(&migrator)
         registerOvertakenCompletions(&migrator)
+        registerGoals(&migrator)
+        registerArchive(&migrator)
+        registerLastMessages(&migrator)
+        registerTurnHandovers(&migrator)
+        migrator.registerMigration("user_tasks_go_ahead") { db in try db.execute(sql: userTasksGoAhead) }
+        registerOvertakenQuestions(&migrator)
+        registerChatEnds(&migrator)
+        registerChatModelChanges(&migrator)
         return migrator
     }
+
+    /// Agents now always go ahead on the user's own tasks, so tasks made under the old prepare-only default follow.
+    /// Tasks an agent created stay prepare-only.
+    static let userTasksGoAhead = """
+        UPDATE tasks SET automationScope = 'autonomous'
+        WHERE automationScope != 'autonomous'
+          AND id IN (SELECT taskId FROM events WHERE kind = 'task.created' AND source = 'user')
+        """
 }

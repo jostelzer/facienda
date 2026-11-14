@@ -7,43 +7,25 @@ extension AppModel {
         guard !name.isEmpty, name != task.displayName else { return }
         perform(undo: "Rename Task") { _ = try store.update(task.id) { $0.displayTitle = name }; refresh() }
     }
-    /// How freely the task's agent may act: prepare and ask first, or go ahead. Its next delivery says so.
-    func setScope(_ task: FaciendaTask, _ scope: AutomationScope) {
-        guard scope != task.automationScope else { return }
-        perform(undo: "Change What the Agent May Do") { _ = try store.update(task.id) { $0.automationScope = scope }; refresh() }
-    }
+    /// Agents go ahead on tasks the user makes, external steps included; only tasks agents create stay prepare-only.
+    static let newTaskScope = AutomationScope.autonomous
     /// Opens the task's chat in Codex, or the Claude session waiting to be sent. A task without either has nothing to open.
     func open(_ task: FaciendaTask) {
         markReviewed(task.id)
         if let link = resultLink(for: task) ?? links(for: task.id).last { openThread(link.threadId); refresh() }
         else if canOpen(task), let pending = pendingDispatch(for: task.id) { openInClaude(pending) }
     }
-    @discardableResult func capture(title: String, intention: String, area: String, date: Date, startNow: Bool, attachments: [URL] = [], groupID: String? = nil, reveal: Bool = true, model choice: TaskModelChoice? = nil) async -> Bool {
+    @discardableResult func capture(title: String, intention: String, area: String, date: Date, startNow: Bool, attachments: [URL] = [], groupID: String? = nil, reveal: Bool = true, model choice: TaskModelChoice? = nil, nextAction: String? = nil) async -> Bool {
         guard !capturing else { return false }
         capturing = true
         defer { capturing = false }
         do {
             guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.invalid("Describe what you would like done.") }
-            var draft = FaciendaTask(title: title, intention: intention, area: area, state: .inbox, nextAction: intention.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : intention, returnAt: date)
+            var draft = FaciendaTask(title: title, intention: intention, area: area, state: .inbox, nextAction: nextAction ?? (intention.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : intention), returnAt: date, automationScope: Self.newTaskScope)
             if !attachments.isEmpty {
                 let folder = store.taskFolder(draft.id)
                 let directory = folder.appending(path: "Attachments")
-                draft.attachments = try await Task.detached(priority: .userInitiated) {
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                    return try attachments.map { source in
-                        let access = source.startAccessingSecurityScopedResource()
-                        defer { if access { source.stopAccessingSecurityScopedResource() } }
-                        guard source.isFileURL, try source.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-                            throw StoreError.invalid("Attach files such as images, videos, audio, or documents. Folders cannot be attached.")
-                        }
-                        let destination = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-                        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                        let file = destination.appendingPathComponent(source.lastPathComponent)
-                        try FileManager.default.copyItem(at: source, to: file)
-                        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-                        return TaskAttachment(name: source.lastPathComponent, path: file.path)
-                    }
-                }.value
+                draft.attachments = try await Task.detached(priority: .userInitiated) { try Self.copyAttachments(attachments, into: directory) }.value
                 draft.cwd = folder.path
             }
             if let choice {
@@ -61,6 +43,37 @@ extension AppModel {
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
+    /// Copies the user's files into a task's Attachments folder, each in a folder of its own so equal names can sit
+    /// side by side, readable by the user alone. The agent is given the copies, never the originals' places.
+    nonisolated static func copyAttachments(_ sources: [URL], into directory: URL) throws -> [TaskAttachment] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        var copied: [TaskAttachment] = []
+        do {
+            for source in sources {
+                let access = source.startAccessingSecurityScopedResource()
+                defer { if access { source.stopAccessingSecurityScopedResource() } }
+                guard source.isFileURL, try source.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                    throw StoreError.invalid("Attach files such as images, videos, audio, or documents. Folders cannot be attached.")
+                }
+                let destination = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let file = destination.appendingPathComponent(source.lastPathComponent)
+                try FileManager.default.copyItem(at: source, to: file)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+                copied.append(TaskAttachment(name: source.lastPathComponent, path: file.path))
+            }
+        } catch {
+            discardCopies(copied)
+            throw error
+        }
+        return copied
+    }
+
+    /// Removes copies that were never sent, with the folder each was given.
+    nonisolated static func discardCopies(_ attachments: [TaskAttachment]) {
+        for attachment in attachments { try? FileManager.default.removeItem(at: URL(fileURLWithPath: attachment.path).deletingLastPathComponent()) }
+    }
+
     func complete(_ task: FaciendaTask) {
         perform(undo: "Mark Done", offering: "Marked “\(task.displayName)” done") { try store.update(task.id) { $0.state = .done }; refresh() }
     }
@@ -74,6 +87,18 @@ extension AppModel {
         if resultLink(for: task) != nil || !links(for: task.id).isEmpty { return true }
         guard let pending = pendingDispatch(for: task.id) else { return false }
         return pending.awaitsClaudeSend
+    }
+    /// An open task that never reached its agent: nothing queued and no chat, as when it was kept while the agent was
+    /// down or its start was cancelled. Its choices offer Start. One with unmet prerequisites waits for them instead.
+    func neverStarted(_ task: FaciendaTask) -> Bool {
+        task.state == .inbox && startingTaskID != task.id && links(for: task.id).isEmpty && pendingDispatch(for: task.id) == nil
+            && blockers(of: task.id).allSatisfy(isMet)
+    }
+    /// The agent's handover for the turn that last brought the task back, or nil when it wrote none for it: a
+    /// recommendation written for older words must never be offered as the answer to newer ones.
+    func handover(for task: FaciendaTask) -> TaskHandover? {
+        guard let handover = handovers[task.id], handover.at >= (recap(for: task)?.saidAt ?? .distantPast) else { return nil }
+        return handover
     }
     /// Opening the choices counts as looking at the task.
     func noteOpened(_ task: FaciendaTask) { markReviewed(task.id); refresh() }

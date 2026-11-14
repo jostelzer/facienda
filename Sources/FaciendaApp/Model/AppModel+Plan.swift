@@ -3,6 +3,9 @@ import FaciendaCore
 
 /// Plan lines, written, moved and started as tasks from the Plan view.
 extension AppModel {
+    /// A planned row's key on the board, apart from task IDs: where the pointer is, or where Goals asks it to land.
+    static func plannedRowKey(_ id: String) -> String { "planned:" + id }
+
     @discardableResult func addPlanLine(in groupID: String, parent: String?, after: String?) -> PlanLine? {
         var line: PlanLine?
         perform(undo: "New Line") { line = try store.addPlanLine(groupId: groupID, parentId: parent, after: after); refresh() }
@@ -54,7 +57,7 @@ extension AppModel {
         let intention = goals.isEmpty ? "" : "Part of the goal: " + goals.joined(separator: " › ")
         do {
             try store.setPlanText(line.id, text: title)
-            var draft = FaciendaTask(title: title, intention: intention, state: .inbox, nextAction: title, returnAt: Date())
+            var draft = FaciendaTask(title: title, intention: intention, state: .inbox, nextAction: title, returnAt: Date(), automationScope: Self.newTaskScope)
             let choice = composerModel
             draft.workerModel = choice.model; draft.workerReasoningEffort = choice.effort
             draft.workerServiceTier = choice.serviceTier; draft.workerProvider = choice.provider

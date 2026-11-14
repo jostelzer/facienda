@@ -101,7 +101,8 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     let organisation = registry.appending(path: "account/org")
     try FileManager.default.createDirectory(at: organisation, withIntermediateDirectories: true)
     let record: [String: Any] = ["sessionId": sessionID, "cliSessionId": cliID, "cwd": "/Users/me/project", "title": "Venue email",
-                                 "lastActivityAt": 1_792_045_838_810.0, "isArchived": false, "model": "claude-sonnet-5-5", "effort": "medium"]
+                                 "lastActivityAt": 1_792_045_838_810.0, "isArchived": false, "model": "claude-sonnet-5-5", "effort": "medium",
+                                 "lastTurnEdgeAt": 1_792_045_840_000.0, "lastFocusedAt": 1_792_045_850_000.0]
     try JSONSerialization.data(withJSONObject: record).write(to: organisation.appending(path: sessionID + ".json"))
     let archived = "local_11111111-2222-4333-8444-555555555555"
     try JSONSerialization.data(withJSONObject: ["sessionId": archived, "cliSessionId": cliID, "cwd": "/", "title": "Old",
@@ -118,6 +119,13 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     #expect(session.error == nil && sessions.first { $0.id == archived }?.error == "You've hit your session limit")
     #expect(sessions.first { $0.id == archived }?.errorAt == Date(timeIntervalSince1970: 1_792_045_900))
     #expect(session.chat.provider == .claude && session.chat.cliSessionId == cliID)
+    // Opened after its latest turn ended, the session has been read; one never opened has not.
+    #expect(session.turnEndedAt == Date(timeIntervalSince1970: 1_792_045_840) && session.focusedAt == Date(timeIntervalSince1970: 1_792_045_850))
+    #expect(ChatReading(claude: session) == ChatReading(turnEndedAt: Date(timeIntervalSince1970: 1_792_045_840), read: true))
+    #expect(sessions.first { $0.id == archived }.map(ChatReading.init(claude:))?.read == false)
+    var reopened = session
+    reopened.turnEdgeAt = Date(timeIntervalSince1970: 1_792_045_900)
+    #expect(!ChatReading(claude: reopened).read)
 
     #expect(ClaudeDesktop.sessionID(inLink: sessionID) == sessionID)
     #expect(ClaudeDesktop.sessionID(inLink: "claude://code/continue?session=\(sessionID)") == sessionID)
@@ -154,4 +162,58 @@ private let cliID = "7d3c2b1a-0f9e-4d8c-a7b6-5e4d3c2b1a09"
     // Deleting keeps the task's events with no task; they must not break loading.
     try store.deleteTask(task.id)
     #expect(try store.handedOverTasks().isEmpty)
+}
+
+private func message(_ type: String, _ text: String) -> JSONValue {
+    type == "userMessage"
+        ? .object(["type": .string(type), "content": .array([.object(["type": .string("text"), "text": .string(text)])])])
+        : .object(["type": .string(type), "text": .string(text)])
+}
+
+@Test func aTaskCarriesOnInANewChatOnAnotherModelWithAHandoverNote() async throws {
+    let library = try handoverStore(), home = try library.defaultWorkspace(), store = library.scoped(to: home.id)
+    let task = try startedTask(store)
+    try store.write { db in
+        try TaskEvent(taskId: task.id, source: .mcp, kind: "codex.result", payload: "The venue thread is from 3 March.").insert(db)
+        try CheckPlan(taskId: task.id, threadId: "finder", revision: 1, nextCheck: Date().addingTimeInterval(3600), purpose: "Look for a reply", reason: "They answer in the morning",
+                      paused: false, pinned: false, minimumInterval: 3600, deadline: Date().addingTimeInterval(86400 * 7), failures: 0, checks: 0).insert(db)
+    }
+    try store.saveConversation(taskId: task.id, conversation: CodexConversation(threadId: "finder", title: "Venue", turns: [
+        CodexConversationTurn(id: "t1", status: "completed", startedAt: Date(), completedAt: Date(), error: .null,
+                              items: [message("userMessage", "Which mail had the venue?"), message("agentMessage", "The one from Ada, 3 March.")])
+    ]))
+
+    let file = try store.continueInNewChat(taskId: task.id, on: TaskModelChoice(model: "claude-opus-5-5", effort: "high", fast: false))
+    let note = try String(contentsOf: file, encoding: .utf8)
+    #expect(note.contains("The venue thread is from 3 March.") && note.contains("**User:**\nWhich mail had the venue?") && note.contains("**Codex:**\nThe one from Ada, 3 March."))
+    #expect(note.contains("codex://threads/finder"))
+    // The old chat has left the task for good, and the task now runs on the new model.
+    #expect(try store.links(taskId: task.id).isEmpty && store.excludedOwningThreads(taskId: task.id) == ["finder"])
+    let moved = try store.task(task.id)
+    #expect(moved.provider == .claude && moved.workerModel == "claude-opus-5-5" && moved.workerReasoningEffort == "high")
+    #expect(try store.checkPlan(task.id)?.paused == true)
+
+    // Its start opens a new Claude session and points it to the note.
+    let start = try store.enqueueDispatch(taskId: task.id)
+    #expect(start.threadId == nil && start.agent == .claude)
+    let prompt = try await DispatchPrompt.payload(start, store: library, base: "facienda-mcp")["workerPrompt"].string ?? ""
+    #expect(prompt.contains("HANDOVER: The user moved this task here") && prompt.contains(file.path))
+
+    // Once the new session carries the task, it may take the paused checks on, and the note is no longer offered.
+    try store.write { try ThreadLink(taskId: task.id, codexThreadId: sessionID, provider: .claude).insert($0) }
+    let plan = try store.planCheck(taskId: task.id, threadId: sessionID, expectedRevision: 2, nextCheck: Date().addingTimeInterval(7200),
+                                   purpose: "Look for a reply", reason: "Morning", waitingOn: "Ada")
+    #expect(plan.threadId == sessionID && !plan.paused)
+    #expect(try store.pendingHandoverNote(taskId: task.id) == nil)
+}
+
+@Test func aNewChatNeedsAnOldOneAndNoDeliveryUnderway() throws {
+    let store = try handoverStore()
+    let fresh = try store.create(FaciendaTask(title: "Never started", state: .needsMe))
+    let claude = TaskModelChoice(model: "claude-sonnet-5-5", effort: "medium", fast: false)
+    #expect(throws: StoreError.self) { try store.continueInNewChat(taskId: fresh.id, on: claude) }
+    let task = try startedTask(store)
+    _ = try store.enqueueDispatch(taskId: task.id, message: "still on its way")
+    #expect(throws: StoreError.self) { try store.continueInNewChat(taskId: task.id, on: claude) }
+    #expect(try store.links(taskId: task.id).map(\.threadId) == ["finder"] && store.task(task.id).provider == .codex)
 }

@@ -37,16 +37,13 @@ extension GroupBoard {
         }
     }
 
-    /// The rule above a row gives way to the wash on either side of it, and to an unread slip on either side.
-    struct RowRule: View {
-        let hover: BoardHover
-        let id: String
-        let above: String?
-        let lifted: Bool
+    /// A row's own tile: a faint rounded ground in the slip's shape and width, so each row stands as one thing and the
+    /// card needs no rules between them. The wash and an unread slip lie over it.
+    struct RowTile: View {
         var body: some View {
-            let washed = hover.row == id
-            Divider().padding(.horizontal, -GroupBoard.cardInset).opacity(lifted || washed || (above != nil && hover.row == above) ? 0 : 1)
-                .animation(Motion.fade, value: washed)
+            RoundedRectangle(cornerRadius: 8).fill(Palette.ink.opacity(0.05))
+                .padding(.horizontal, -(GroupBoard.cardInset - GroupBoard.slipInset))
+                .allowsHitTesting(false).accessibilityHidden(true)
         }
     }
 

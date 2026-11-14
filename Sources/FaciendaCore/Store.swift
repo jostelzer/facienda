@@ -93,6 +93,14 @@ public final class FaciendaStore: Sendable {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(changeNotification as CFString), nil, nil, true)
     }
 
+    /// A Claude session of one of Facienda's tasks ended a turn. Its answer is in the transcript, which the app reads
+    /// itself; the notice carries nothing, so it can only make the app look sooner.
+    public static let claudeTurnEndedNotification = "org.facienda.claude.turnEnded"
+
+    static func postClaudeTurnEnded() {
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(claudeTurnEndedNotification as CFString), nil, nil, true)
+    }
+
     /// The scoped workspace's tasks, or the named workspaces' tasks, or the whole library's.
     public func tasks(search: String = "", inWorkspaces workspaceIDs: [String]? = nil) throws -> [FaciendaTask] {
         let workspaces = workspaceIDs ?? workspaceID.map { [$0] }
@@ -134,54 +142,57 @@ public final class FaciendaStore: Sendable {
     }
 
     @discardableResult public func update(_ id: String, source: EventSource = .user, expectedRevision: Int? = nil, _ change: (inout FaciendaTask) throws -> Void) throws -> FaciendaTask {
-        try write { db in
-            guard var task = try FaciendaTask.fetchOne(db, key: id) else { throw StoreError.notFound }
-            if let expectedRevision, expectedRevision != task.revision { throw StoreError.conflict }
-            let old = task
-            try change(&task)
-            // Only moving a task changes its workspace.
-            task.workspaceId = old.workspaceId
-            if let title = task.displayTitle, title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                throw StoreError.invalid("Give this task a title.")
-            }
-            if source == .user && task.displayTitle != old.displayTitle { task.displayTitleSource = "user" }
-            guard task.id == old.id, !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.invalid("Invalid task update.") }
-            if source != .user && (!task.state.isOpen || task.automationScope != old.automationScope || task.completedBy != old.completedBy || !old.state.isOpen) { throw StoreError.userOnly }
-            if source != .user && task.state == .running && old.state != .running {
-                guard try unmetBlockers(db, taskId: id, now: Date()).isEmpty else { throw StoreError.invalid("Resolve the task's prerequisites before starting work.") }
-                guard try TaskReadiness.fetchOne(db, key: id)?.notBefore.map({ $0 <= Date() }) ?? true else { throw StoreError.invalid("The scheduled start date has not arrived.") }
-            }
-            if task.state == .scheduled && task.returnAt != old.returnAt, var ready = try TaskReadiness.fetchOne(db, key: id) { ready.notBefore = task.returnAt; ready.revision += 1; try ready.update(db) }
-            if task.state == .waiting && (task.waitingOn?.isEmpty != false || task.checkAt == nil) { throw StoreError.invalid("Waiting requires a person or dependency and a check date.") }
-            if task.state.isOpen && task.nextAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw StoreError.invalid("Open tasks need a next action.") }
-            if task.state == .scheduled && task.returnAt == nil { throw StoreError.invalid("Scheduled tasks need a return date.") }
-            task.revision = old.revision + 1; task.updatedAt = Date()
-            if !task.state.isOpen { task.completedBy = "user"; task.returnAt = nil; task.checkAt = nil
-                try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE taskId = ? AND state = 'pending'", arguments: [Date(), id])
-                // A closed task has nothing left for the user to do.
-                try db.execute(sql: "DELETE FROM ownSteps WHERE taskId = ?", arguments: [id])
-            }
-            else { task.completedBy = nil }
-            if let plan = try CheckPlan.fetchOne(db, key: id) {
-                if source != .user && (task.checkAt != old.checkAt || task.waitingOn != old.waitingOn || (!plan.paused && task.state != old.state && task.state != .running)) {
-                    throw StoreError.invalid("Use the versioned check-plan tools to change a monitored task.")
-                }
-                if source == .user && (task.checkAt != old.checkAt || task.state != old.state) {
-                    var changed = plan
-                    changed.revision += 1; changed.paused = task.state != .waiting
-                    if let date = task.checkAt { changed.nextCheck = date; changed.pinned = true }
-                    try changed.update(db)
-                    try Self.cancelQueuedChecks(db, taskId: id)
-                }
-            }
-            try task.update(db)
-            if !task.state.isOpen || task.snoozeCount > old.snoozeCount {
-                try db.execute(sql: "UPDATE dispatches SET state = 'cancelled' WHERE taskId = ? AND state IN ('queued', 'claimed')", arguments: [id])
-            }
-            try reconcileBlockers(db, now: Date())
-            try TaskEvent(taskId: id, source: source, kind: old.state != task.state ? "task.\(task.state.rawValue)" : "task.updated", payload: task.nextAction).insert(db)
-            return try FaciendaTask.fetchOne(db, key: id) ?? task
+        try write { db in try update(db, id, source: source, expectedRevision: expectedRevision, change) }
+    }
+
+    /// The same change inside a write already open, so archiving a whole group stays one change.
+    @discardableResult func update(_ db: Database, _ id: String, source: EventSource = .user, expectedRevision: Int? = nil, _ change: (inout FaciendaTask) throws -> Void) throws -> FaciendaTask {
+        guard var task = try FaciendaTask.fetchOne(db, key: id) else { throw StoreError.notFound }
+        if let expectedRevision, expectedRevision != task.revision { throw StoreError.conflict }
+        let old = task
+        try change(&task)
+        // Only moving a task changes its workspace.
+        task.workspaceId = old.workspaceId
+        if let title = task.displayTitle, title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw StoreError.invalid("Give this task a title.")
         }
+        if source == .user && task.displayTitle != old.displayTitle { task.displayTitleSource = "user" }
+        guard task.id == old.id, !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.invalid("Invalid task update.") }
+        if source != .user && (!task.state.isOpen || task.automationScope != old.automationScope || task.completedBy != old.completedBy || !old.state.isOpen) { throw StoreError.userOnly }
+        if source != .user && task.state == .running && old.state != .running {
+            guard try unmetBlockers(db, taskId: id, now: Date()).isEmpty else { throw StoreError.invalid("Resolve the task's prerequisites before starting work.") }
+            guard try TaskReadiness.fetchOne(db, key: id)?.notBefore.map({ $0 <= Date() }) ?? true else { throw StoreError.invalid("The scheduled start date has not arrived.") }
+        }
+        if task.state == .scheduled && task.returnAt != old.returnAt, var ready = try TaskReadiness.fetchOne(db, key: id) { ready.notBefore = task.returnAt; ready.revision += 1; try ready.update(db) }
+        if task.state == .waiting && (task.waitingOn?.isEmpty != false || task.checkAt == nil) { throw StoreError.invalid("Waiting requires a person or dependency and a check date.") }
+        if task.state.isOpen && task.nextAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw StoreError.invalid("Open tasks need a next action.") }
+        if task.state == .scheduled && task.returnAt == nil { throw StoreError.invalid("Scheduled tasks need a return date.") }
+        task.revision = old.revision + 1; task.updatedAt = Date()
+        if !task.state.isOpen { task.completedBy = "user"; task.returnAt = nil; task.checkAt = nil
+            try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE taskId = ? AND state = 'pending'", arguments: [Date(), id])
+            // A closed task has nothing left for the user to do.
+            try db.execute(sql: "DELETE FROM ownSteps WHERE taskId = ?", arguments: [id])
+        }
+        else { task.completedBy = nil }
+        if let plan = try CheckPlan.fetchOne(db, key: id) {
+            if source != .user && (task.checkAt != old.checkAt || task.waitingOn != old.waitingOn || (!plan.paused && task.state != old.state && task.state != .running)) {
+                throw StoreError.invalid("Use the versioned check-plan tools to change a monitored task.")
+            }
+            if source == .user && (task.checkAt != old.checkAt || task.state != old.state) {
+                var changed = plan
+                changed.revision += 1; changed.paused = task.state != .waiting
+                if let date = task.checkAt { changed.nextCheck = date; changed.pinned = true }
+                try changed.update(db)
+                try Self.cancelQueuedChecks(db, taskId: id)
+            }
+        }
+        try task.update(db)
+        if !task.state.isOpen || task.snoozeCount > old.snoozeCount {
+            try db.execute(sql: "UPDATE dispatches SET state = 'cancelled' WHERE taskId = ? AND state IN ('queued', 'claimed')", arguments: [id])
+        }
+        try reconcileBlockers(db, now: Date())
+        try TaskEvent(taskId: id, source: source, kind: old.state != task.state ? "task.\(task.state.rawValue)" : "task.updated", payload: task.nextAction).insert(db)
+        return try FaciendaTask.fetchOne(db, key: id) ?? task
     }
 
     public func links(taskId: String? = nil) throws -> [ThreadLink] {
@@ -273,7 +284,9 @@ public final class FaciendaStore: Sendable {
         else if try Self.hasPendingDecision(db, taskId: taskId) { task.state = .needsMe }
         else if task.state == .running {
             task.state = try stateAfterTurn(db, taskId: taskId)
-            if task.state == .needsMe { task.nextAction = "Review the latest \(provider.name) result" }
+            // The agent's own next step stands when it wrote one in the turn that just ended. The stock line is only
+            // for a turn that ended without saying anything: overwriting the agent's words lost the better line.
+            if task.state == .needsMe, try !Self.spokeThisTurn(db, taskId: taskId) { task.nextAction = "Review the latest \(provider.name) result" }
         }
         else { return }
         guard task.state != original.state || task.nextAction != original.nextAction || task.returnAt == nil else { return }
@@ -281,6 +294,14 @@ public final class FaciendaStore: Sendable {
         try task.update(db)
         // A parked task's result is held quietly until its wait ends.
         try settleWaits(db, now: Date())
+    }
+
+    /// Whether the agent handed over its own words during the turn that is ending: a handover written since the chat
+    /// last went active. An older one belongs to an earlier turn and says nothing about this one.
+    static func spokeThisTurn(_ db: Database, taskId: String) throws -> Bool {
+        guard let handover = try TaskHandover.fetchOne(db, key: taskId), handover.line != nil else { return false }
+        let active = try TaskEvent.fetchOne(db, sql: "SELECT * FROM events WHERE taskId = ? AND kind = 'thread.active' ORDER BY at DESC LIMIT 1", arguments: [taskId])
+        return handover.at >= (active?.at ?? .distantPast)
     }
 
     /// Whether one of these chats runs a turn now. A permission prompt counts until its grace runs out.

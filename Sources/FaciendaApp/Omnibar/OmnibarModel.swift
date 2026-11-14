@@ -21,6 +21,10 @@ import FaciendaBridge
     var followUp: ChatResult?
     /// A chat waiting for you to spawn a task from it or attach it to one.
     var chosenChat: ChatResult?
+    /// A line from Goals that the next task works toward, put here by the line's play. A line is often too short to be
+    /// a task, so what is typed now is the detail it lacks. It lives with Goals, which the window shares with the bar.
+    var aim: GoalsModel.Aim? { workspaces?.goals.aim }
+    func dropAim() { if aim != nil { workspaces?.goals.aim = nil } }
     /// A short confirmation shown in the bar, such as "Remembered".
     var confirmation: String?
     /// Enter is finding the earlier task the text asks for.
@@ -44,6 +48,10 @@ import FaciendaBridge
     @ObservationIgnored private var inFlight: (text: String, task: Task<BarReader.Reading?, Never>)?
     @ObservationIgnored private var chats: [ChatResult] = []
     @ObservationIgnored private var chatsQuery = ""
+    @ObservationIgnored private let taskSearch = OmnibarSearch()
+    @ObservationIgnored private var resultsText = ""
+    @ObservationIgnored private var refreshRevision = 0
+    @ObservationIgnored private var awaitingSearch: String?
     /// The task picked for you because the text asks for an earlier one. Moving away from it keeps your choice.
     @ObservationIgnored private var autoPick: String?
     let dictation = Dictation()
@@ -77,8 +85,8 @@ import FaciendaBridge
     private(set) var duplicate: String?
     /// That task, while the bar holds nothing that changes what Return does with it.
     var typedAgain: FaciendaTask? {
-        guard let duplicate, followUp == nil, attachments.isEmpty else { return nil }
-        return model.tasksByID[duplicate] ?? lastHits.first { $0.task.id == duplicate }?.task
+        guard resultsText == trimmed, let duplicate, followUp == nil, attachments.isEmpty else { return nil }
+        return model.tasksByID[duplicate] ?? lastDuplicate
     }
     /// A task that lives in another workspace than the open one.
     func isElsewhere(_ task: FaciendaTask) -> Bool { task.workspaceId != nil && task.workspaceId != model.workspaceID }
@@ -100,6 +108,7 @@ import FaciendaBridge
     private(set) var readingNudge = 0
     @ObservationIgnored private var readTask: Task<Void, Never>?
     @ObservationIgnored private var lastHits: [TaskHit] = []
+    @ObservationIgnored private var lastDuplicate: FaciendaTask?
     /// Where each task found lives, such as "Facienda · facienda coding".
     private(set) var taskPlaces: [String: BarPlace] = [:]
     /// The answer or option the model's reading picked for Return.
@@ -128,10 +137,12 @@ import FaciendaBridge
     /// result while they show, so moving through them reads out each one's action. A group's sheet speaks for itself.
     var reading: BarReading? {
         let text = trimmed
+        // A line from Goals knows where its task starts, and says so before anything is typed.
+        if let aim, model.spotlitGroup == nil { return .start(at: aim.place) }
         guard !text.isEmpty, model.spotlitGroup == nil, !finding else { return nil }
         let reading: BarReading
         if let offered, offered.text == text { reading = .task(offered.task, message: offered.message) }
-        else if isOpen, let item = items.first(where: { $0.id == highlighted }) { reading = self.reading(of: item, text) }
+        else if isOpen, resultsText == text, let item = items.first(where: { $0.id == highlighted }) { reading = self.reading(of: item, text) }
         else { reading = defaultReading }
         return reading.isWorthShowing ? reading : nil
     }
@@ -168,8 +179,9 @@ import FaciendaBridge
     }
     static let askPrefix = "ask:"
     static let sourcePrefix = "source:"
-    /// While a group is lit, typing writes its next task: no results hang over the lit card.
-    var isOpen: Bool { !dismissed && !trimmed.isEmpty && model.spotlitGroup == nil }
+    /// While a group is lit, typing writes its next task: no results hang over the lit card. Detail for a line from
+    /// Goals is not a search either.
+    var isOpen: Bool { !dismissed && !trimmed.isEmpty && model.spotlitGroup == nil && aim == nil }
     var items: [OmnibarItem] { sections.flatMap(\.items) }
     /// A demo snapshot draws Start as it looks with text in the field.
     var canStart: Bool { !trimmed.isEmpty && (!model.demo || CommandLine.arguments.contains("--snapshot")) && !model.dispatching && !model.capturing && !submitting }
@@ -184,49 +196,62 @@ import FaciendaBridge
 
     // MARK: Results
 
-    /// Recomputes results for the current text. Local results are immediate; chats follow after a short pause.
+    /// Local results arrive off the UI thread; chats follow after a short pause.
     func refresh() async {
-        let text = trimmed
-        guard !text.isEmpty else {
-            sections = []; chats = []; chatsQuery = ""; highlighted = Self.startID; autoPick = nil; duplicate = nil
-            model.search = ""; stopReading()
-            return
-        }
-        if offered?.text != text { offered = nil }
-        if TaskLookup.asksForEarlier(text) { model.warmFinder() }
-        // Narrowing the board could hide the lit card the task is written for.
-        guard model.spotlitGroup == nil else { sections = []; model.search = ""; return }
-        // Every workspace's tasks are found, by their words, as you type.
-        let hits = wraps ? [] : ((try? model.store.library.lookUpTasks(text, limit: 8)) ?? [])
-        lastHits = hits
-        let shown = hits.map(\.task.id) + (offered.map { [$0.task.id] } ?? [])
-        taskPlaces = (try? model.store.library.taskPlaces(ofTasks: shown)) ?? [:]
-        let here = hits.filter { !isElsewhere($0.task) }
-        filterBoard(text, matched: here.contains(where: \.complete))
-        scheduleRead(text, matched: !here.isEmpty)
-        // Refining a search keeps the chats already shown until fresher ones arrive.
-        if !text.hasPrefix(chatsQuery) || chatsQuery.isEmpty { chats = [] }
-        rebuild(text, hits: hits, picking: true)
+        // Return already requested an immediate lookup of these words.
+        guard awaitingSearch != trimmed else { return }
+        guard let hits = await refreshTasks() else { return }
+        let text = trimmed, request = refreshRevision
         guard !wraps else { return }
         do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
         let found = await chatResults(text)
-        guard !Task.isCancelled, trimmed == text else { return }
+        guard !Task.isCancelled, trimmed == text, refreshRevision == request else { return }
         chats = found; chatsQuery = text
         rebuild(text, hits: hits, picking: false)
     }
 
-    /// The board narrows while you type, but only when something matches,
-    /// so typing a new request never empties the screen.
-    private func filterBoard(_ text: String, matched: Bool) {
-        let search = model.destination == .dashboard && matched ? text : ""
-        if model.search != search { model.search = search }
+    private func refreshTasks(debounce: Bool = true) async -> [TaskHit]? {
+        guard !Task.isCancelled else { return nil }
+        refreshRevision += 1
+        let text = trimmed
+        guard !text.isEmpty else {
+            taskSearch.cancel(); resultsText = ""; lastHits = []; lastDuplicate = nil; taskPlaces = [:]
+            sections = []; chats = []; chatsQuery = ""; highlighted = Self.startID; autoPick = nil; duplicate = nil
+            model.search = ""; stopReading()
+            return nil
+        }
+        // Detail for a line from Goals is nothing to find or read: Return starts it where the line says.
+        guard aim == nil else { taskSearch.cancel(); sections = []; offered = nil; duplicate = nil; model.search = ""; stopReading(); return nil }
+        if offered?.text != text { offered = nil }
+        // Narrowing the board could hide the lit card the task is written for.
+        guard model.spotlitGroup == nil else { taskSearch.cancel(); sections = []; model.search = ""; return nil }
+        // Every workspace's tasks are found, by their words, as you type.
+        let hits: [TaskHit], matchesHere: Bool
+        if wraps {
+            taskSearch.cancel(); hits = []; lastDuplicate = nil; matchesHere = false; taskPlaces = [:]
+            model.search = ""
+        } else {
+            guard let found = await taskSearch.find(text, in: model.store, extraTaskIDs: offered.map { [$0.task.id] } ?? [], debounce: debounce),
+                  !Task.isCancelled, trimmed == text, !wraps, aim == nil, model.spotlitGroup == nil else { return nil }
+            hits = found.hits; lastDuplicate = found.duplicate; matchesHere = found.matchesHere; taskPlaces = found.places
+            let search = model.destination == .dashboard && !found.boardMatches.isEmpty ? text : ""
+            model.filterBoard(search, matching: found.boardMatches)
+        }
+        if TaskLookup.asksForEarlier(text) { model.warmFinder() }
+        lastHits = hits
+        resultsText = text
+        // Refining a search keeps the chats already shown until fresher ones arrive.
+        if !text.hasPrefix(chatsQuery) || chatsQuery.isEmpty { chats = [] }
+        rebuild(text, hits: hits, picking: true)
+        scheduleRead(text, matched: matchesHere)
+        return hits
     }
 
     /// `picking` is set only for the results found as you type, never for chats arriving later.
     private func rebuild(_ text: String, hits: [TaskHit], picking: Bool) {
         // With files or a chat to continue from, the text is a new request, not the old task's name. Text long
         // enough to wrap finds no tasks, so it is never one either.
-        let same = attachments.isEmpty && followUp == nil ? BarReading.sameTask(as: text, among: hits.map(\.task)) : nil
+        let same = attachments.isEmpty && followUp == nil && !wraps && resultsText == text ? lastDuplicate : nil
         if duplicate != same?.id { duplicate = same?.id }
         let actions = [OmnibarItem(id: Self.startID, kind: .start)]
         guard !wraps else {
@@ -267,6 +292,7 @@ import FaciendaBridge
             guard let task = linkedTask(chat.threadId) else { chatItems.append(OmnibarItem(id: "chat:" + chat.threadId, kind: .chat(chat))); continue }
             if !tasks.contains(where: { $0.id == task.id }) { tasks.append(task) }
         }
+        tasks.sort { TaskLookup.recentFirst($0, $1, preferredWorkspaceID: model.workspaceID) }
         if !tasks.isEmpty {
             result.append(OmnibarSection(id: "tasks", title: "Existing tasks", items: tasks.map { OmnibarItem(id: "task:" + $0.id, kind: .task($0)) }))
         }
@@ -343,7 +369,7 @@ import FaciendaBridge
             }.prefix(4)
             results += sessions.map { ChatResult(threadId: $0.id, title: $0.title, cwd: $0.cwd, updatedAt: $0.lastActivityAt, provider: .claude, cliSessionId: $0.cliSessionId) }
         }
-        return results
+        return results.sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id }
     }
 
     @ObservationIgnored private var claudeSessions: (read: Date, sessions: [ClaudeDesktop.Session])?
@@ -407,7 +433,7 @@ import FaciendaBridge
             // Backing out of a group's sheet keeps what was typed there for next time.
             if model.spotlitGroup != nil { model.releaseSpotlight() }
             else if isOpen { dismissed = true }
-            else if !query.isEmpty || followUp != nil || !attachments.isEmpty { query = ""; followUp = nil; attachments = [] }
+            else if !query.isEmpty || followUp != nil || !attachments.isEmpty || aim != nil { query = ""; followUp = nil; attachments = []; dropAim() }
             else { return .ignored }
             return .handled
         case .return:
@@ -416,7 +442,7 @@ import FaciendaBridge
             if modifiers.contains(.option) {
                 // A group's sheet has no list to act on, so Option-Return plans the task there instead.
                 if model.spotlitGroup != nil { plan(); return .handled }
-                if isOpen, let item = items.first(where: { $0.id == highlighted }) { runSecondary(item) }
+                if isOpen, resultsText == trimmed, let item = items.first(where: { $0.id == highlighted }) { runSecondary(item) }
                 return .handled
             }
             submit()
@@ -430,10 +456,23 @@ import FaciendaBridge
 
     /// Return: the highlighted result, or start the task.
     func submit() {
-        guard !finding, !awaitingRead else { return }
+        guard !finding, !awaitingRead, awaitingSearch == nil else { return }
         if model.spotlitGroup == AppModel.newGroupSheet { startInNewGroup(); return }
         // A group's sheet makes a task in that group: no readings, no finding earlier tasks.
         if model.spotlitGroup != nil { start(); return }
+        if let aim { start(toward: aim); return }
+        // Return during a lookup uses the new words, never the previous query's highlighted task.
+        if !trimmed.isEmpty, resultsText != trimmed {
+            let text = trimmed
+            awaitingSearch = text
+            Task {
+                let hits = await refreshTasks(debounce: false)
+                awaitingSearch = nil
+                guard hits != nil, trimmed == text else { return }
+                submit()
+            }
+            return
+        }
         if isOpen, let item = items.first(where: { $0.id == highlighted }) {
             // An answer or a choice the model only just offered may not have been seen yet.
             if item.id == "answer" || item.id.hasPrefix(Self.askPrefix), !readingSettled { nudgeReading(); return }
@@ -695,6 +734,7 @@ import FaciendaBridge
     /// bar is free at once: a task still being placed starts as soon as its place is known.
     func start() {
         if model.spotlitGroup == AppModel.newGroupSheet { startInNewGroup(); return }
+        if model.spotlitGroup == nil, let aim { start(toward: aim); return }
         let text = trimmed
         // A group's sheet makes its task right there, and a pasted chat link is added as it is.
         if model.spotlitGroup != nil || Self.codexThreadID(text) != nil || ClaudeDesktop.sessionID(inLink: text) != nil {
@@ -776,6 +816,24 @@ import FaciendaBridge
             if confirmation == "Finding where it goes…" { confirmation = nil }
             // Nothing typed is lost: the words come back to the bar if it is empty.
             if query.isEmpty { query = taken.typed }
+        }
+    }
+
+    /// Return with a line from Goals in the bar: a task starts where the line says, as work toward it. What was typed
+    /// is the detail the line lacked; with nothing typed the line starts as it is. The bar is free at once.
+    private func start(toward aim: GoalsModel.Aim) {
+        guard let goals = workspaces?.goals, !submitting else { return }
+        let typed = trimmed, detail = request.trimmingCharacters(in: .whitespacesAndNewlines), files = attachments, choice = model.composerModel
+        launching += files
+        finish()
+        Task {
+            defer {
+                launching.removeAll { files.contains($0) }
+                Self.discardPasted(files)
+            }
+            if await goals.start(toward: aim, detail: detail, files: files, choice: choice) { confirm("Started in \(aim.place.label)") }
+            // Nothing typed is lost: the line and the words come back to the bar if it is empty.
+            else if query.isEmpty, goals.aim == nil, goals.isOpen { query = typed; goals.aim = aim }
         }
     }
 
@@ -908,11 +966,13 @@ import FaciendaBridge
 
     func finish() {
         if dictation.isActive { dictation.cancel() }
+        taskSearch.cancel(); refreshRevision += 1; resultsText = ""
         stopReading(); modelRead = nil; modelPick = nil
         // A task started from a group's sheet leaves the bar's own text where it was.
         if model.spotlitGroup != nil { sheetText = "" } else { query = "" }
         model.releaseSpotlight()
         followUp = nil; dismissed = false; offered = nil; attachments = []
+        dropAim()
         sections = []; highlighted = Self.startID; autoPick = nil; duplicate = nil
         newGroupName = ""; madeGroup = nil
         model.search = ""
@@ -969,15 +1029,19 @@ import FaciendaBridge
     /// ⌘V with files or a picture on the pasteboard attaches them. Text that comes with a picture pastes as text,
     /// unless it is only the picture's link, as a browser's Copy Image adds.
     func pasteAttachments(from pasteboard: NSPasteboard = .general) -> Bool {
-        if let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty {
-            attach(files)
-            return true
-        }
+        let files = Self.pastedFiles(from: pasteboard)
+        guard !files.isEmpty else { return false }
+        attach(files)
+        return true
+    }
+
+    /// What ⌘V would attach, for any field that takes files: the answer field of an opened task reads it too.
+    static func pastedFiles(from pasteboard: NSPasteboard = .general) -> [URL] {
+        if let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty { return files }
         let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let onlyLink = !text.contains(where: \.isWhitespace) && URL(string: text)?.scheme.map { ["http", "https"].contains($0.lowercased()) } == true
-        guard text.isEmpty || onlyLink, let image = Self.pastedImage(pasteboard) else { return false }
-        attach([image])
-        return true
+        guard text.isEmpty || onlyLink, let image = pastedImage(pasteboard) else { return [] }
+        return [image]
     }
 
     /// Where pasted pictures wait, one folder each, until a task copies them.

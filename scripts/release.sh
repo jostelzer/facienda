@@ -40,9 +40,10 @@ if test "$mode" = prepare; then
     app="$derived/Build/Products/Tester/Facienda.app"
     cd "$source"
     xcodegen generate
-    # A local review build: no signing account, timestamp service or notarization upload.
+    # Ad-hoc review builds have no Team ID for hardened runtime's library validation.
+    # Distribution enables hardened runtime when re-signing with Developer ID below.
     xcodebuild -project Facienda.xcodeproj -scheme Facienda -configuration Tester -derivedDataPath "$derived" \
-        CURRENT_PROJECT_VERSION="$build_number" CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+        CURRENT_PROJECT_VERSION="$build_number" CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO \
         OTHER_CODE_SIGN_FLAGS=--timestamp=none build
     codesign --verify --deep --strict "$app"
     test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version" || fail "Built version differs from committed project.yml."
@@ -50,6 +51,8 @@ if test "$mode" = prepare; then
     python3 scripts/integration_smoke.py --helpers "$app/Contents/Helpers" --workspace
     python3 scripts/claude_smoke.py --helpers "$app/Contents/Helpers"
     python3 scripts/test_helper_replacement.py --helpers "$app/Contents/Helpers"
+    # Helper checks do not load the app's frameworks. Launch it too, using only fictional demo data.
+    "$app/Contents/MacOS/Facienda" --snapshot "$output/review.png" --window --dark --settle
     # Keep only the small Sparkle tools with the archive; build caches can be removed after review.
     ditto "$derived/SourcePackages/artifacts/sparkle/Sparkle/bin" "$output/sparkle"
     ditto -c -k --keepParent "$app" "$output/Facienda.zip"

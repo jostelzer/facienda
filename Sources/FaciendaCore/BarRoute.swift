@@ -67,7 +67,7 @@ extension FaciendaStore {
                 let groups = try Row.fetchAll(db, sql: """
                     SELECT g.id, g.name, (SELECT max(t.updatedAt) FROM tasks t JOIN taskGroupMembers m ON m.taskId = t.id
                                           WHERE m.groupId = g.id) AS active
-                    FROM taskGroups g WHERE g.workspaceId = ?
+                    FROM taskGroups g WHERE g.workspaceId = ? AND g.archivedAt IS NULL
                     ORDER BY active IS NULL, active DESC, g.position LIMIT ?
                     """, arguments: [workspace.id, groupsPerWorkspace])
                 for group in groups {

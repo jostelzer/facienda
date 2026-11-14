@@ -37,6 +37,7 @@ import FaciendaCore
 
     func open(place chosen: String? = nil) {
         load()
+        workspaces?.goals.close()
         place = chosen ?? place ?? defaultPlace
         isOpen = true
     }

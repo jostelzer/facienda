@@ -1,33 +1,6 @@
 import SwiftUI
 import FaciendaCore
 
-/// Where a task runs and on which model, so Codex and Claude work can sit side by side.
-struct TaskAgentLabel: View {
-    let model: AppModel
-    let task: FaciendaTask
-
-    var body: some View {
-        let agent = model.agent(for: task)
-        let chosen = task.workerModel.map { TaskModelChoice(model: $0, effort: task.workerReasoningEffort ?? "high", fast: task.workerServiceTier != nil) }
-        let detail = [chosen.map(\.name), task.workerReasoningEffort.map(TaskModelChoice.effortName), task.workerServiceTier != nil ? "Fast" : nil].compactMap { $0 }
-        Label { Text(([agent.name] + detail).joined(separator: " · ")) } icon: { ProviderMark(provider: agent, size: 11) }
-            .font(.system(size: 11)).foregroundStyle(Palette.muted)
-            .help(note(agent))
-    }
-
-    private func note(_ agent: AgentProvider) -> String {
-        guard agent == .claude, let thread = model.resultLink(for: task)?.threadId, let session = model.claudeSessions[thread] else {
-            return "Runs in \(agent.name)"
-        }
-        switch session.configureState {
-        case "done": return "Runs in Claude. The runner applied this model."
-        case "failed": return "Runs in Claude with the Claude app’s own model: " + (session.configureNote ?? "the runner could not apply this one.")
-        case "skipped": return "Runs in Claude with the Claude app’s own model: no runner was awake when it started."
-        default: return "Runs in Claude. The runner is applying this model."
-        }
-    }
-}
-
 /// A Claude start that has not begun: it waits for the runner, or sits in the Claude app's composer because the
 /// user chose to send it there. Facienda never opens the composer on its own.
 struct ClaudeHandoff: View {
@@ -147,8 +120,8 @@ struct DecisionCard: View {
             if decision.kind == "permission" {
                 Label("Asks your permission", systemImage: "hand.raised.fill").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.review)
             }
-            Text(decision.question).font(.system(size: 14, weight: .semibold))
-            if !decision.context.isEmpty { ResultText(model: model, text: decision.context) }
+            Text(decision.question).font(.system(size: 13, weight: .semibold))
+            if !decision.context.isEmpty { ResultText(model: model, text: decision.context, task: model.tasks.first { $0.id == decision.taskId }) }
             if decision.kind == "permission" {
                 // The agent asks for itself, so its own pick gets no emphasis: every option looks alike, in the order given.
                 WrapLayout(spacing: 6) {

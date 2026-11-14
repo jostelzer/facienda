@@ -33,6 +33,12 @@ public enum ClaudeTranscript {
         return conversation(from: data, threadId: threadId, fallbackTitle: fallbackTitle)
     }
 
+    /// How long a background job keeps a session running after its turn ended, while the job has not reported back. A
+    /// session can end its turn and wait for a build it started; one that leaves a server running, or is quit, never
+    /// hears back.
+    public static let shellWait: TimeInterval = 20 * 60
+    public static let agentWait: TimeInterval = 60 * 60
+
     private struct Turn {
         var id: String
         var startedAt: Date?
@@ -42,30 +48,73 @@ public enum ClaudeTranscript {
     }
 
     public static func conversation(from data: Data, threadId: String, fallbackTitle: String = "Claude session") -> CodexConversation {
+        reading(from: data, threadId: threadId, fallbackTitle: fallbackTitle).conversation
+    }
+
+    /// The conversation, and while the session waits on background jobs it started, when the last of them stops counting.
+    /// A turn the session ended is finished even while such a job runs: its answer is the user's to read now, not once
+    /// the job reports back. The job's notice wakes the session into a turn of its own.
+    /// `replies` are the words Facienda holds as the user's replies to this task. A runner has sent them on bare,
+    /// without the delivery's marker; only by that record is another session's message the user's.
+    public static func reading(from data: Data, threadId: String, fallbackTitle: String = "Claude session", now: Date = Date(), replies: [String] = [])
+        -> (conversation: CodexConversation, waitingUntil: Date?) {
+        let replies = Set(replies.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
         let decoder = JSONDecoder()
         var turns: [Turn] = []
         var title: String?
         var lastWasAssistantEnd = false
+        var jobs: [String: Date] = [:]
+        /// A finished job woke the session after its turn had ended; what it writes from here is a new turn.
+        var woke: (id: String, at: Date?)?
         for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
             guard let entry = try? decoder.decode(JSONValue.self, from: Data(line)) else { continue }
             let type = entry["type"].string ?? ""
             if type == "custom-title", let custom = entry["customTitle"].string, !custom.isEmpty { title = custom; continue }
-            guard type == "user" || type == "assistant", entry["isSidechain"].bool != true, entry["isMeta"].bool != true else { continue }
+            // A job that finishes while a turn runs is queued into that turn rather than waking the session.
+            let queued = entry["attachment"]
+            if type == "attachment", queued["type"].string == "queued_command", queued["commandMode"].string == "task-notification" {
+                for id in finishedJobs(queued["prompt"].string ?? "") { jobs[id] = nil }
+                continue
+            }
+            // Claude Code marks another session's message as meta too, and the runner's relays of the user's replies come
+            // that way; they are sorted from other sessions' messages below.
+            let relayed = entry["origin"]["kind"].string == "peer"
+            guard type == "user" || type == "assistant", entry["isSidechain"].bool != true, entry["isMeta"].bool != true || relayed else { continue }
+            // The summary that carries a long session on is Claude's own, and the turn it interrupts goes on after it.
+            if type == "user", entry["isCompactSummary"].bool == true || entry["isVisibleInTranscriptOnly"].bool == true { continue }
             let message = entry["message"]
             let at = entry["timestamp"].string.flatMap(date)
             let uuid = entry["uuid"].string ?? UUID().uuidString
             if type == "user" {
+                let result = entry["toolUseResult"]
+                if let at, let id = result["backgroundTaskId"].string { jobs[id] = at.addingTimeInterval(shellWait) }
+                // Subagents and workflows started in the background, or a stopped subagent sent on again.
+                let launched = result["status"].string == "async_launched" ? result["agentId"].string ?? result["taskId"].string : nil
+                if let at, let id = launched ?? result["resumedAgentId"].string { jobs[id] = at.addingTimeInterval(agentWait) }
+                if let stopped = result["task_id"].string { jobs[stopped] = nil }
+                // A finished job wakes the session, which works on from there.
+                if entry["origin"]["kind"].string == "task-notification", let text = message["content"].string {
+                    for id in finishedJobs(text) { jobs[id] = nil }
+                    if !turns.isEmpty {
+                        if lastWasAssistantEnd { woke = (uuid, at) }
+                        lastWasAssistantEnd = false
+                    }
+                    continue
+                }
                 guard let text = userText(message["content"]) else {
                     // Tool output keeps the turn running.
                     if message["content"].array?.contains(where: { $0["type"].string == "tool_result" }) == true { lastWasAssistantEnd = false }
                     continue
                 }
                 if text.hasPrefix("[Request interrupted") {
-                    if !turns.isEmpty { turns[turns.count - 1].interrupted = true }
+                    // Stopped before the woken session wrote anything: the turn that ended before it stays answered.
+                    if woke == nil, !turns.isEmpty { turns[turns.count - 1].interrupted = true }
+                    woke = nil
                     lastWasAssistantEnd = true
                     continue
                 }
-                guard let shown = visibleUserText(text, origin: entry["origin"]["kind"].string) else { continue }
+                guard let shown = visibleUserText(text, origin: entry["origin"]["kind"].string, replies: replies) else { continue }
+                woke = nil
                 var turn = Turn(id: uuid, startedAt: at, completedAt: nil)
                 turn.items.append(.object(["type": .string("userMessage"), "id": .string(uuid),
                                            "content": .array([.object(["type": .string("text"), "text": .string(shown)])])]))
@@ -73,6 +122,7 @@ public enum ClaudeTranscript {
                 lastWasAssistantEnd = false
             } else {
                 let blocks = message["content"].array ?? []
+                if let start = woke { turns.append(Turn(id: start.id, startedAt: start.at)); woke = nil }
                 if turns.isEmpty { turns.append(Turn(id: uuid, startedAt: at)) }
                 for (index, block) in blocks.enumerated() where block["type"].string == "text" {
                     guard let text = block["text"].string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
@@ -83,6 +133,7 @@ public enum ClaudeTranscript {
                 lastWasAssistantEnd = stop == nil ? blocks.allSatisfy { $0["type"].string != "tool_use" } : stop != "tool_use"
             }
         }
+        let waitingUntil = jobs.values.filter { $0 > now }.max()
         let result = turns.enumerated().map { index, turn -> CodexConversationTurn in
             // Every reply before the turn's last is a progress update.
             let agentIndices = turn.items.indices.filter { turn.items[$0]["type"].string == "agentMessage" }
@@ -95,7 +146,14 @@ public enum ClaudeTranscript {
             return CodexConversationTurn(id: turn.id, status: status, startedAt: turn.startedAt,
                                          completedAt: status == "completed" ? turn.completedAt : nil, error: .null, items: items)
         }
-        return CodexConversation(threadId: threadId, title: title ?? fallbackTitle, turns: result)
+        return (CodexConversation(threadId: threadId, title: title ?? fallbackTitle, turns: result), waitingUntil)
+    }
+
+    /// The background jobs a task notification says have finished, failed or been stopped.
+    private static func finishedJobs(_ text: String) -> [String] {
+        text.components(separatedBy: "<task-id>").dropFirst().compactMap { part in
+            part.range(of: "</task-id>").map { String(part[..<$0.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
     }
 
     /// Plain text a person or another session wrote. Tool output and images alone are not messages.
@@ -107,14 +165,14 @@ public enum ClaudeTranscript {
     }
 
     /// The user's own messages, and Facienda's deliveries relayed by its runner. Background-task notices,
-    /// reminders and other sessions' messages are machinery, not conversation.
-    private static func visibleUserText(_ text: String, origin: String?) -> String? {
+    /// reminders, slash commands and other sessions' messages are machinery, not conversation.
+    private static func visibleUserText(_ text: String, origin: String?, replies: Set<String>) -> String? {
         if let inner = crossSessionBody(text) {
-            return inner.hasPrefix("Facienda dispatch: ") ? inner : nil
+            return inner.hasPrefix("Facienda dispatch: ") || replies.contains(inner) ? inner : nil
         }
         if text.hasPrefix("Facienda dispatch: ") { return text }
         if let origin, origin != "human" { return nil }
-        return MemoryUserMessages.isEnvelope(text) ? nil : text
+        return MemoryUserMessages.words(in: text)
     }
 
     private static func crossSessionBody(_ text: String) -> String? {

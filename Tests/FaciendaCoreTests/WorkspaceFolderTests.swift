@@ -50,6 +50,19 @@ private func repository(_ url: URL, branch: String = "main") throws -> URL {
     #expect(try store.workspaceFolders() == [site.path, app.path])
 }
 
+@Test func aMovedTaskWorksWhereItsNewWorkspaceDoesOnlyIfItHadNotStarted() throws {
+    let root = try scratch(), store = try FaciendaStore(url: root.appending(path: "library/tasks.sqlite"))
+    let app = try repository(root.appending(path: "app")), site = try repository(root.appending(path: "site"))
+    try store.linkFolder(app.path)
+    let work = try store.createWorkspace(name: "Work")
+    try store.linkFolder(site.path, workspaceID: work.id)
+    let planned = try store.create(FaciendaTask(title: "Sketch the page")), started = try store.create(FaciendaTask(title: "Fix the build"))
+    #expect(try store.prepareWorkingFolder(taskId: started.id).cwd == app.path)
+    for task in [planned, started] { try store.moveTask(task.id, toWorkspace: work.id) }
+    #expect(try store.prepareWorkingFolder(taskId: planned.id).cwd == site.path)
+    #expect(try store.prepareWorkingFolder(taskId: started.id).cwd == app.path)
+}
+
 @Test func startingTasksWorkWhereTheirGroupOrWorkspaceDoes() throws {
     let root = try scratch(), store = try FaciendaStore(url: root.appending(path: "library/tasks.sqlite"))
     let app = try repository(root.appending(path: "app")), site = try repository(root.appending(path: "site"))

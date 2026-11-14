@@ -135,3 +135,98 @@ struct ReasoningPicker: View {
         .background(Palette.selected, in: RoundedRectangle(cornerRadius: 8))
     }
 }
+
+/// The model of a task that already has a chat, in its opened task's answer box. A model of the same app takes over
+/// the chat from its next turn, with its conversation; the other app's models continue the task in a new chat there.
+struct ChatModelMenu: View {
+    let model: AppModel
+    let task: FaciendaTask
+    @State private var choosing = false
+
+    var body: some View {
+        let current = model.chatModel(for: task)
+        Button { choosing.toggle() } label: {
+            HStack(spacing: 5) {
+                Text(current?.name ?? "Model")
+                if let current { Text(TaskModelChoice.effortName(current.effort)).foregroundStyle(Palette.muted) }
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .semibold)).foregroundStyle(Palette.muted)
+            }
+        }
+        .help("The model \(model.agent(for: task).name) answers with, from its next turn on")
+        .accessibilityLabel("Model: " + (current.map { "\($0.name), \(TaskModelChoice.effortName($0.effort)) reasoning" } ?? "unknown"))
+        .popover(isPresented: $choosing, arrowEdge: .bottom) { ChatModelPanel(model: model, task: task) { choosing = false } }
+    }
+}
+
+struct ChatModelPanel: View {
+    let model: AppModel
+    let task: FaciendaTask
+    var close: () -> Void = {}
+
+    var body: some View {
+        let own = model.agent(for: task)
+        let current = model.chatModel(for: task)
+        let other = AgentProvider.allCases.first { $0 != own } ?? own
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                heading(own, "This chat")
+                ForEach(TaskModelChoice.models(for: own), id: \.id) { option in
+                    row(option.name, selected: option.id == current?.model) { pick(option.id) }
+                }
+            }
+            if let current {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Reasoning").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
+                    ReasoningPicker(effort: Binding(get: { current.effort }, set: { effort in
+                        Task { await model.changeModel(of: task, to: current.model, effort: effort) }
+                    }), options: TaskModelChoice.efforts(for: own))
+                }
+            }
+            Text(model.whyDown(own) ?? "Takes over from the next turn. The chat and its history stay.")
+                .font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+                heading(other, "New chat")
+                ForEach(TaskModelChoice.models(for: other), id: \.id) { option in
+                    row(option.name, selected: false) { pick(option.id) }.disabled(!model.canStart(other))
+                }
+                Text("Continues in a new \(other.name) \(other == .claude ? "session" : "chat") with a handover note.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted).padding(.horizontal, 8).padding(.top, 2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16).frame(width: 320, alignment: .leading).background(Palette.paper)
+        .disabled(model.demo)
+    }
+
+    private func heading(_ provider: AgentProvider, _ what: String) -> some View {
+        HStack(spacing: 6) {
+            ProviderMark(provider: provider, size: 12)
+            Text("\(provider.name) · \(what)".uppercased()).font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.muted)
+        }.padding(.horizontal, 8)
+    }
+
+    private func row(_ name: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle").foregroundStyle(selected ? Palette.blue : Palette.muted)
+                Text(name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.ink)
+                Spacer(minLength: 8)
+            }
+            .padding(.vertical, 6).padding(.horizontal, 8)
+            .background(selected ? Palette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The pick shows at once; the chooser then closes, as the composer's does.
+    private func pick(_ id: String) {
+        Task {
+            await model.changeModel(of: task, to: id)
+            try? await Task.sleep(for: .milliseconds(150))
+            close()
+        }
+    }
+}

@@ -5,35 +5,26 @@ import FaciendaCore
 /// the window's, opened from the bar, since it spans every workspace.
 enum DashboardMode: String { case board, plan, memory }
 
-/// The page row across the top, and under it the open page with whatever stands beside it, such as a task's panel.
-struct DashboardModes<Beside: View>: View {
+/// The page row across the top, and under it the open page. An opened task lies over both.
+struct DashboardModes: View {
     @Bindable var model: AppModel
     @AppStorage("dashboardMode") private var mode = DashboardMode.board.rawValue
     /// The group the Plan view shows, remembered per workspace.
     @State private var planGroup: String?
     private var planGroupKey: String { "planGroup:" + model.storageKey }
-    private let beside: Beside
-
-    init(model: AppModel, @ViewBuilder beside: () -> Beside) {
-        _model = Bindable(model); self.beside = beside()
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             pageRow
-            // Beside the page rather than over it, so the page narrows and a task's row stays in view.
-            HStack(spacing: 0) {
-                ZStack {
-                    if mode == DashboardMode.plan.rawValue {
-                        PlanBoard(model: model, groupID: $planGroup).transition(.opacity)
-                    } else if mode == DashboardMode.memory.rawValue {
-                        MemoryPage(model: model).transition(.opacity)
-                    } else {
-                        GroupBoard(model: model).transition(.opacity)
-                    }
+            ZStack {
+                if mode == DashboardMode.plan.rawValue {
+                    PlanBoard(model: model, groupID: $planGroup).transition(.opacity)
+                } else if mode == DashboardMode.memory.rawValue {
+                    MemoryPage(model: model).transition(.opacity)
+                } else {
+                    GroupBoard(model: model).transition(.opacity)
                 }
-                beside
-            }.animation(Motion.move, value: model.selection)
+            }
         }
         .onAppear {
             planGroup = UserDefaults.standard.string(forKey: planGroupKey)
@@ -53,7 +44,7 @@ struct DashboardModes<Beside: View>: View {
             line(compact: false)
             line(compact: true)
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 18) { DashboardModeSwitch(waiting: model.workspaceSources.contains { $0.state == .proposed }); Spacer(minLength: 0); newGroup }
+                HStack(spacing: 18) { PageBack(); Spacer(minLength: 0); newGroup }
                 legend(compact: false)
             }
         }
@@ -63,7 +54,7 @@ struct DashboardModes<Beside: View>: View {
 
     private func line(compact: Bool) -> some View {
         HStack(spacing: 18) {
-            DashboardModeSwitch(waiting: model.workspaceSources.contains { $0.state == .proposed })
+            PageBack()
             legend(compact: compact)
             Spacer(minLength: 0)
             newGroup
@@ -95,47 +86,23 @@ struct DashboardModes<Beside: View>: View {
     }
 }
 
-/// Board, Plan or Memory, at the start of the page row. The highlight slides from one to the other.
-struct DashboardModeSwitch: View {
-    /// A source an agent offered waits in Memory's Places: Memory shows the blue dot.
-    var waiting = false
+/// The board is the page; Memory opens from its planet's menu. While Memory or Plan is open, the start of the page row leads
+/// back to the board. On the board it takes no room.
+struct PageBack: View {
     @AppStorage("dashboardMode") private var mode = DashboardMode.board.rawValue
-    @Namespace private var pill
 
     var body: some View {
-        HStack(spacing: 2) {
-            option(.board, title: "Board", symbol: "square.grid.2x2", help: "Every group side by side")
-            option(.plan, title: "Plan", symbol: "list.bullet.indent", help: "Write out what one group should get done")
-            option(.memory, title: "Memory", symbol: "book.closed", help: "What this workspace remembers: its rules, sources, notes and what it learned")
-        }
-        .padding(2)
-        .background(Palette.sidebar, in: Capsule())
-        .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
-        .fixedSize()
-    }
-
-    private func option(_ value: DashboardMode, title: String, symbol: String, help: String) -> some View {
-        let on = mode == value.rawValue
-        return Button {
-            withAnimation(Motion.move) { mode = value.rawValue }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
-                Text(title).font(.system(size: 12, weight: .semibold))
-                if value == .memory && waiting { Circle().fill(Palette.blue).frame(width: 5, height: 5).transition(.opacity) }
-            }
-            .foregroundStyle(on ? Palette.ink : Palette.muted)
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background {
-                if on {
-                    Capsule().fill(Palette.card).overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
-                        .matchedGeometryEffect(id: "pill", in: pill)
+        if mode != DashboardMode.board.rawValue {
+            Button { withAnimation(Motion.fade) { mode = DashboardMode.board.rawValue } } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                    Text("Board").font(.system(size: 12, weight: .semibold))
                 }
+                .foregroundStyle(Palette.ink).padding(.horizontal, 11).padding(.vertical, 5)
+                .background(Palette.card, in: Capsule()).overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
+                .contentShape(Capsule())
             }
-            .contentShape(Capsule())
+            .buttonStyle(.plain).fixedSize().help("Back to the board").transition(.opacity)
         }
-        .buttonStyle(.plain).help(value == .memory && waiting ? help + ". A proposed source waits in Places." : help)
-        .animation(Motion.fade, value: waiting)
-        .accessibilityLabel(title).accessibilityAddTraits(on ? .isSelected : [])
     }
 }

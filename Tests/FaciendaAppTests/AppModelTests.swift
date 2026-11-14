@@ -429,7 +429,10 @@ private func conversationResponse(_ threadID: String, answer: String) -> JSONVal
     let bridge = CodexBridge()
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "FaciendaBridgeTests/Fixtures/server.py")
     try await bridge.connect(executable: "/usr/bin/python3", arguments: [fixture.path])
+    // No background model: its next steps read the same chat at the same moment, and a load under way is not repeated.
+    try store.saveServiceModel(.luna)
     let model = try AppModel(store: store, codex: CodexConnection(bridge: bridge))
+    model.accountReady = false
     model.connected = true; model.showTask(task)
     let full = "# Original answer\n\n- [Application](https://example.org/application)\n- Bring **originals**"
     _ = try await bridge.request("fixture/setThread", params: .object(["threadId": .string("owner"), "response": conversationResponse("owner", answer: full)]))
@@ -902,9 +905,11 @@ private struct FakePainter: CoverPainting {
     #expect(await model.capture(title: "Draft the venue email", intention: "", area: "Personal", date: Date(), startNow: false, model: .claudeStandard))
     let task = try #require(model.tasks.first { $0.title == "Draft the venue email" })
     await model.dispatch(task)
-    #expect(model.error?.contains("asleep") == true)
+    #expect(model.error?.contains("asleep") == true && model.error?.contains("choose Start") == true)
     #expect(opened.isEmpty && model.pendingDispatch(for: task.id) == nil && model.status(for: task) == .notStarted)
     #expect(!model.canStart(.claude) && model.agentsDown()["Claude"] != nil)
+    // The kept task says it never started, and its choices offer Start, so nothing has to be written again.
+    #expect(model.neverStarted(task) && model.subtitle(for: task) == "Not started")
     // The runner checks in: starting now hands the task to Claude without a click.
     model.error = nil
     try store.claudeRunnerHeartbeat("local_runner")
@@ -912,6 +917,23 @@ private struct FakePainter: CoverPainting {
     #expect(model.error == nil && model.agentsDown().isEmpty)
     #expect(opened.last?.host == "resume")
     #expect(model.status(for: task) == .startingInClaude)
+    #expect(!model.neverStarted(try store.task(task.id)) && model.subtitle(for: task) == "Starting in Claude")
+}
+
+@MainActor @Test func aTaskWithUnmetPrerequisitesOrAChatIsNotOfferedStart() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-never-started-\(UUID().uuidString)/facienda.sqlite"))
+    let first = try store.create(FaciendaTask(title: "Book the hall"))
+    let second = try store.create(FaciendaTask(title: "Send the invitations"))
+    let model = try AppModel(store: store) { _ in }
+    #expect(model.neverStarted(first) && model.neverStarted(second))
+    // Waiting on another task: it starts once that is done, not from Start.
+    try store.addTaskDependencies(taskId: second.id, prerequisiteIDs: [first.id])
+    model.refresh()
+    #expect(!model.neverStarted(try store.task(second.id)))
+    // A task with a chat carries on there.
+    try store.link(ThreadLink(taskId: first.id, codexThreadId: "thread-hall"))
+    model.refresh()
+    #expect(!model.neverStarted(try store.task(first.id)))
 }
 
 @MainActor @Test func aClaudeTaskWaitingInAnotherWorkspaceStartsToo() async throws {
@@ -1040,4 +1062,122 @@ private struct FakePainter: CoverPainting {
     let seen = try #require(try store.runnerState()?.lastSeen)
     #expect(try store.beginRunnerTurn(runnerId: FaciendaStore.codexDispatcherId, holder: "run"))
     #expect(try store.runnerState()?.lastSeen == seen)
+}
+
+@MainActor @Test func aReadRowKeepsItsLastExchangeAndWhatHoldsIt() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "open-rows-\(UUID().uuidString)/tasks.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Plan the garden beds", state: .needsMe, nextAction: "Review"))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "garden-chat", title: "Garden"))
+    let when = Date()
+    try store.saveRecap(TaskRecap(taskId: task.id, turnId: "t1", steps: [], tip: "pick a layout", said: "where do the beds go?", saidAt: when,
+                                  answer: "Three layouts, all in the sun.", ask: "Which one?", answeredAt: when, at: when), after: nil)
+    let model = try AppModel(store: store)
+    model.markReviewed(task.id)
+    // Read or new, the row shows the user's last words and the answer.
+    #expect(!model.isUnread(task) && model.recap(for: task)?.said == "where do the beds go?")
+    #expect(model.statusLine(for: task) == nil)
+    // What holds the task still shows under the exchange.
+    #expect(model.takeOn(task, step: "Measure the beds", at: nil))
+    #expect(model.statusLine(for: try store.task(task.id)) == "You: Measure the beds")
+}
+
+@MainActor @Test func aReplyCarriesItsFilesAsCopiesInTheTasksFolder() async throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "reply-files-\(UUID().uuidString)")
+    let store = try FaciendaStore(url: root.appending(path: "workspace/tasks.sqlite"))
+    let setup = try store.prepareWorkspaceSetup()
+    try store.bindRunner(threadId: "runner", automationId: "heartbeat")
+    try store.runnerHeartbeat("runner")
+    try store.verifyWorkspaceSetup(challenge: setup.challenge, projectId: "project", runnerId: "runner", automationId: "heartbeat")
+    let task = try store.create(FaciendaTask(title: "Find a quiet fan", state: .needsMe))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "fan-chat"))
+    let photo = root.appending(path: "desk/back of the case.jpg")
+    try FileManager.default.createDirectory(at: photo.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("photo".utf8).write(to: photo)
+    let model = try AppModel(store: store)
+    // A folder is not a file: nothing is sent and nothing is left behind.
+    #expect(!(await model.reply(to: task, text: "Here", files: [photo.deletingLastPathComponent()])))
+    #expect(try store.dispatches().isEmpty)
+    #expect(try store.task(task.id).attachments == nil)
+    model.error = nil
+    // Files alone go with a line that names them, which is not the user's wording.
+    #expect(await model.reply(to: task, text: "  ", files: [photo]))
+    let item = try #require(try store.dispatches().first)
+    let sent = try #require(try store.task(task.id).attachments?.first)
+    #expect(item.message == "Attached: back of the case.jpg" && sent.replyId == item.id)
+    #expect(sent.path.hasPrefix(store.taskFolder(task.id).appending(path: "Attachments").path) && sent.path != photo.path)
+    #expect(try Data(contentsOf: URL(fileURLWithPath: sent.path)) == Data("photo".utf8))
+    #expect(try FileManager.default.attributesOfItem(atPath: sent.path)[.posixPermissions] as? Int == 0o600)
+    let kinds = try store.events(taskId: task.id).map(\.kind)
+    #expect(kinds.contains("suggestion.used") && !kinds.contains("user.reply"))
+    // While that one is on its way a second is refused, and its copy is taken away again.
+    #expect(!(await model.reply(to: task, text: "And this", files: [photo])))
+    let folders = try FileManager.default.contentsOfDirectory(atPath: store.taskFolder(task.id).appending(path: "Attachments").path)
+    #expect(folders.count == 1)
+    #expect(try store.task(task.id).attachments?.count == 1)
+}
+
+@MainActor @Test func wordsJustSentStayOnTheRowUntilTheyAreAnswered() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "app-model-\(UUID().uuidString)/tasks.sqlite"))
+    let setup = try store.prepareWorkspaceSetup()
+    try store.bindRunner(threadId: "runner", automationId: "heartbeat")
+    try store.runnerHeartbeat("runner")
+    try store.verifyWorkspaceSetup(challenge: setup.challenge, projectId: "project", runnerId: "runner", automationId: "heartbeat")
+    let task = try store.create(FaciendaTask(title: "Find a quiet weekend getaway", state: .needsMe))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "existing-chat"))
+    try store.saveRecap(TaskRecap(taskId: task.id, turnId: "turn-1", steps: [], tip: "Pick a place", said: "two places by train?",
+                                  saidAt: Date(timeIntervalSinceNow: -120), answer: "Ericeira or Comporta.", ask: nil,
+                                  answeredAt: Date(timeIntervalSinceNow: -60)), after: nil)
+    let model = try AppModel(store: store)
+    #expect(model.unanswered(for: task) == nil)
+    #expect(model.reply(to: task, text: "Which is quieter in October?"))
+    #expect(model.rowExchange(for: task) == RowExchange(said: "Which is quieter in October?", answer: nil, working: "On its way to Codex"))
+    // The agent's answer, saved after the words, takes their place.
+    try store.saveResult(taskId: task.id, text: "Ericeira, mid-week.")
+    model.refresh()
+    #expect(model.unanswered(for: task) == nil)
+}
+
+@MainActor @Test func aWorkspaceOpensAgainOnTheTaskLeftOpenThere() throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "app-opened-\(UUID().uuidString)/org")
+    let store = try FaciendaStore(url: folder.appending(path: "facienda.sqlite"))
+    let kept = try store.create(FaciendaTask(title: "Read the draft"))
+    let first = try AppModel(store: store) { _ in }
+    defer { AppModel.saveOpenedTask(nil, for: first.storageKey) }
+    #expect(first.selection == nil)
+    first.refresh(); first.showTask(kept)
+    // As after a restart: a new model of the same workspace lands on that task, not on the board.
+    let second = try AppModel(store: store) { _ in }
+    #expect(second.selectedTask?.id == kept.id)
+    // Closed, it stays closed.
+    second.select(nil)
+    #expect(try AppModel(store: store) { _ in }.selection == nil)
+    // A task that has left the board is let go.
+    second.showTask(kept)
+    try store.deleteTask(kept.id)
+    let third = try AppModel(store: store) { _ in }
+    #expect(third.selection == nil && AppModel.openedTask(for: third.storageKey) == nil)
+}
+
+@MainActor @Test func everyRowShowsTheUsersLastWordsAndTheAgentsLastAnswer() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "row-exchange-\(UUID().uuidString)/tasks.sqlite"))
+    // A new task at work, its chat not read yet: the request, and the agent at work under it.
+    var fresh = FaciendaTask(title: "Paint the shed before the rain comes", state: .running)
+    fresh.displayTitle = "Paint the shed"
+    fresh = try store.create(fresh)
+    // A task whose chat has an answer shows that answer word for word, whatever came back since.
+    let answered = try store.create(FaciendaTask(title: "Plan the garden", state: .needsMe))
+    try store.link(ThreadLink(taskId: answered.id, codexThreadId: "garden"))
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    try store.saveConversation(taskId: answered.id, conversation: CodexConversation(threadId: "garden", title: "Garden", turns: [
+        CodexConversationTurn(id: "t1", status: "completed", startedAt: start, completedAt: start.addingTimeInterval(30), error: .null, items: [
+            .object(["type": .string("userMessage"), "id": .string("u1"), "content": .array([.object(["type": .string("text"), "text": .string("Where do the roses go?")])])]),
+            .object(["type": .string("agentMessage"), "id": .string("a1"), "text": .string("By the **south** wall. Shall I order them?")])
+        ])
+    ]))
+    // A task with nothing said beyond its name has nothing to show.
+    let bare = try store.create(FaciendaTask(title: "Water the plants", state: .needsMe))
+    let model = try AppModel(store: store)
+    #expect(model.rowExchange(for: try store.task(fresh.id)) == RowExchange(said: "Paint the shed before the rain comes", answer: nil, working: "Codex is working"))
+    #expect(model.rowExchange(for: try store.task(answered.id)) == RowExchange(said: "Where do the roses go?", answer: "By the south wall. Shall I order them?", working: nil))
+    #expect(model.rowExchange(for: try store.task(bare.id)) == nil)
 }

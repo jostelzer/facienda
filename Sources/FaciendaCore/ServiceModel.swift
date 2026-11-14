@@ -21,7 +21,7 @@ public struct ServiceModelChoice: Codable, Equatable, Sendable {
     /// The recommended model of a provider.
     public static func recommended(for provider: AgentProvider) -> ServiceModelChoice { provider == .claude ? haiku : luna }
 
-    public var name: String { TaskModelChoice.catalog.first { $0.id == model }?.name ?? model }
+    public var name: String { TaskModelChoice.name(of: model) }
 
     private static let shared = Mutex<ServiceModelChoice>(.luna)
     /// The choice this process works with. The app sets it from the library, and so does each helper when it starts.

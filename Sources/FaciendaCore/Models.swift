@@ -37,8 +37,10 @@ public struct TaskAttachment: Codable, Identifiable, Equatable, Sendable {
     public var id: String { path }
     public var name: String
     public var path: String
+    /// The delivery that brought the file, when it came with a reply and not with the task.
+    public var replyId: String?
 
-    public init(name: String, path: String) { self.name = name; self.path = path }
+    public init(name: String, path: String, replyId: String? = nil) { self.name = name; self.path = path; self.replyId = replyId }
 }
 
 /// The desktop agent app whose native chats carry a task's work.
@@ -64,12 +66,30 @@ public struct TaskModelChoice: Codable, Equatable, Sendable {
         Model(id: "gpt-6-astra", name: "GPT-6 Astra", provider: .codex, offersFast: true),
         Model(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", provider: .codex, offersFast: true),
         Model(id: "gpt-6-luna", name: "GPT-6 Luna", provider: .codex, offersFast: true),
-        Model(id: "claude-fable-5-1", name: "Fable 5.1", provider: .claude, offersFast: false),
+        Model(id: "claude-fable-5-2", name: "Fable 5.2", provider: .claude, offersFast: false),
         Model(id: "claude-opus-5-5", name: "Opus 5.5", provider: .claude, offersFast: true),
         Model(id: "claude-sonnet-5-5", name: "Sonnet 5.5", provider: .claude, offersFast: false),
         Model(id: "claude-haiku-5-5", name: "Haiku 5.5", provider: .claude, offersFast: false)
     ]
+    /// Models the catalog swapped for a newer one. Tasks that ran on one keep its name; saved choices move to the successor.
+    static let retired: [String: (name: String, successor: String)] = [
+        "claude-fable-5-1": ("Fable 5.1", "claude-fable-5-2")
+    ]
     public static func models(for provider: AgentProvider) -> [Model] { catalog.filter { $0.provider == provider } }
+    public static func name(of model: String) -> String {
+        catalog.first { $0.id == model }?.name ?? retired[model]?.name ?? model
+    }
+    /// The model a saved choice of `model` runs on now.
+    public static func current(_ model: String) -> String { retired[model]?.successor ?? model }
+    /// Remembered settings for a retired model carry over to its successor, unless the successor has its own.
+    public static func current(_ remembered: [String: TaskModelChoice]) -> [String: TaskModelChoice] {
+        var settings = remembered
+        for (old, choice) in remembered where retired[old] != nil {
+            settings[old] = nil
+            if settings[current(old)] == nil { settings[current(old)] = choice.current }
+        }
+        return settings
+    }
     public static func efforts(for provider: AgentProvider) -> [String] {
         switch provider {
         case .codex: ["low", "medium", "high", "xhigh", "max", "ultra"]
@@ -105,7 +125,9 @@ public struct TaskModelChoice: Codable, Equatable, Sendable {
     }
     public var details: Model? { Self.catalog.first { $0.id == model } }
     public var provider: AgentProvider { Self.provider(ofModel: model) }
-    public var name: String { details?.name ?? model }
+    public var name: String { Self.name(of: model) }
+    /// This choice on the model it runs on now, with its reasoning kept.
+    public var current: TaskModelChoice { TaskModelChoice(model: Self.current(model), effort: effort, fast: fast) }
     public var offersFast: Bool { details?.offersFast ?? false }
     public static func provider(ofModel model: String) -> AgentProvider {
         catalog.first { $0.id == model }?.provider ?? (model.hasPrefix("claude") ? .claude : .codex)

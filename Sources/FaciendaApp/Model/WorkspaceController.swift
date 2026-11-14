@@ -35,6 +35,8 @@ enum WorkspaceSheet: Identifiable {
     let codex: CodexConnection
     var model: AppModel?
     var workspaces: [Workspace] = []
+    /// Workspaces put away with everything in them, latest first, for Manage Workspaces to restore.
+    var archived: [Workspace] = []
     var startupError: String?
     var error: String?
     var sheet: WorkspaceSheet?
@@ -44,9 +46,11 @@ enum WorkspaceSheet: Identifiable {
     private(set) var pinned: [String]
     private(set) var order: [String]
     private(set) var recent: [String]
-    /// Where each workspace sits on the sidebar's island, as fractions of its width and height. Opening one never
-    /// moves anything; only dragging does.
-    private(set) var places: [String: CGPoint]
+    /// Which space of the island's grid each workspace sits in, counted along the rows from the top left, so a wider or
+    /// narrower island keeps the order and only wraps it. Opening one never moves anything; only dragging does.
+    private(set) var slots: [String: Int]
+    /// Where the planets stood before the grid, read once so the first grid keeps their order, top to bottom.
+    @ObservationIgnored private var planetPlaces: [String: CGPoint] = [:]
     /// Workspaces that need you, including ones not visited since launch.
     private var fresh: [String: Int] = [:]
     /// Tasks in progress in each workspace, read with the new counts.
@@ -57,7 +61,7 @@ enum WorkspaceSheet: Identifiable {
     @ObservationIgnored var coverPainter: (any CoverPainting)?
     /// Painted pictures by workspace ID.
     var coverImages: [String: NSImage] = [:]
-    /// Each picture's mean colour, measured once when it loads: the glow round the open planet.
+    /// Each picture's mean colour, measured once when it loads: the ring round the open tile, and the island's wash.
     var coverColours: [String: NSColor] = [:]
     /// Workspaces whose picture is being painted right now.
     var paintingCovers: Set<String> = []
@@ -76,6 +80,8 @@ enum WorkspaceSheet: Identifiable {
     @ObservationIgnored let libraryURL: URL
     /// What came in through the bar, across every workspace.
     let feed = FeedModel()
+    /// Goals, the window's other side: the same work, by what it is for.
+    let goals = GoalsModel()
 
     init(libraryURL: URL = LibraryHome.databaseURL, demo: Bool = false, load: Bool = true, defaults: UserDefaults = .standard) {
         self.libraryURL = libraryURL
@@ -85,13 +91,17 @@ enum WorkspaceSheet: Identifiable {
         pinned = defaults.stringArray(forKey: "pinnedWorkspaces") ?? []
         order = defaults.stringArray(forKey: "workspaceOrder") ?? []
         recent = defaults.stringArray(forKey: "recentWorkspaces") ?? []
-        places = (defaults.dictionary(forKey: "workspacePlaces") as? [String: [Double]] ?? [:])
-            .compactMapValues { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+        slots = defaults.dictionary(forKey: "workspaceSlots") as? [String: Int] ?? [:]
+        if slots.isEmpty {
+            planetPlaces = (defaults.dictionary(forKey: "workspacePlaces") as? [String: [Double]] ?? [:])
+                .compactMapValues { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+        }
         do {
             if demo, load { install(try AppModel(demo: true)) }
             else if load, FileManager.default.fileExists(atPath: libraryURL.path) { try openLibrary() }
         } catch { startupError = error.localizedDescription }
         feed.workspaces = self
+        goals.workspaces = self
     }
 
     /// Opens the library. A missing one is reported; it is never replaced by an empty one.
@@ -131,11 +141,12 @@ enum WorkspaceSheet: Identifiable {
         guard let library else { return }
         do {
             workspaces = try library.workspaces()
+            archived = try library.archivedWorkspaces()
             fresh = try library.newCounts()
             running = try library.runningCounts()
             reads = try library.memoryReads()
         } catch { self.error = error.localizedDescription }
-        settlePlaces(); loadCovers(); paintMissingCovers()
+        settleSlots(); loadCovers(); paintMissingCovers()
     }
 
     /// Tasks that came back finished since the user last opened them.
@@ -205,58 +216,55 @@ enum WorkspaceSheet: Identifiable {
         defaults.set(order, forKey: "workspaceOrder")
     }
 
-    // MARK: Places on the island
+    // MARK: Spaces on the island
 
-    func place(of workspace: Workspace) -> CGPoint { places[workspace.id] ?? CGPoint(x: 0.5, y: 0.5) }
+    func slot(of workspace: Workspace) -> Int { slots[workspace.id] ?? 0 }
 
-    /// Kept on the island. The island itself keeps every planet whole inside it, and makes room for the open one.
-    func setPlace(_ workspace: Workspace, to point: CGPoint) {
-        places[workspace.id] = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
-        savePlaces()
+    /// A workspace dropped into a space. When another sits there, the two swap, so nothing else moves.
+    func setSlot(_ workspace: Workspace, to slot: Int) {
+        guard slot >= 0, let from = slots[workspace.id], from != slot else { return }
+        if let other = slots.first(where: { $0.value == slot })?.key { slots[other] = from }
+        slots[workspace.id] = slot
+        saveSlots()
     }
 
-    /// Puts every workspace back into the zigzag, in the order of the list, for when the island has got crowded.
-    func arrangePlaces() {
-        places = [:]
-        settlePlaces()
+    /// True when a space is left empty before the last workspace.
+    var hasGaps: Bool { (slots.values.max() ?? -1) >= slots.count }
+
+    /// Every workspace moves up into the first spaces, in the order they stand in, for when the island has got gappy.
+    func closeGaps() {
+        let standing = workspaces.enumerated().sorted { (slot(of: $0.element), $0.offset) < (slot(of: $1.element), $1.offset) }
+        slots = Dictionary(uniqueKeysWithValues: standing.enumerated().map { ($1.element.id, $0) })
+        saveSlots()
     }
 
-    /// The first workspaces fall into a gentle zigzag down the island, in the order of the list.
-    private static let slots = [CGPoint(x: 0.32, y: 0.13), CGPoint(x: 0.7, y: 0.29), CGPoint(x: 0.31, y: 0.45),
-                                CGPoint(x: 0.69, y: 0.61), CGPoint(x: 0.33, y: 0.77), CGPoint(x: 0.7, y: 0.91)]
-
-    /// A workspace gets its place once, the first time it is seen, and keeps it; a new one never shifts the others.
-    private func settlePlaces() {
+    /// A workspace gets its space once, the first time it is seen, and keeps it: the first free one, so a new workspace never
+    /// shifts the others, and an archived one leaves its space empty. The first grid keeps the order the planets stood in,
+    /// top to bottom.
+    private func settleSlots() {
         let ids = Set(workspaces.map(\.id))
-        var changed = places.keys.contains { !ids.contains($0) }
-        places = places.filter { ids.contains($0.key) }
-        for workspace in ordered where places[workspace.id] == nil {
-            places[workspace.id] = freeSpot()
+        var changed = slots.keys.contains { !ids.contains($0) }
+        slots = slots.filter { ids.contains($0.key) }
+        let planets = planetPlaces
+        let newcomers = ordered.enumerated().filter { slots[$0.element.id] == nil }.sorted { a, b in
+            let first = planets[a.element.id].map { ($0.y, $0.x) } ?? (2, 2), second = planets[b.element.id].map { ($0.y, $0.x) } ?? (2, 2)
+            return (first.0, first.1, a.offset) < (second.0, second.1, b.offset)
+        }
+        var taken = Set(slots.values), free = 0
+        for (_, workspace) in newcomers {
+            while taken.contains(free) { free += 1 }
+            slots[workspace.id] = free
+            taken.insert(free)
             changed = true
         }
-        if changed { savePlaces() }
+        if !workspaces.isEmpty { planetPlaces = [:] }
+        if changed { saveSlots() }
     }
 
-    /// The next free slot of the zigzag, or else the point farthest from every workspace already there.
-    /// Distances count height more, since the island is taller than it is wide.
-    private func freeSpot() -> CGPoint {
-        let gap = { (a: CGPoint, b: CGPoint) in hypot(a.x - b.x, (a.y - b.y) * 1.7) }
-        if let slot = Self.slots.first(where: { slot in places.values.allSatisfy { gap(slot, $0) > 0.2 } }) { return slot }
-        var best = CGPoint(x: 0.5, y: 0.5), widest = -1.0
-        for column in 0...8 {
-            for row in 0...12 {
-                let point = CGPoint(x: 0.12 + 0.76 * Double(column) / 8, y: 0.08 + 0.84 * Double(row) / 12)
-                let nearest = places.values.map { gap(point, $0) }.min() ?? 1
-                if nearest > widest { best = point; widest = nearest }
-            }
-        }
-        return best
-    }
-
-    /// The demo's sample workspaces never overwrite the places of the real ones.
-    private func savePlaces() {
+    /// The demo's sample workspaces never overwrite the spaces of the real ones.
+    private func saveSlots() {
         guard !demo else { return }
-        defaults.set(places.mapValues { [$0.x, $0.y] }, forKey: "workspacePlaces")
+        defaults.set(slots, forKey: "workspaceSlots")
     }
 
     @discardableResult func open(_ workspace: Workspace) -> Bool {
@@ -314,10 +322,11 @@ enum WorkspaceSheet: Identifiable {
         } catch { self.error = error.localizedDescription; return false }
     }
 
-    @discardableResult func remove(_ workspace: Workspace) async -> Bool {
+    /// Puts a workspace away with its open tasks, whose agents stop. Restore brings it all back.
+    @discardableResult func archive(_ workspace: Workspace) async -> Bool {
         guard !demo, let library else { return false }
         do {
-            try library.removeWorkspace(workspace.id)
+            try library.archiveWorkspace(workspace.id)
             if let removed = models.removeValue(forKey: workspace.id) { await removed.stop() }
             let wasCurrent = model?.workspaceID == workspace.id
             reload()
@@ -325,6 +334,16 @@ enum WorkspaceSheet: Identifiable {
                 model = nil
                 if let next = workspaces.first { _ = open(next) }
             }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+
+    @discardableResult func restore(_ workspace: Workspace) -> Bool {
+        guard !demo, let library else { return false }
+        do {
+            try library.restoreWorkspace(workspace.id)
+            reload()
+            error = nil
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
@@ -362,6 +381,24 @@ enum WorkspaceSheet: Identifiable {
         }
         guard count > 0 else { return nil }
         return NSColor(srgbRed: sum.r / count / 255, green: sum.g / count / 255, blue: sum.b / count / 255, alpha: 1)
+    }
+
+    /// A picture's mean colour as the open island's tint: its hue, a little more of its colour, and always the same
+    /// lightness, so a dark or muddy picture tints the island as clearly as a bright one. Worked in Oklab, where equal
+    /// lightness looks equal; colour the screen cannot show is given up until it can. Other lightnesses give the shades
+    /// that must stand off the wash: the open tile's ring and its name's pill.
+    nonisolated static func islandTint(of mean: NSColor, lightness: Double = 0.62, boost: Double = 1.6) -> NSColor {
+        guard let rgb = mean.usingColorSpace(.sRGB) else { return mean }
+        let lab = Oklab(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+        let chroma = hypot(lab.a, lab.b), hue = atan2(lab.b, lab.a)
+        var reach = chroma * boost
+        while true {
+            let colour = Oklab(l: lightness, a: reach * cos(hue), b: reach * sin(hue)).rgb
+            if [colour.red, colour.green, colour.blue].allSatisfy({ (-0.001...1.001).contains($0) }) || reach < 0.001 {
+                return NSColor(srgbRed: min(max(colour.red, 0), 1), green: min(max(colour.green, 0), 1), blue: min(max(colour.blue, 0), 1), alpha: 1)
+            }
+            reach *= 0.95
+        }
     }
 
     /// Every workspace gets a picture once Codex is ready, one at a time so a new library does not start a crowd of runs.
@@ -432,5 +469,38 @@ enum WorkspaceSheet: Identifiable {
         guard let library else { return }
         do { try library.setCoverNotes(workspaceId: workspace.id, notes: []); reload() }
         catch { self.error = error.localizedDescription }
+    }
+}
+
+/// A colour in Oklab, from and back to sRGB, as Björn Ottosson defines it.
+struct Oklab {
+    var l: Double, a: Double, b: Double
+
+    init(l: Double, a: Double, b: Double) { self.l = l; self.a = a; self.b = b }
+
+    init(red: Double, green: Double, blue: Double) {
+        let r = Self.linear(red), g = Self.linear(green), b = Self.linear(blue)
+        let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        self.l = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+        self.a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+        self.b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    }
+
+    /// Back in sRGB, possibly outside 0…1 when the colour is beyond what sRGB holds.
+    var rgb: (red: Double, green: Double, blue: Double) {
+        let l = pow(self.l + 0.3963377774 * a + 0.2158037573 * b, 3)
+        let m = pow(self.l - 0.1055613458 * a - 0.0638541728 * b, 3)
+        let s = pow(self.l - 0.0894841775 * a - 1.2914855480 * b, 3)
+        return (Self.gamma(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+                Self.gamma(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+                Self.gamma(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
+    }
+
+    private static func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+    private static func gamma(_ c: Double) -> Double {
+        let sign: Double = c < 0 ? -1 : 1, x = abs(c)
+        return sign * (x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) - 0.055)
     }
 }

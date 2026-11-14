@@ -29,6 +29,30 @@ public enum MemoryUserMessages {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// What opens a message the agent app wrote whole in the person's place: the summary that carries a long session
+    /// on, a scheduled run, an interruption, and what Codex tells a new chat about the Mac.
+    private static let machineOpenings = ["This session is being continued from a previous conversation", "[Request interrupted", "<heartbeat",
+                                          "<turn_aborted", "<environment_context", "<user_instructions", "<subagent_notification"]
+
+    /// The person's own words in a user-role chat message, or nil when the agent app wrote all of it. What the app
+    /// only put around their words (a reminder, the open page, attached files, a question's JSON) is taken off.
+    public static func words(in text: String) -> String? {
+        let said = (answers(in: text) ?? typed(text)).replacing(/<system-reminder>.*?<\/system-reminder>/.dotMatchesNewlines(), with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !said.isEmpty, !isEnvelope(said), !machineOpenings.contains(where: { said.hasPrefix($0) }) else { return nil }
+        return characterReferences(said).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Codex's composer writes a space at a line's end as `&#x20;`. Only characters one can see are put back.
+    private static func characterReferences(_ text: String) -> String {
+        text.replacing(/&#(?:x([0-9A-Fa-f]{1,6})|([0-9]{1,7}));/) { match in
+            let value = match.output.1.flatMap { UInt32($0, radix: 16) } ?? match.output.2.flatMap { UInt32($0) }
+            guard let scalar = value.flatMap(Unicode.Scalar.init), ![.control, .format, .surrogate, .privateUse, .unassigned].contains(scalar.properties.generalCategory)
+            else { return String(match.output.0) }
+            return String(Character(scalar))
+        }
+    }
+
     /// A question's answer comes back as JSON that holds the question too. Only the answer is the person's words.
     private static func answers(in text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

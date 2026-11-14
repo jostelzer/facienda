@@ -20,7 +20,10 @@ public struct CheckPlan: Codable, FetchableRecord, PersistableRecord, Sendable, 
 
     /// Why a plan stopped when the user replied. That pause is Facienda's, not the user's, so the chat may plan again.
     public static let replyPause = "Checks paused while your new instruction is handled."
-    public var pausedForReply: Bool { paused && lastOutcome == Self.replyPause }
+    /// Why a plan stopped when the task moved to a new chat. That chat may take the plan on.
+    public static let handoverPause = "Checks paused while the task moves to a new chat."
+    public var pausedForReply: Bool { paused && [Self.replyPause, Self.handoverPause].contains(lastOutcome) }
+    var pausedForHandover: Bool { paused && lastOutcome == Self.handoverPause }
 
     /// Twenty checks, or as many as the cadence needs to reach the deadline, up to a sane ceiling.
     public func checkLimit(now: Date) -> Int {
@@ -43,13 +46,14 @@ extension FaciendaStore {
                   try Self.isLinked(db, taskId: taskId, threadId: threadId) else { throw StoreError.notFound }
             let old = try CheckPlan.fetchOne(db, key: taskId)
             guard (old?.revision ?? 0) == expectedRevision else { throw StoreError.conflict }
-            if let old, (old.paused && !old.pausedForReply) || old.pinned || old.threadId != threadId { throw StoreError.invalid("The user controls this plan. Preserve its pause, pinned time and owning chat.") }
+            // A plan whose chat left when the task moved passes to the chat that carries the task now.
+            if let old, (old.paused && !old.pausedForReply) || old.pinned || (old.threadId != threadId && !old.pausedForHandover) { throw StoreError.invalid("The user controls this plan. Preserve its pause, pinned time and owning chat.") }
             guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dispatches WHERE taskId = ? AND kind = 'check' AND state IN ('queued', 'claimed', 'dispatching', 'started') AND checkRevision = ?", arguments: [taskId, expectedRevision]) == 0 else { throw StoreError.invalid("Finish the outstanding check with report_check.") }
             var plan = old.map { old in
                 guard old.pausedForReply else { return old }
                 // Picking up after a reply: a fresh run of checks with room to reach the new date.
                 var resumed = old
-                resumed.paused = false; resumed.failures = 0; resumed.checks = 0; resumed.lastOutcome = nil
+                resumed.threadId = threadId; resumed.paused = false; resumed.failures = 0; resumed.checks = 0; resumed.lastOutcome = nil
                 resumed.deadline = max(old.deadline, nextCheck.addingTimeInterval(86400))
                 return resumed
             } ?? CheckPlan(taskId: taskId, threadId: threadId, revision: 0, nextCheck: nextCheck, purpose: purpose, reason: reason, paused: false, pinned: false, minimumInterval: 3600, deadline: max(now.addingTimeInterval(30 * 86400), nextCheck.addingTimeInterval(86400)), failures: 0, checks: 0)

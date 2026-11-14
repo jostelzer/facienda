@@ -47,6 +47,9 @@ public struct ClaudeSession: Codable, FetchableRecord, PersistableRecord, Equata
     public var configureClaimedAt: Date?
     public var configuredAt: Date?
     public var configureNote: String?
+    /// When the user last picked another model for this session after it started. Its settings then wait for the runner
+    /// again, but its title stays.
+    public var changedAt: Date?
 
     public var isSettled: Bool { ["done", "failed", "skipped"].contains(configureState) }
 }
@@ -312,7 +315,8 @@ extension FaciendaStore {
             if var session = try ClaudeSession.fetchOne(db, sql: "SELECT * FROM claudeSessions WHERE configureState = 'pending' ORDER BY linkedAt LIMIT 1") {
                 session.configureState = "configuring"; session.configureClaimedAt = now
                 try session.update(db)
-                return .configure(session, start: try claimClaudeStart(db, for: session, runnerId: runnerId, now: now))
+                // A session switching model is already at work: a start waiting for it goes the usual way.
+                return .configure(session, start: session.changedAt == nil ? try claimClaudeStart(db, for: session, runnerId: runnerId, now: now) : nil)
             }
             if var existing = try NativeDispatch.fetchOne(db, sql: """
                 SELECT * FROM dispatches WHERE provider = 'claude' AND runnerId = ? AND state IN ('claimed', 'dispatching')
@@ -397,7 +401,8 @@ extension FaciendaStore {
     public func settledClaudeSession(_ threadId: String, now: Date = Date()) throws -> ClaudeSession? {
         try write { db in
             try Self.expireClaudeConfiguring(db, now: now)
-            if var session = try ClaudeSession.fetchOne(db, key: threadId), session.configureState == "pending", session.linkedAt < now.addingTimeInterval(-300) {
+            if var session = try ClaudeSession.fetchOne(db, key: threadId), session.configureState == "pending", session.changedAt == nil,
+               session.linkedAt < now.addingTimeInterval(-300) {
                 session.configureState = "failed"; session.configuredAt = now; session.configureNote = "The runner did not pick this session up."
                 try session.update(db)
             }
@@ -448,21 +453,35 @@ extension FaciendaStore {
             var beat = Date.distantPast
             repeat {
                 let now = Date()
-                if now.timeIntervalSince(beat) >= 60 { try claudeRunnerHeartbeat(runnerId, now: now); beat = now }
-                try db.write { try reconcileBlockers($0, now: now) }
-                try enqueueDueChecks(runnerId: runnerId, now: now)
-                if try hasClaudeWork(runnerId: runnerId, now: now) { return true }
-                let soonest = try db.read { db in
-                    try Date.fetchOne(db, sql: """
-                        SELECT MIN(t) FROM (SELECT MIN(nextCheck) AS t FROM checkPlans WHERE paused = 0 AND nextCheck > ?
-                        UNION ALL SELECT MIN(availableAt) FROM dispatches WHERE provider = 'claude' AND availableAt > ?)
-                        """, arguments: [now, now])
+                let soonest: Date?
+                do {
+                    if now.timeIntervalSince(beat) >= 60 { try claudeRunnerHeartbeat(runnerId, now: now); beat = now }
+                    try db.write { try reconcileBlockers($0, now: now) }
+                    try enqueueDueChecks(runnerId: runnerId, now: now)
+                    if try hasClaudeWork(runnerId: runnerId, now: now) { return true }
+                    soonest = try db.read { db in
+                        try Date.fetchOne(db, sql: """
+                            SELECT MIN(t) FROM (SELECT MIN(nextCheck) AS t FROM checkPlans WHERE paused = 0 AND nextCheck > ?
+                            UNION ALL SELECT MIN(availableAt) FROM dispatches WHERE provider = 'claude' AND availableAt > ?)
+                            """, arguments: [now, now])
+                    }
+                } catch where Self.isBusy(error) {
+                    // The app sometimes holds the library longer than the busy timeout. A wait that quit here woke
+                    // the runner for nothing, and the runner then wrapped its wait in its own timer and retry loop.
+                    _ = wake.wait(timeout: .now() + min(5, max(0.05, deadline.timeIntervalSinceNow)))
+                    continue
                 }
                 let nextBeat = beat.addingTimeInterval(60)
                 let until = [deadline, nextBeat, soonest.map { max($0, now.addingTimeInterval(0.05)) } ?? deadline].min()!
                 _ = wake.wait(timeout: .now() + max(0.05, until.timeIntervalSinceNow))
             } while Date() < deadline
-            return try hasClaudeWork(runnerId: runnerId)
+            do { return try hasClaudeWork(runnerId: runnerId) } catch where Self.isBusy(error) { return false }
         }
+    }
+
+    /// Another connection held the library past the busy timeout. Trying again later is safe.
+    static func isBusy(_ error: any Error) -> Bool {
+        guard let error = error as? DatabaseError else { return false }
+        return error.resultCode == .SQLITE_BUSY || error.resultCode == .SQLITE_LOCKED
     }
 }

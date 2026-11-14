@@ -179,7 +179,9 @@ extension AppModel {
     /// Also prepares the wait composer's options once a chat's turn is done, so they are ready when it opens,
     /// and the recap a new row shows, freshest first.
     func writeHeadlines() {
-        guard !demo, serviceModelReady, headlineTask == nil else { return }
+        guard !demo, headlineTask == nil else { return }
+        // Only the model's own work waits on the background model; a recap taken from the agent's handover does not.
+        let modelWork = serviceModelReady
         let recent = Date().addingTimeInterval(-3 * 86400)
         let open = Set(tasks.filter { $0.state.isOpen || ($0.state == .done && $0.updatedAt > recent) }.map(\.id))
         let parkable = Set(tasks.filter { task in
@@ -197,13 +199,14 @@ extension AppModel {
         let needsSteps = { (source: LatestResult) in
             !source.isQuestion && reviewable.contains(source.taskId) && self.nextSteps[source.taskId]?.eventId != source.eventId && !self.headlineAttempts.contains("s" + source.eventId)
         }
-        let due = latestResults.values.filter { open.contains($0.taskId) && (needsHeadline($0) || needsOptions($0) || needsSteps($0)) }
+        let due = !modelWork ? [] : latestResults.values.filter { open.contains($0.taskId) && (needsHeadline($0) || needsOptions($0) || needsSteps($0)) }
             .sorted { $0.at > $1.at }.prefix(6).map { (source: $0, headline: needsHeadline($0), options: needsOptions($0), steps: needsSteps($0)) }
         // A recap is written once work came back to a row and its chat has gone quiet, so it is ready while the row is new.
+        // Every open row shows one, so a row read before it was written gets one too, newest first.
         // Work often comes back while the agent is still writing its last message, so a few tries follow it.
         let now = Date()
         let recapsDue = tasks.compactMap { task -> (id: String, key: String, at: Date)? in
-            guard isUnread(task), let link = resultLink(for: task), ["idle", "notLoaded"].contains(link.lastKnownStatus),
+            guard open.contains(task.id), let link = resultLink(for: task), ["idle", "notLoaded"].contains(link.lastKnownStatus),
                   let back = cameBack(task), (recaps[task.id]?.at ?? .distantPast) < back else { return nil }
             let key = task.id + back.timeIntervalSinceReferenceDate.description
             if let tried = recapTries[key], tried.count >= 4 || now.timeIntervalSince(tried.last) < 20 { return nil }
@@ -220,10 +223,16 @@ extension AppModel {
         let store = store, executable = executable, luna = Self.headlineLuna
         headlineTask = Task { [weak self] in
             defer { self?.headlineTask = nil; self?.refresh() }
+            // The agent's own handover first: it needs no model, and where there is one the model is not asked at all.
+            var unsaid: [String] = []
+            for job in recapsDue {
+                if await self?.adoptHandover(job.id) != true { unsaid.append(job.id) }
+            }
+            guard modelWork, !unsaid.isEmpty || !due.isEmpty else { return }
             do { try await luna.warm(executable: executable) } catch { return }
             // Nobody waits on these, so they run at standard speed: the priority tier costs more of the user's allowance.
             let tier: String? = nil
-            for job in recapsDue { await self?.prepareRecap(job.id, luna: luna, tier: tier) }
+            for id in unsaid { await self?.prepareRecap(id, luna: luna, tier: tier) }
             for job in due {
                 if job.steps { await self?.prepareNextSteps(job.source, luna: luna, tier: tier) }
                 if job.options { await self?.prepareWaitOptions(job.source, luna: luna, tier: tier) }
@@ -240,6 +249,34 @@ extension AppModel {
                 if let line { try? store.saveHeadline(taskId: result.taskId, eventId: result.eventId, text: line) }
             }
         }
+    }
+
+    /// Writes the row's recap from the agent's own handover, with no model asked: the agent ended its turn saying what
+    /// the task wants and where the thread stands, and reading that back out of the chat afterwards only loses its words.
+    /// False when it handed over nothing for this turn, so the model still writes that row's recap.
+    private func adoptHandover(_ taskID: String) async -> Bool {
+        guard let task = tasks.first(where: { $0.id == taskID }), let link = resultLink(for: task),
+              let handover = handovers[taskID], let line = handover.line else { return false }
+        await loadConversation(for: task)
+        let previous = recaps[taskID], previousTurn = previous?.turnId
+        let store = store, dispatches = nativeDispatches, request = task.title, threadID = link.codexThreadId
+        // The user's last words are read from the chat as always; only the agent's half of the exchange comes from it.
+        let source = await Task.detached(priority: .utility) {
+            (try? store.conversationSnapshot(taskId: taskID, threadId: threadID))
+                .flatMap { RecapSource($0.conversation, originalRequest: request, dispatches: dispatches, after: previousTurn) }
+        }.value
+        // A handover older than the words that started this turn belongs to an earlier one and says nothing about it.
+        guard let source, source.turnId != previousTurn, handover.at >= (source.saidAt ?? .distantPast) else { return false }
+        var steps = previous?.steps ?? []
+        // The tail follows the task's name on the row. The agent writes one only when the subject moved, and a repeat
+        // of the name or of a step already shown is not a move.
+        if let tail = handover.tail, !task.displayName.lowercased().contains(tail.lowercased()),
+           !steps.contains(where: { $0.caseInsensitiveCompare(tail) == .orderedSame }) { steps.append(tail) }
+        let recap = TaskRecap(taskId: taskID, turnId: source.turnId, steps: Array(steps.suffix(RecapWriter.maximumSteps)),
+                              tip: TaskHeadline.clip(line, limit: 48), said: source.said, saidAt: source.saidAt,
+                              // What it wants is the whole line and stands in ink; an outcome reads as the answer it is.
+                              answer: handover.wants == nil ? line : "", ask: handover.wants, answeredAt: source.answeredAt)
+        do { try store.saveRecap(recap, after: previousTurn); return true } catch { return false }
     }
 
     /// Reads the task's newest finished turn for its recap: the path's next step, what is open now, the user's last words

@@ -209,11 +209,13 @@ extension FaciendaStore {
     }
 
     /// Only explicit UI starts/answers enqueue work. The runner never sweeps tasks.
-    @discardableResult public func enqueueDispatch(taskId: String, triggerKey: String? = nil, message: String? = nil, userAuthored: Bool = true) throws -> NativeDispatch {
+    /// Files sent with a reply were copied into the task's folder by the app; they join the task's attachments in the same write.
+    @discardableResult public func enqueueDispatch(taskId: String, triggerKey: String? = nil, message: String? = nil, userAuthored: Bool = true,
+                                                   attachments: [TaskAttachment] = []) throws -> NativeDispatch {
         let dispatch = try write { db in
             // Starting or answering a parked task by hand takes it back from its wait.
             if var wait = try TaskWait.fetchOne(db, key: taskId), wait.isActive { try cancel(db, &wait, now: Date()) }
-            return try queueDispatch(db, taskId: taskId, triggerKey: triggerKey, message: message, source: .user, userAuthored: userAuthored)
+            return try queueDispatch(db, taskId: taskId, triggerKey: triggerKey, message: message, source: .user, userAuthored: userAuthored, attachments: attachments)
         }
         signalRunners(dispatch.id)
         return dispatch
@@ -235,9 +237,15 @@ extension FaciendaStore {
         try? Data(note.utf8).write(to: url.deletingLastPathComponent().appending(path: "runner.signal"), options: .atomic)
     }
 
-    func queueDispatch(_ db: Database, taskId: String, triggerKey: String?, message: String?, source: EventSource, userAuthored: Bool = true) throws -> NativeDispatch {
+    func queueDispatch(_ db: Database, taskId: String, triggerKey: String?, message: String?, source: EventSource, userAuthored: Bool = true,
+                       attachments: [TaskAttachment] = []) throws -> NativeDispatch {
         do {
-            guard let task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen else { throw StoreError.notFound }
+            guard var task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen else { throw StoreError.notFound }
+            // A reply's files are copies in the task's own folder, like the ones a task starts with: nothing else is named to the agent as the user's.
+            let home = taskFolder(taskId).appending(path: "Attachments").standardizedFileURL.path + "/"
+            guard attachments.isEmpty || (message != nil && source == .user && attachments.allSatisfy { URL(fileURLWithPath: $0.path).standardizedFileURL.path.hasPrefix(home) }) else {
+                throw StoreError.invalid("Files can only be sent with a reply, from the task's folder.")
+            }
             if let triggerKey, let existing = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE triggerKey = ?", arguments: [triggerKey]) { return existing }
             if let existing = try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE taskId = ? AND state IN ('queued', 'claimed', 'dispatching')", arguments: [taskId]) {
                 if message != nil { throw StoreError.invalid("A delivery is already queued. Cancel it before sending another reply.") }
@@ -252,9 +260,15 @@ extension FaciendaStore {
             let previous = try String.fetchOne(db, sql: "SELECT d.threadId FROM dispatches d JOIN threadLinks l ON l.codexThreadId = d.threadId AND l.taskId = d.taskId WHERE d.taskId = ? AND d.state = 'started' ORDER BY d.requestedAt DESC LIMIT 1", arguments: [taskId]) ?? Self.workThreadID(db, taskId: taskId)
             let item = NativeDispatch(id: UUID().uuidString, taskId: taskId, state: "queued", requestedAt: Date(), threadId: previous, triggerKey: triggerKey, kind: message == nil ? "start" : "reply", message: message)
             try item.insert(db)
+            if !attachments.isEmpty {
+                // Marked with the delivery that brings them, so its prompt can name them apart from the task's earlier files.
+                task.attachments = (task.attachments ?? []) + attachments.map { TaskAttachment(name: $0.name, path: $0.path, replyId: item.id) }
+                task.revision += 1; task.updatedAt = Date()
+                try task.update(db)
+            }
             if let message { try TaskEvent(taskId: taskId, source: source, kind: source == .user ? (userAuthored ? "user.reply" : "suggestion.used") : "wait.message", payload: message).insert(db) }
-            // A message from the user carries the work on, so the agent's proposal to close the task no longer stands.
-            if message != nil, source == .user { try setAsideCompletion(db, taskId: taskId, source: source, now: Date()) }
+            // A message from the user carries the work on, so what the agent was asking no longer stands.
+            if message != nil, source == .user { try setAsideAsks(db, taskId: taskId, source: source, now: Date()) }
             try TaskEvent(taskId: taskId, source: source, kind: "dispatch.queued", payload: item.id).insert(db)
             try reconcileBlockers(db, now: Date())
             try arrangeBlockerCheck(db, taskId: taskId, threadId: nil, reset: false, now: Date())
@@ -451,9 +465,11 @@ extension FaciendaStore {
         guard seconds >= 0, seconds <= 50 else { throw StoreError.invalid("Wait must be between 0 and 50 seconds.") }
         return try watchingQueue { wake in
             try runnerHeartbeat(runnerId)
-            let deadline = DispatchTime.now() + seconds
+            let deadline = DispatchTime.now() + seconds, since = Date()
             repeat {
                 if let item = try claimDispatch(runnerId: runnerId) { return item }
+                // A model picked meanwhile ends the wait, so the dispatcher sets it now rather than after it.
+                if try chatModelChangeArrived(after: since) { return nil }
                 let next = try db.read { try Date.fetchOne($0, sql: "SELECT MIN(nextCheck) FROM checkPlans WHERE paused = 0 AND nextCheck > ?", arguments: [Date()]) }
                 let nextWake = next.map { min(deadline, DispatchTime.now() + max(0.05, $0.timeIntervalSinceNow)) } ?? deadline
                 _ = wake.wait(timeout: nextWake)

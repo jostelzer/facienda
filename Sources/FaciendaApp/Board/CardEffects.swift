@@ -58,13 +58,20 @@ struct UnreadDot: View {
     /// The share of each period the ring takes to spread and fade; the rest is stillness.
     private static let spread = 0.45
     private static let reach = 3.4
+    /// How far the ring goes out from the board's dot on each side, for other blue marks that ring with it.
+    static let travel: CGFloat = 7 * (reach - 1) / 2
+
+    /// How far the ring has spread at this moment, 0 to 1, on the clock every unread mark in the app shares.
+    static func ring(at date: Date) -> Double {
+        let phase = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+        let progress = min(phase / spread, 1)
+        // Eased out: the ring leaves quickly and slows as it fades.
+        return 1 - (1 - progress) * (1 - progress)
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period) / Self.period
-            let progress = min(phase / Self.spread, 1)
-            // Eased out: the ring leaves quickly and slows as it fades.
-            let eased = 1 - (1 - progress) * (1 - progress)
+            let eased = Self.ring(at: context.date)
             Circle().fill(Palette.blue).frame(width: size, height: size)
                 .background {
                     Circle().strokeBorder(Palette.blue, lineWidth: 1.5).frame(width: size, height: size)

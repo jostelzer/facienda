@@ -9,6 +9,7 @@ struct SettingsView: View {
     var workspaces: WorkspaceController? = nil
     @AppStorage("appearance") private var appearance: AppAppearance = .system
     @AppStorage("groupCovers") private var groupCovers = true
+    @AppStorage(TaskOpenView.backAfterSendKey) private var backAfterSend = true
     @AppStorage("coverBaseStyle") private var coverBaseStyle = GroupCoverPainter.defaultBaseStyle
     @Environment(\.dismiss) private var dismiss
 
@@ -63,6 +64,7 @@ struct SettingsView: View {
         switch pane {
         case .general:
             appearanceSection.settingsCard()
+            afterSendSection.settingsCard()
             picturesSection.settingsCard()
             notificationsSection.settingsCard()
             if AppUpdater.shared.isAvailable { updatesSection.settingsCard() }
@@ -72,6 +74,7 @@ struct SettingsView: View {
             codexConnectionSection.settingsCard()
             ClaudeUsageSettings(demo: model.demo).settingsCard()
         case .memory:
+            if let workspaces, workspaces.ordered.count > 1 { MemoryLinksCard(model: model, workspaces: workspaces).settingsCard() }
             chatSearchSection.settingsCard()
             MemoryView(model: model).settingsCard()
         case .library:
@@ -91,6 +94,14 @@ struct SettingsView: View {
                 ForEach(AppAppearance.allCases) { option in Text(option.label).tag(option) }
             }.pickerStyle(.segmented).labelsHidden()
             Text("Follow your Mac, or choose the light or dark palette. Your choice is remembered.").font(.system(size: 12)).foregroundStyle(Palette.muted)
+        }
+    }
+
+    private var afterSendSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Eyebrow(text: "AFTER SENDING")
+            Toggle("Go back to the board after sending", isOn: $backAfterSend)
+            Text("When you answer in an opened task, your words land in the chat. Then the task folds back into the board, or stays open when this is off.").font(.system(size: 12)).foregroundStyle(Palette.muted)
         }
     }
 

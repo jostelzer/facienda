@@ -190,6 +190,26 @@ private func fixture() throws -> String { try #require(Bundle.module.url(forReso
     await bridge.disconnect()
 }
 
+@Test func chatReadingFollowsCodexsReadReceipt() async throws {
+    let bridge = CodexBridge()
+    try await bridge.connect(executable: "/usr/bin/python3", arguments: [try fixture()])
+    func chat(_ id: String, firstUnread: JSONValue?) -> JSONValue {
+        .object(["thread": .object(["id": .string(id), "updatedAt": .number(1_000), "turns": .array([])]),
+                 "readState": firstUnread.map { .object(["firstUnread": $0, "revision": .number(3)]) } ?? .null])
+    }
+    let chats: [(String, JSONValue?)] = [("read", .null), ("unread", .object(["type": .string("turn"), "turnId": .string("second")])),
+                                         ("unopened", .object(["type": .string("threadStart")])), ("untracked", nil)]
+    for (id, firstUnread) in chats {
+        _ = try await bridge.request("fixture/setThread", params: .object(["threadId": .string(id), "response": chat(id, firstUnread: firstUnread)]))
+    }
+    #expect(try await bridge.reading("read") == ChatReading(turnEndedAt: Date(timeIntervalSince1970: 1_000), read: true))
+    #expect(try await bridge.reading("unread")?.read == false)
+    #expect(try await bridge.reading("unopened")?.read == false)
+    // Without a receipt Codex says nothing either way.
+    #expect(try await bridge.reading("untracked") == nil)
+    await bridge.disconnect()
+}
+
 @Test func cancellingOneListenerKeepsMessagesFlowingToOthers() async throws {
     let bridge = CodexBridge()
     try await bridge.connect(executable: "/usr/bin/python3", arguments: [try fixture()])

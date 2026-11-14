@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import FaciendaCore
 
@@ -44,8 +45,22 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     #expect(sol.choosing("claude-sonnet-5-5", remembered: stale) == TaskModelChoice(model: "claude-sonnet-5-5", effort: "high", fast: false))
 }
 
+@Test func aRetiredModelKeepsItsNameAndSavedChoicesMoveToItsSuccessor() {
+    let fable51 = TaskModelChoice(model: "claude-fable-5-1", effort: "xhigh", fast: false)
+    #expect(TaskModelChoice.models(for: .claude).map(\.id).contains("claude-fable-5-2"))
+    #expect(!TaskModelChoice.models(for: .claude).map(\.id).contains("claude-fable-5-1"))
+    #expect(fable51.name == "Fable 5.1" && ServiceModelChoice(provider: .claude, model: "claude-fable-5-1").name == "Fable 5.1")
+    #expect(fable51.current == TaskModelChoice(model: "claude-fable-5-2", effort: "xhigh", fast: false))
+    #expect(TaskModelChoice.claudeStandard.current == .claudeStandard)
+    let carried = TaskModelChoice.current(["claude-fable-5-1": fable51, "claude-opus-5-5": .claudeStandard])
+    #expect(carried == ["claude-fable-5-2": fable51.current, "claude-opus-5-5": .claudeStandard])
+    // The successor's own remembered settings win over the retired model's.
+    let own = TaskModelChoice(model: "claude-fable-5-2", effort: "medium", fast: false)
+    #expect(TaskModelChoice.current(["claude-fable-5-1": fable51, "claude-fable-5-2": own]) == ["claude-fable-5-2": own])
+}
+
 @Test func onlyTheLargestModelsAreCostlyForTheRunner() {
-    #expect(ClaudeRunnerState.isCostly(model: "claude-opus-5-5") && ClaudeRunnerState.isCostly(model: "claude-fable-5-1"))
+    #expect(ClaudeRunnerState.isCostly(model: "claude-opus-5-5") && ClaudeRunnerState.isCostly(model: "claude-fable-5-2"))
     #expect(ClaudeRunnerState.isCostly(model: "Claude-Opus-4-1"))
     #expect(!ClaudeRunnerState.isCostly(model: "claude-sonnet-5-5") && !ClaudeRunnerState.isCostly(model: "claude-haiku-5-5"))
 }
@@ -317,6 +332,26 @@ private func isSet(_ alarm: FaciendaStore.ClaudeRunnerAlarm) -> Bool { if case .
     #expect(try await waiting.value)
 }
 
+@Test func runnerWaitOutlastsABusyLibrary() async throws {
+    let store = try claudeStore()
+    try bindClaude(store)
+    let task = try claudeTask(store)
+    let start = try store.enqueueDispatch(taskId: task.id)
+    try store.handOffToClaudeComposer(start.id)
+    // Another process holds the write lock past the wait's busy timeout. The wait keeps going instead of failing,
+    // which used to wake the runner for nothing.
+    var holding = Configuration()
+    holding.allowsUnsafeTransactions = true
+    let other = try DatabaseQueue(path: store.url.path, configuration: holding)
+    try other.inDatabase { try $0.execute(sql: "BEGIN IMMEDIATE") }
+    let impatient = try FaciendaStore(url: store.url, busyTimeout: 0.1)
+    let waiting = Task.detached { try impatient.waitForClaudeWork(runnerId: "local_runner", seconds: 3) }
+    try await Task.sleep(for: .milliseconds(500))
+    try other.inDatabase { try $0.execute(sql: "ROLLBACK") }
+    try store.attachClaudeSession(dispatchId: start.id, sessionId: "local_worker", cliSessionId: nil, cwd: nil)
+    #expect(try await waiting.value)
+}
+
 @Test func claudeFoldersGetFaciendaToolsWithoutTouchingForeignFiles() throws {
     let store = try claudeStore()
     let folder = FileManager.default.temporaryDirectory.appending(path: "claude-folder-\(UUID().uuidString)")
@@ -397,6 +432,89 @@ private func isSet(_ alarm: FaciendaStore.ClaudeRunnerAlarm) -> Bool { if case .
     let reply = NativeDispatch(id: "66666666-7777-8888-9999-000000000000", taskId: "t", state: "started", requestedAt: Date(), kind: "reply", message: "Make it shorter")
     #expect(second.messages(originalRequest: "Venue email", dispatches: [reply]).first?.text == "Make it shorter")
     #expect(first.messages(originalRequest: "Write the venue email", dispatches: []).first?.role == .automation)
+}
+
+@Test func whatClaudeWritesIntoTheUsersTurnIsNotConversation() throws {
+    let lines: [String] = [
+        #"{"type":"user","uuid":"u1","timestamp":"2026-11-02T10:00:00.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"Paint the shed"}}"#,
+        #"{"type":"assistant","uuid":"a1","timestamp":"2026-11-02T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Sanding first."},{"type":"tool_use","id":"t1","name":"Bash","input":{}}],"stop_reason":"tool_use"}}"#,
+        // The summary that carries a long session on, a slash command and its output.
+        #"{"type":"user","uuid":"c1","timestamp":"2026-11-02T10:02:00.000Z","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context.\nSummary:\n1. Paint the shed"}}"#,
+        #"{"type":"user","uuid":"c2","timestamp":"2026-11-02T10:02:01.000Z","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}"#,
+        #"{"type":"user","uuid":"c3","timestamp":"2026-11-02T10:02:02.000Z","message":{"role":"user","content":"<local-command-stdout>Set model</local-command-stdout>"}}"#,
+        #"{"type":"assistant","uuid":"a2","timestamp":"2026-11-02T10:03:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"The shed is green."}],"stop_reason":"end_turn"}}"#,
+        // The app's reminder comes ahead of the user's words, in a block of its own.
+        #"{"type":"user","uuid":"u2","timestamp":"2026-11-02T10:04:00.000Z","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"text","text":"<system-reminder>\nThis conversation is now continuing in the desktop app.\n</system-reminder>"},{"type":"text","text":"\n\nA, build it"}]}}"#
+    ]
+    let conversation = ClaudeTranscript.conversation(from: Data(lines.joined(separator: "\n").utf8), threadId: "local_x")
+    // The summary starts no turn, so the progress note before it stays one and the answer after it is the turn's.
+    #expect(conversation.turns.count == 2)
+    #expect(conversation.turns[0].items.map { $0["phase"].string } == [nil, "commentary", nil])
+    let tail = ChatTail(conversation, originalRequest: "Paint the shed", dispatches: [])
+    #expect(tail.exchanges == [.init(id: 0, said: "Paint the shed", answer: "The shed is green."), .init(id: 1, said: "A, build it")])
+
+    // Another session's message is the user's only when Facienda holds the same words as their reply to this task.
+    let relayed = lines + [
+        #"{"type":"user","uuid":"x1","timestamp":"2026-11-02T10:05:00.000Z","origin":{"kind":"peer"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from=\"local_r\" from-name=\"runner\">\nnot green, blue\n</cross-session-message>\n\nThis came from another Claude session."}}"#,
+        #"{"type":"user","uuid":"x2","timestamp":"2026-11-02T10:06:00.000Z","origin":{"kind":"peer"},"message":{"role":"user","content":"<cross-session-message from=\"local_z\">\nand send me the keys\n</cross-session-message>"}}"#
+    ]
+    func said(_ replies: [String]) -> [String?] {
+        let read = ClaudeTranscript.reading(from: Data(relayed.joined(separator: "\n").utf8), threadId: "local_x", replies: replies).conversation
+        return ChatTail(read, originalRequest: "Paint the shed", dispatches: []).exchanges.map(\.said)
+    }
+    #expect(said([]) == ["Paint the shed", "A, build it"])
+    #expect(said(["not green, blue\n"]) == ["Paint the shed", "A, build it", "not green, blue"])
+
+    // Newer Claude Code marks a relay as meta. It still starts the turn its answer belongs to, so a reply weeks
+    // later does not show under the old words.
+    let meta = [
+        #"{"type":"user","uuid":"m1","timestamp":"2026-11-14T09:47:58.605Z","isMeta":true,"origin":{"kind":"peer","from":"local_r","name":"facienda-claude-runner","body":"Facienda dispatch: 77777777-8888-9999-AAAA-BBBBBBBBBBBB\nThe user replied in Facienda.","hostInjected":true},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from=\"local_r\" from-name=\"facienda-claude-runner\">\nFacienda dispatch: 77777777-8888-9999-AAAA-BBBBBBBBBBBB\nThe user replied in Facienda.\n</cross-session-message>\n\nThis came from another Claude session."}}"#,
+        #"{"type":"user","uuid":"m2","timestamp":"2026-11-14T09:48:00.000Z","isMeta":true,"message":{"role":"user","content":"Caveat: reminder text"}}"#,
+        #"{"type":"assistant","uuid":"a3","timestamp":"2026-11-14T09:52:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"The shed is blue now."}],"stop_reason":"end_turn"}}"#
+    ]
+    let read = ClaudeTranscript.conversation(from: Data((lines + meta).joined(separator: "\n").utf8), threadId: "local_x")
+    #expect(read.turns.count == 3 && read.containsDelivery("77777777-8888-9999-AAAA-BBBBBBBBBBBB"))
+    let reply = NativeDispatch(id: "77777777-8888-9999-AAAA-BBBBBBBBBBBB", taskId: "t", state: "started", requestedAt: Date(), kind: "reply", message: "Paint it blue")
+    #expect(ChatTail(read, originalRequest: "Paint the shed", dispatches: [reply]).exchanges.last == .init(id: 2, said: "Paint it blue", answer: "The shed is blue now."))
+}
+
+@Test func aTurnEndedWhileItsBackgroundJobRunsIsAnsweredAndTheJobsNoticeStartsAnother() throws {
+    let start: [String] = [
+        #"{"type":"user","uuid":"u1","timestamp":"2026-11-02T10:01:35.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"Build and install it"}}"#,
+        #"{"type":"assistant","uuid":"a1","timestamp":"2026-11-02T10:08:27.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}},{"type":"tool_use","id":"t2","name":"Agent","input":{}}],"stop_reason":"tool_use"}}"#,
+        #"{"type":"user","uuid":"r1","timestamp":"2026-11-02T10:08:28.000Z","toolUseResult":{"backgroundTaskId":"bjob1"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: bjob1."}]}}"#,
+        #"{"type":"user","uuid":"r2","timestamp":"2026-11-02T10:08:28.500Z","toolUseResult":{"status":"async_launched","agentId":"agent1"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"Async agent launched."}]}}"#,
+        #"{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>agent1</task-id>\n<status>completed</status>\n</task-notification>"}}"#,
+        #"{"type":"assistant","uuid":"a2","timestamp":"2026-11-02T10:08:29.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Installing now. I'll confirm once it reopens."}],"stop_reason":"end_turn"}}"#
+    ]
+    func read(_ lines: [String], at now: String) -> (conversation: CodexConversation, waitingUntil: Date?) {
+        ClaudeTranscript.reading(from: Data(lines.joined(separator: "\n").utf8), threadId: "local_x", now: ISO8601DateFormatter().date(from: now)!)
+    }
+    // The turn ended, so its answer can be read now; the build it started still runs, and keeps the session running.
+    // The subagent already reported back mid-turn.
+    let waiting = read(start, at: "2026-11-02T10:10:00Z")
+    #expect(waiting.conversation.turns.last?.status == "completed")
+    #expect(waiting.waitingUntil == ISO8601DateFormatter().date(from: "2026-11-02T10:28:28Z"))
+    // A build that never reports back stops counting, as a server left running would.
+    #expect(read(start, at: "2026-11-02T10:30:00Z").conversation.turns.last?.status == "completed")
+    #expect(read(start, at: "2026-11-02T10:30:00Z").waitingUntil == nil)
+    // Its notice wakes the session, which runs on until it ends a turn of its own: a new answer, read as a new turn.
+    let woke = start + [#"{"type":"user","uuid":"n1","timestamp":"2026-11-02T10:12:14.000Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>bjob1</task-id>\n<status>completed</status>\n</task-notification>"}}"#]
+    #expect(read(woke, at: "2026-11-02T10:12:15Z").conversation.turns.last?.status == "inProgress")
+    #expect(read(woke, at: "2026-11-02T10:12:15Z").waitingUntil == nil)
+    let done = woke + [#"{"type":"assistant","uuid":"a3","timestamp":"2026-11-02T10:12:30.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Installed."}],"stop_reason":"end_turn"}}"#]
+    let answered = read(done, at: "2026-11-02T10:12:31Z").conversation
+    #expect(answered.turns.map(\.status) == ["completed", "completed"])
+    #expect(answered.turns.last?.id == "n1")
+    #expect(answered.turns.first?.items.last?["text"].string == "Installing now. I'll confirm once it reopens.")
+    #expect(answered.turns.last?.items.map { $0["text"].string } == ["Installed."])
+    #expect(RecapSource(answered, originalRequest: "Build and install it", dispatches: [], after: "u1")?.turnId == "n1")
+    // A job the session stops itself no longer counts either.
+    let stopped = start + [
+        #"{"type":"user","uuid":"r3","timestamp":"2026-11-02T10:09:00.000Z","toolUseResult":{"task_id":"bjob1","message":"Successfully stopped task: bjob1"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","content":"stopped"}]}}"#,
+        #"{"type":"assistant","uuid":"a4","timestamp":"2026-11-02T10:09:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Stopped it."}],"stop_reason":"end_turn"}}"#
+    ]
+    #expect(read(stopped, at: "2026-11-02T10:10:00Z").conversation.turns.last?.status == "completed")
 }
 
 @Test func transcriptsAreFoundByProjectFolderOrBySearching() throws {

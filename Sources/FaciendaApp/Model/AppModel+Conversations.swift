@@ -44,6 +44,61 @@ extension AppModel {
             await loadClaudeConversation(for: task, link: link)
         }
     }
+    /// Claude's Stop hook says one of its sessions ended a turn, so the transcripts are read now instead of on the next
+    /// tick. Several sessions stopping together are read in one go; an unchanged transcript is not read again.
+    func readClaudeSoon() {
+        guard !demo, !claudeReadQueued else { return }
+        claudeReadQueued = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let self else { return }
+            self.claudeReadQueued = false
+            await self.refreshClaudeSessions()
+        }
+    }
+    /// News the user already read in the chat's own app is not new here. Codex keeps a read receipt for each chat; the Claude app
+    /// records when each session was last opened. Every workspace's tasks are checked, so the badges on the island clear too,
+    /// and the models of other visited workspaces skip a tick one of them already covered.
+    func markChatsRead(now: Date = Date()) async {
+        guard !demo, now.timeIntervalSince(Self.chatsCheckedAt) >= 20 else { return }
+        Self.chatsCheckedAt = now
+        let library = store.library
+        do {
+            let unread = try await Task.detached(priority: .utility) { try library.unreadChats() }.value
+            var read: [UnreadChat] = []
+            for chat in unread {
+                let reading: ChatReading?
+                switch chat.provider {
+                case .codex:
+                    guard connected else { continue }
+                    reading = try? await bridge.reading(chat.threadId)
+                case .claude:
+                    reading = await Task.detached(priority: .utility) { ClaudeDesktop.session(id: chat.threadId).map(ChatReading.init(claude:)) }.value
+                }
+                if let reading, chat.wasRead(in: reading, now: now) { read.append(chat) }
+            }
+            guard !read.isEmpty else { return }
+            try await Task.detached(priority: .utility) { [read] in try library.markReadInChat(read) }.value
+        } catch { self.error = error.localizedDescription }
+    }
+    private static var chatsCheckedAt = Date.distantPast
+    /// Chats saved before their ends were kept are read once, a few at a time off the main thread, so their rows show
+    /// the last exchange too. Chats saved since keep theirs as they are saved.
+    func readOlderChatEnds() {
+        guard !demo, !Self.chatEndsRead else { return }
+        Self.chatEndsRead = true
+        let store = store
+        Task { [weak self] in
+            var batches = 0
+            while let read = try? await Task.detached(priority: .utility, operation: { try store.readMissingChatEnds() }).value, read > 0 {
+                batches += 1
+                // The newest chats come first, so the rows in view fill after the first batch; the rest at the end.
+                if batches == 1 { self?.refresh() }
+            }
+            if batches > 1 { self?.refresh() }
+        }
+    }
+    private static var chatEndsRead = false
     /// Claude sessions are read straight from their transcript on this Mac, only when it changed.
     func loadClaudeConversation(for task: FaciendaTask, link: ThreadLink, force: Bool = false) async {
         guard let session = claudeSessions[link.threadId] ?? (try? store.claudeSession(link.threadId)), let cli = session.cliSessionId else {
@@ -52,26 +107,31 @@ extension AppModel {
         }
         loadingResults.insert(task.id)
         defer { loadingResults.remove(task.id) }
-        let threadId = link.threadId, title = link.title, cwd = session.cwd, last = transcriptStamps[threadId], store = store
+        let threadId = link.threadId, title = link.title, cwd = session.cwd, last = transcriptStamps[threadId], store = store, taskID = task.id
         // The hook marks a turn running before it is written; one that never is, its prompt held back, is read again.
-        let known = force || last?.running == false && link.lastKnownStatus == "active" ? nil : last?.modified
+        // So is one kept running by a background job that has not reported back in time, as nothing writes then.
+        let lapsed = last?.waitingUntil.map { $0 <= Date() } == true
+        let known = force || lapsed || last?.running == false && link.lastKnownStatus == "active" ? nil : last?.modified
         do {
-            let read = try await Task.detached(priority: .userInitiated) { () throws -> (CodexConversation, Date)? in
+            let read = try await Task.detached(priority: .userInitiated) { () throws -> (CodexConversation, Date?, Date)? in
                 guard let file = ClaudeTranscript.locate(cliSessionId: cli, cwd: cwd) else {
                     throw StoreError.invalid("Its transcript was not found on this Mac.")
                 }
                 let modified = (try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
                 if let known, known >= modified { return nil }
-                try store.captureUserMessages(MemoryUserMessages.claude(Data(contentsOf: file)), threadID: threadId, provider: .claude)
-                return (try ClaudeTranscript.read(file, threadId: threadId, fallbackTitle: title), modified)
+                let data = try Data(contentsOf: file)
+                try store.captureUserMessages(MemoryUserMessages.claude(data), threadID: threadId, provider: .claude)
+                let replies = try store.dispatches().filter { $0.taskId == taskID && $0.kind == "reply" }.compactMap(\.message)
+                let reading = ClaudeTranscript.reading(from: data, threadId: threadId, fallbackTitle: title, replies: replies)
+                return (reading.conversation, reading.waitingUntil, modified)
             }.value
             resultErrors[task.id] = nil
-            guard let (conversation, modified) = read else { return }
-            let taskID = task.id
+            guard let (conversation, waitingUntil, modified) = read else { return }
             try await Task.detached(priority: .userInitiated) { try store.saveConversation(taskId: taskID, conversation: conversation, fetchedAt: Date()) }.value
-            // A session about to continue (its model is still being applied) is not finished.
+            // A session about to continue (its model is still being applied) is not finished, nor is one whose ended
+            // turn waits on a job it started.
             let settling = claudeSessions[threadId].map { !$0.isSettled } ?? false
-            let running = settling || conversation.turns.last?.status == "inProgress"
+            let running = settling || waitingUntil != nil || conversation.turns.last?.status == "inProgress"
             // A turn stopped at a permission prompt is still in progress; the hook's prompt holds until the session writes on.
             let prompt = links(for: task.id).first { $0.threadId == threadId && $0.lastKnownStatus == "waitingOnApproval" }
             let held = running && prompt.map { modified <= ($0.lastActivityAt ?? .distantPast).addingTimeInterval(3) } == true
@@ -79,7 +139,7 @@ extension AppModel {
                 try store.observe(threadId: threadId, status: running ? "active" : "idle", source: .app, verified: true,
                                   title: conversation.title == title || conversation.title == "Claude session" ? nil : conversation.title)
             }
-            transcriptStamps[threadId] = (modified, running)
+            transcriptStamps[threadId] = (modified, running, waitingUntil)
             refresh()
         } catch { resultErrors[task.id] = "Could not read the Claude conversation. " + error.localizedDescription }
     }
@@ -192,6 +252,44 @@ extension AppModel {
         refresh()
         renameAfterHandover(taskID)
         return true
+    }
+    /// The task carries on in a new chat on `id`'s model, often in the other app, and starts there at once. Its reasoning
+    /// level goes along where the new model offers it; Fast stays off, as it is for one start only.
+    func continueInNewChat(_ task: FaciendaTask, model id: String) async {
+        guard !demo else { return }
+        var choice = TaskModelChoice(model: task.workerModel ?? TaskModelChoice.standard(for: task.provider).model,
+                                     effort: task.workerReasoningEffort ?? "high", fast: false).choosing(id, remembered: modelSettings)
+        choice.fast = false
+        rereadCheckIns()
+        if let reason = whyDown(choice.provider) { error = reason; return }
+        // The handover note is written from the saved conversation, so that is brought up to date first.
+        await loadConversation(for: task)
+        do { try store.continueInNewChat(taskId: task.id, on: choice) } catch { self.error = error.localizedDescription; return }
+        refresh()
+        guard let moved = tasksByID[task.id] else { return }
+        await dispatch(moved, reveal: false)
+    }
+    /// What the task's chat runs on, as far as Facienda knows: the model it was started or last switched to. A chat
+    /// brought in from Codex or Claude may have none on record.
+    func chatModel(for task: FaciendaTask) -> TaskModelChoice? {
+        guard let id = task.workerModel, TaskModelChoice.provider(ofModel: id) == agent(for: task) else { return nil }
+        return TaskModelChoice(model: id, effort: task.workerReasoningEffort ?? "high", fast: task.workerServiceTier != nil)
+    }
+    /// The task's chat carries on with another model or reasoning from its next turn, keeping its conversation.
+    /// A model of the other app can't take over a chat, so the task continues in a new one there.
+    func changeModel(of task: FaciendaTask, to id: String, effort: String? = nil) async {
+        guard !demo else { return }
+        let provider = agent(for: task)
+        guard TaskModelChoice.provider(ofModel: id) == provider else { await continueInNewChat(task, model: id); return }
+        var choice = (chatModel(for: task) ?? TaskModelChoice.standard(for: provider)).choosing(id)
+        if let effort, TaskModelChoice.efforts(for: provider).contains(effort) { choice.effort = effort }
+        // Fast is for the start it was switched on for, so a chat that carries on goes back to the standard tier.
+        choice.fast = false
+        guard choice != chatModel(for: task) else { return }
+        rereadCheckIns()
+        if let reason = whyDown(provider) { error = reason; return }
+        do { try store.changeChatModel(taskId: task.id, to: choice) } catch { self.error = error.localizedDescription; return }
+        refresh()
     }
     /// Chats the task's request or latest answer links to, which the task could continue in instead of its own:
     /// never its own chat, a runner's, another task's, or a Claude session the app no longer has. Once the task moved to

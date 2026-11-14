@@ -177,6 +177,10 @@ struct OmnibarPanel: View {
                         Text(" · ").foregroundStyle(Palette.muted)
                     }
                     Text(elsewhere ? task.state.label : model.taskStatus(task)).foregroundStyle(Palette.muted)
+                    // The same activity date that orders the search results.
+                    Text(" · " + Self.age(task.updatedAt)).foregroundStyle(Palette.muted)
+                        .fixedSize().layoutPriority(1)
+                        .help("Last updated " + task.updatedAt.formatted(date: .abbreviated, time: .shortened))
                 }
                 .font(.system(size: 11)).lineLimit(1)
             }
@@ -238,6 +242,10 @@ struct OmnibarPanel: View {
             }
             Spacer(minLength: 8)
         }
+    }
+
+    private static func age(_ date: Date) -> String {
+        Date().timeIntervalSince(date) < 60 ? "just now" : date.formatted(.relative(presentation: .numeric, unitsStyle: .wide))
     }
 
     private func icon(_ symbol: String, tint: Color) -> some View {

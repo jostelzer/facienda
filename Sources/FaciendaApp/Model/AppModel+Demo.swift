@@ -38,11 +38,12 @@ extension AppModel {
             try store.remember(fact, source: .user)
         }
         let office = try store.createGroup(name: "Home office"), trips = try store.createGroup(name: "Time away")
-        _ = try store.createGroup(name: "Reading")
+        let reading = try store.createGroup(name: "Reading")
         for task in try store.tasks() {
             if task.title.contains("desk") || task.title.contains("office") || task.title.contains("tudio") { try store.assignGroup(taskId: task.id, groupId: office.id) }
             if task.title.contains("weekend") { try store.assignGroup(taskId: task.id, groupId: trips.id) }
         }
+        try seedDemoGoals(office: office.id, trips: trips.id, reading: reading.id, release: work.id, measured: measured.id)
         // What came in through the bar, so the Feed has something to show: requests that became these tasks, a reply,
         // an answer and a note remembered, spread over the last day.
         let hour: TimeInterval = 3600
@@ -58,5 +59,49 @@ extension AppModel {
             try store.recordIntake(text: text, reading: reading, decidedBy: by, taskId: task, at: Date().addingTimeInterval(-ago))
         }
         connection = "Demo workspace"
+    }
+
+    /// A few goals across the demo's groups, with some reached already, so Goals shows its island, a board and a ledger.
+    private func seedDemoGoals(office: String, trips: String, reading: String, release: String, measured: String) throws {
+        let library = store.library, day: TimeInterval = 86400, now = Date()
+        let home = try library.addGoal("A calmer home", now: now.addingTimeInterval(-60 * day))
+        let room = try library.addGoal("A quieter home office", parentId: home.id, now: now.addingTimeInterval(-40 * day))
+        let studio = try library.addGoal("Measure the studio", parentId: home.id, now: now.addingTimeInterval(-50 * day))
+        let balcony = try library.addGoal("Plants on the balcony", parentId: home.id, now: now.addingTimeInterval(-20 * day))
+        for task in try store.tasks() where task.title.contains("office") { try library.serve(taskId: task.id, subgoalId: room.id) }
+        // A line that holds work, and beside it a task still only on the board, for Goals to find.
+        let light = try library.addGoalLine("Better light at the desk", to: room.id)
+        for task in try store.tasks() where task.title.contains("proposal") { try library.serve(taskId: task.id, lineId: light.id) }
+        let rug = try library.addGoalLine("Find a rug that dampens the echo", to: room.id)
+        // A minigoal whose work is all done, folded at the foot of its card.
+        let quiet = try library.addGoalLine("Soften the sound in the room", to: room.id)
+        let curtains = try store.create(FaciendaTask(title: "Hang heavier curtains", state: .done))
+        try library.serve(taskId: curtains.id, lineId: quiet.id)
+        try library.serve(taskId: measured, subgoalId: studio.id)
+        try library.setGoalReached(studio.id, at: now.addingTimeInterval(-12 * day))
+        try library.addGoalLine("Ask which herbs take the afternoon sun", to: balcony.id)
+        let boxes = try library.addGoalLine("Self-watering boxes", to: balcony.id)
+        try library.setGoalLinePlace(boxes.id, workspaceId: workspaceID, groupId: nil)
+        let rest = try library.addGoal("Time to recharge", now: now.addingTimeInterval(-30 * day))
+        let away = try library.addGoal("A weekend away each month", parentId: rest.id, now: now.addingTimeInterval(-30 * day))
+        let books = try library.addGoal("A book a month", parentId: rest.id, now: now.addingTimeInterval(-30 * day))
+        for task in try store.tasks() where task.title.contains("weekend") { try library.serve(taskId: task.id, subgoalId: away.id) }
+        for task in try store.tasks() where task.title.contains("reading") { try library.serve(taskId: task.id, subgoalId: books.id) }
+        let pick = try library.addGoalLine("Pick November's book", to: books.id)
+        try library.setGoalLinePlace(pick.id, workspaceId: workspaceID, groupId: reading)
+        let ship = try library.addGoal("Ship the autumn release", now: now.addingTimeInterval(-45 * day))
+        let notes = try library.addGoal("Release notes people read", parentId: ship.id, now: now.addingTimeInterval(-45 * day))
+        let guide = try library.addGoal("A migration guide", parentId: ship.id, now: now.addingTimeInterval(-25 * day))
+        try library.serve(taskId: release, subgoalId: notes.id)
+        try library.addGoalLine("Outline the guide from last year's questions", to: guide.id)
+        let flat = try library.addGoal("Settle into the new flat", now: now.addingTimeInterval(-120 * day))
+        let moved = try library.addGoal("Move everything in", parentId: flat.id, now: now.addingTimeInterval(-120 * day))
+        try library.setGoalReached(moved.id, at: now.addingTimeInterval(-80 * day))
+        try library.setGoalReached(flat.id, at: now.addingTimeInterval(-70 * day))
+        // Today's list: a few minigoals picked this morning, and what serves no goal.
+        for (line, minutes) in [(light, 3.0), (rug, 2), (pick, 1)] { try library.setGoalLinePicked(line.id, true, now: now.addingTimeInterval(-minutes * 60)) }
+        try library.addTodayLine("Return the borrowed drill", now: now.addingTimeInterval(-120))
+        let parcel = try library.addTodayLine("Post the parcel", now: now.addingTimeInterval(-60))
+        try library.setTodayLineTicked(parcel.id, true, now: now)
     }
 }

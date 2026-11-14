@@ -128,7 +128,18 @@ public struct ToolService: Sendable {
             tool("current_task", "Get your task, linked to this Codex thread. Pass the explicit thread ID and your task's handle from Facienda context; never guess caller identity. Without the handle it only says whether the thread is linked.", ["threadId"], ["threadId": "Codex thread ID", "taskId": handle + "; the thread must be linked to its task"], readOnly: true),
             tool("task_search", "Search the titles, intentions, briefs, next actions and linked thread titles/previews of the tasks in your task's workspace. Results give plain task IDs, usable as data such as prerequisiteId.", ["query", "taskId"], ["query": "Search text; empty lists tasks", "taskId": handle + "; results stay within its workspace"], readOnly: true),
             tool("task_create", "Create a task with prepareOnly scope. Preserve the original request and scope when importing a chat. Omit returnAt when no return date was requested. Never completes or starts anything. Returns the new task with its handle.", ["title", "nextAction"], ["title": "Original request; preserve its exact wording", "intention": "Why this matters", "definitionOfDone": "Observable completion condition within the original scope", "area": "Personal or work area", "nextAction": "Concrete next step", "returnAt": "Optional ISO 8601 date with timezone; never use the import time as a deadline", "brief": "Task context or summary, separate from the complete Codex answer", "fromTaskId": handle + "; the new task joins its workspace"]),
-            tool("task_update", "Update a task's brief, next action, and proposed open state. Agent state is a claim, not verified activity. Cannot complete, drop or change automation scope.", ["taskId"], ["taskId": handle, "brief": "Current context", "nextAction": "Concrete next step", "proposedState": "running, needsMe, waiting or scheduled", "returnAt": "ISO 8601 date with timezone", "waitingOn": "Person or external dependency", "checkAt": "ISO 8601 check date with timezone"]),
+            tool("task_update", """
+            Update a task's brief, next action, and proposed open state. Agent state is a claim, not verified activity. Cannot complete, drop or change automation scope.
+            End every turn with this call, so the user's board reads in your words instead of a guess made from your chat afterwards: wants when something is theirs to do, otherwise outcome; tail only when the subject moved on; and a recommendation when the turn leaves them a real choice. Check the workspace's memory before you recommend and name what you used in recommendationWhy. Facienda keeps the recommendation for when the user opens the task and shows it nowhere else.
+            """, ["taskId"], ["taskId": handle, "brief": "Current context", "nextAction": "Concrete next step", "proposedState": "running, needsMe, waiting or scheduled", "returnAt": "ISO 8601 date with timezone", "waitingOn": "Person or external dependency", "checkAt": "ISO 8601 check date with timezone",
+                              "wants": "End of turn: what the user has to do now, verb first, at most \(TaskHandover.wantsLimit) characters (\"Pick one of the five layouts\"). Their row shows this line. Omit it when nothing is theirs to do",
+                              "outcome": "End of turn with nothing open for the user: what came of it, at most \(TaskHandover.outcomeLimit) characters. Omit it when you pass wants",
+                              "tail": "Where the thread stands now, 1 to 3 words in the user's own words, only when the subject changed since the task's name or your last tail. It follows the name on their row, so the name they recognise can stay",
+                              "recommendation": "What you recommend they do, at most \(TaskHandover.recommendationLimit) characters. Only when the turn leaves a real choice",
+                              "recommendationWhy": "Why that is the move, at most \(TaskHandover.whyLimit) characters. Name the memory it rests on when memory informed it",
+                              "recommendationReply": "The words the user sends with one click, as they stand: short, a few words, no blanks or choices to fill in. At most \(TaskHandover.replyLimit) characters",
+                              "alternatives": "Up to \(TaskHandover.alternativeCount) other moves worth having, one per line",
+                              "recommendationMemory": "The workspace memory the recommendation rests on, at most \(TaskHandover.memoryLimit) characters"]),
             tool("link_thread", "Link an explicitly identified Codex thread. A thread belongs to one task.", ["taskId", "threadId"], ["taskId": handle, "threadId": "Codex thread ID", "role": "work, review or research"]),
             tool("save_result", "Save the complete final Markdown answer verbatim, preserving lists, document links and sources. Put summaries in the task brief instead. Does not mark the task done. The result remains an agent report.", ["taskId", "text"], ["taskId": handle, "text": "Full final answer in Markdown, copied without summarization"]),
             tool("propose_source", "Offer a source to your task's workspace, so every later task there is told about it: a Google Drive folder, Doc, Sheet or Slides, a web page, or a folder on this Mac they keep needing. Files on this Mac cannot be proposed; the user links those. Use it when you find something they will need again, not for every page you read. The user decides whether to link it; nothing is linked until then. Google documents and folders linked in your saved answer are offered automatically.", ["taskId", "address", "title"], ["taskId": handle, "address": "Web link, or absolute path of a folder on this Mac", "title": "Short name the user will recognise", "why": "One sentence on why it will be needed again"]),
@@ -200,6 +211,30 @@ public struct ToolService: Sendable {
         return TaskHandle.redact(result, keeping: name == "facienda_task_create" ? result["handle"].string : nil)
     }
 
+    /// The agent's end-of-turn words from a task_update: the row's line, the thread's tail, and the recommendation the
+    /// task's card keeps. Agent text, so every field is cleaned and cut. A turn that says what it wants replaces the
+    /// whole handover; a progress update in between leaves the line and its recommendation standing.
+    private func saveHandover(_ args: [String: JSONValue], taskId: String) throws {
+        let fields = ["wants", "outcome", "tail", "recommendation", "recommendationWhy", "recommendationReply", "alternatives", "recommendationMemory"]
+        guard fields.contains(where: { args[$0]?.string?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }) else { return }
+        let wants = TaskHandover.clean(args["wants"]?.string, TaskHandover.wantsLimit)
+        let outcome = TaskHandover.clean(args["outcome"]?.string, TaskHandover.outcomeLimit)
+        let line = wants != nil || outcome != nil
+        try store.saveHandover(taskId: taskId, { handover in
+            // What it wants outranks the outcome: with something open for the user, the outcome is not the row's line.
+            if line { handover.wants = wants; handover.outcome = wants == nil ? outcome : nil }
+            if let value = TaskHandover.clean(args["tail"]?.string, TaskHandover.tailLimit) { handover.tail = value }
+            if let value = TaskHandover.clean(args["recommendation"]?.string, TaskHandover.recommendationLimit) { handover.recommendation = value }
+            if let value = TaskHandover.text(args["recommendationWhy"]?.string, TaskHandover.whyLimit) { handover.why = value }
+            if let value = TaskHandover.text(args["recommendationReply"]?.string, TaskHandover.replyLimit) { handover.reply = value }
+            if let value = TaskHandover.clean(args["recommendationMemory"]?.string, TaskHandover.memoryLimit) { handover.memory = value }
+            if let raw = args["alternatives"]?.string {
+                let lines = raw.split(whereSeparator: \.isNewline).compactMap { TaskHandover.clean(String($0), TaskHandover.alternativeLimit) }
+                handover.alternatives = Array(lines.prefix(TaskHandover.alternativeCount))
+            }
+        }, replacing: line)
+    }
+
     private func run(_ name: String, args: [String: JSONValue], task: () throws -> String, space: MemorySpace?,
                      required: (String) throws -> String, date: (String) throws -> Date?) throws -> JSONValue {
         switch name {
@@ -262,14 +297,18 @@ public struct ToolService: Sendable {
             if let raw = args["proposedState"]?.string {
                 guard let parsed = TaskState(rawValue: raw), [.running, .needsMe, .waiting, .scheduled].contains(parsed) else { throw StoreError.userOnly }; state = parsed
             } else { state = nil }
-            return try .encoded(store.update(task(), source: .mcp) { task in
+            // What the turn says it wants is the next step, so an agent that writes one line need not write it twice.
+            let wants = TaskHandover.clean(args["wants"]?.string, TaskHandover.wantsLimit)
+            let updated = try store.update(task(), source: .mcp) { task in
                 if let value = args["brief"]?.string { task.brief = value }
-                if let value = args["nextAction"]?.string { task.nextAction = value }
+                if let value = args["nextAction"]?.string ?? wants { task.nextAction = value }
                 if let state { task.state = state }
                 if let returnAt { task.returnAt = returnAt }
                 if let checkAt { task.checkAt = checkAt }
                 if let value = args["waitingOn"]?.string { task.waitingOn = value }
-            })
+            }
+            try saveHandover(args, taskId: updated.id)
+            return try .encoded(updated)
         case "facienda_link_thread":
             let role = args["role"]?.string ?? "work"
             guard ["work", "review", "research"].contains(role) else { throw StoreError.invalid("Invalid thread role.") }

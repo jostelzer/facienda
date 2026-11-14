@@ -165,17 +165,33 @@ private func proposeDone(_ store: FaciendaStore, _ taskId: String, _ evidence: S
     try store.requestDecision(Decision(taskId: taskId, question: "Ready to mark this task done?", context: evidence, recommendation: "Mark done", options: ["Mark done", "Keep open"], kind: "completion"))
 }
 
-@Test func aReplyPutsAsideTheAgentsProposalToCloseButNotItsQuestions() throws {
+@Test func aReplyPutsAsideWhatTheAgentWasAsking() throws {
     let store = try stepStore()
     let task = try store.create(FaciendaTask(title: "Tidy the photo library", state: .needsMe, nextAction: "Review"))
     try proposeDone(store, task.id, "Albums sorted on the branch")
     try store.requestDecision(Decision(taskId: task.id, question: "Keep the duplicates?", recommendation: "No", options: ["No", "Yes"]))
+    try store.requestDecision(Decision(taskId: task.id, question: "May I empty the trash album?", recommendation: "Allow", options: ["Allow", "Not now"], kind: "permission"))
+    try store.requestDecision(Decision(taskId: task.id, question: FaciendaStore.readinessQuestion, recommendation: FaciendaStore.readinessApproval,
+                                       options: [FaciendaStore.readinessApproval, "Not yet"], kind: "permission"))
     // Proposing again shows the newer evidence instead of the first turn's.
     try proposeDone(store, task.id, "Albums sorted and installed")
     #expect(try store.decisions(taskId: task.id).filter { $0.kind == "completion" }.map(\.context) == ["Albums sorted and installed"])
+    // Whether the task may start by itself is asked about the task, so it outlives the reply.
     try store.enqueueDispatch(taskId: task.id, message: "The holiday album is still missing")
-    #expect(try store.decisions(taskId: task.id).map(\.question) == ["Keep the duplicates?"])
-    #expect(try store.events(taskId: task.id).contains { $0.kind == "decision.superseded" })
+    #expect(try store.decisions(taskId: task.id).map(\.question) == [FaciendaStore.readinessQuestion])
+    #expect(try store.events(taskId: task.id).contains { $0.kind == "decision.superseded" && $0.payload.contains("Keep the duplicates?") })
+    // A closed request allows nothing: only an answer is ever read as one.
+    #expect(try store.decisions(taskId: task.id, pendingOnly: false).filter { $0.state == "answered" }.isEmpty)
+}
+
+@Test func answeringOneQuestionLeavesTheOthersOfThatTurn() throws {
+    let store = try stepStore()
+    let task = try store.create(FaciendaTask(title: "Order the shelves", state: .needsMe, nextAction: "Review"))
+    let wood = try store.requestDecision(Decision(taskId: task.id, question: "Oak or pine?", recommendation: "Oak", options: ["Oak", "Pine"]))
+    try store.requestDecision(Decision(taskId: task.id, question: "Deliver or collect?", recommendation: "Deliver", options: ["Deliver", "Collect"]))
+    try store.answerDecision(wood.id, answer: "Oak")
+    try store.enqueueDispatch(taskId: task.id, triggerKey: "decision:\(wood.id)")
+    #expect(try store.decisions(taskId: task.id).map(\.question) == ["Deliver or collect?"])
 }
 
 @Test func writingInTheChatYourselfPutsAsideTheProposalToClose() throws {
@@ -220,4 +236,32 @@ private func proposeDone(_ store: FaciendaStore, _ taskId: String, _ evidence: S
     }
     #expect(try store.decisions(taskId: overtaken.id).isEmpty)
     #expect(try store.decisions(taskId: standing.id).count == 1)
+}
+
+@Test func questionsTheUserHadAlreadyWrittenPastAreClosedOnce() throws {
+    let store = try stepStore(), now = Date()
+    let ids = try ["Pick a router", "Pick a switch", "Pick a cable", "Pick a rack"].map { try store.create(FaciendaTask(title: $0, state: .needsMe, nextAction: "Review")).id }
+    let (replied, wrote, delivered, untouched) = (ids[0], ids[1], ids[2], ids[3])
+    try store.write { db in
+        for task in ids {
+            var ask = Decision(taskId: task, question: "Which one?", recommendation: "The quiet one", options: ["The quiet one", "The cheap one"])
+            ask.createdAt = now.addingTimeInterval(-30 * 60)
+            try ask.insert(db)
+        }
+        var ready = Decision(taskId: replied, question: FaciendaStore.readinessQuestion, recommendation: FaciendaStore.readinessApproval,
+                             options: [FaciendaStore.readinessApproval, "Not yet"], kind: "permission")
+        ready.createdAt = now.addingTimeInterval(-30 * 60)
+        try ready.insert(db)
+        try TaskEvent(taskId: replied, source: .user, kind: "user.reply", payload: "", at: now.addingTimeInterval(-10 * 60)).insert(db)
+        try TaskEvent(taskId: wrote, source: .hook, kind: "hook.UserPromptSubmit", payload: "", at: now.addingTimeInterval(-10 * 60)).insert(db)
+        // A prompt right after a delivery is Facienda handing the chat a message, not the user writing.
+        try TaskEvent(taskId: delivered, source: .app, kind: "dispatch.started", payload: "", at: now.addingTimeInterval(-10 * 60)).insert(db)
+        try TaskEvent(taskId: delivered, source: .hook, kind: "hook.UserPromptSubmit", payload: "", at: now.addingTimeInterval(-10 * 60 + 3)).insert(db)
+        try TaskEvent(taskId: untouched, source: .hook, kind: "hook.claude.UserPromptSubmit", payload: "", at: now.addingTimeInterval(-40 * 60)).insert(db)
+        try FaciendaStore.setAsideOvertakenQuestions(db, now: now)
+    }
+    #expect(try store.decisions(taskId: replied).map(\.question) == [FaciendaStore.readinessQuestion])
+    #expect(try store.decisions(taskId: wrote).isEmpty)
+    #expect(try store.decisions(taskId: delivered).count == 1)
+    #expect(try store.decisions(taskId: untouched).count == 1)
 }

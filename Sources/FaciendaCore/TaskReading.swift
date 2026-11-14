@@ -9,6 +9,42 @@ public struct TaskReadMark: Equatable, Sendable {
     public var isNew: Bool { finishedAt.map { $0 > (seenAt ?? .distantPast) } ?? false }
 }
 
+/// What a chat's own app, Codex or Claude, says about it: when its latest turn ended, and whether the user has read it since.
+public struct ChatReading: Equatable, Sendable {
+    public var turnEndedAt: Date
+    public var read: Bool
+    public init(turnEndedAt: Date, read: Bool) { self.turnEndedAt = turnEndedAt; self.read = read }
+
+    /// Claude has no read receipt; it records when the user last opened each session. Opened after its latest turn ended is read.
+    public init(claude session: ClaudeDesktop.Session) {
+        turnEndedAt = session.turnEndedAt
+        read = session.focusedAt.map { $0 >= session.turnEndedAt } ?? false
+    }
+}
+
+/// A new task and the chat its work came back in, where the user may already have read it.
+public struct UnreadChat: Equatable, Sendable {
+    public var taskId: String
+    public var threadId: String
+    public var provider: AgentProvider
+    public var finishedAt: Date
+    public init(taskId: String, threadId: String, provider: AgentProvider, finishedAt: Date) {
+        self.taskId = taskId; self.threadId = threadId; self.provider = provider; self.finishedAt = finishedAt
+    }
+
+    /// How long before the task came back its chat's latest turn may have ended for that turn to be the news. Facienda notices a
+    /// finished turn within a poll or two; a wait, date or blocker that brings a task back on its own comes long after the chat went quiet.
+    public static let turnWindow: TimeInterval = 300
+    /// Codex files a turn's read receipt just after the turn ends, so news is judged only once it is this old.
+    public static let settling: TimeInterval = 30
+
+    /// The user already read this news in the chat's own app: the chat's latest turn is the news, and it was read after that turn ended.
+    public func wasRead(in chat: ChatReading, now: Date = Date()) -> Bool {
+        chat.read && now.timeIntervalSince(finishedAt) >= Self.settling
+            && chat.turnEndedAt >= finishedAt.addingTimeInterval(-Self.turnWindow)
+    }
+}
+
 extension FaciendaStore {
     static func registerReading(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("task_reading") { db in
@@ -52,6 +88,39 @@ extension FaciendaStore {
         try write { db in
             for (id, at) in seen {
                 try db.execute(sql: "UPDATE tasks SET seenAt = ? WHERE id = ? AND (seenAt IS NULL OR seenAt < ?)", arguments: [at, id, at])
+            }
+        }
+    }
+
+    /// New tasks in the scoped workspace, each with the chat its work came back in: the latest work chat, else the latest review chat.
+    /// Work still underway is left out, as on the board.
+    public func unreadChats() throws -> [UnreadChat] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT tasks.id, tasks.finishedAt, threadLinks.codexThreadId, coalesce(threadLinks.provider, 'codex') AS provider
+                FROM tasks JOIN threadLinks ON threadLinks.rowid = (
+                  SELECT rowid FROM threadLinks WHERE taskId = tasks.id AND role IN ('work', 'review')
+                  ORDER BY role = 'work' DESC, rowid DESC LIMIT 1)
+                WHERE tasks.state NOT IN ('done', 'dropped', 'running')
+                  AND tasks.finishedAt IS NOT NULL AND (tasks.seenAt IS NULL OR tasks.seenAt < tasks.finishedAt)
+                  AND tasks.id NOT IN (SELECT taskId FROM dispatches WHERE state IN ('queued', 'claimed', 'dispatching'))
+                """ + (workspaceID == nil ? "" : " AND tasks.workspaceId = ?"), arguments: StatementArguments(workspaceID.map { [$0] } ?? []))
+            return rows.compactMap { row in
+                guard let provider = AgentProvider(rawValue: row["provider"]) else { return nil }
+                return UnreadChat(taskId: row["id"], threadId: row["codexThreadId"], provider: provider, finishedAt: row["finishedAt"])
+            }
+        }
+    }
+
+    /// Records that the user read these tasks' news in the chat's own app. Each is seen as of when it came back, and only if it has
+    /// not come back again since, so work that returns later is new again.
+    public func markReadInChat(_ chats: [UnreadChat]) throws {
+        guard !chats.isEmpty else { return }
+        try write { db in
+            for chat in chats {
+                guard let finishedAt = try Date.fetchOne(db, sql: "SELECT finishedAt FROM tasks WHERE id = ?", arguments: [chat.taskId]),
+                      abs(finishedAt.timeIntervalSince(chat.finishedAt)) < 0.001 else { continue }
+                try db.execute(sql: "UPDATE tasks SET seenAt = finishedAt WHERE id = ? AND (seenAt IS NULL OR seenAt < finishedAt)", arguments: [chat.taskId])
             }
         }
     }

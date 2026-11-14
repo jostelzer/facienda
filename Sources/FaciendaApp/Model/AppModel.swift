@@ -17,6 +17,8 @@ import FaciendaBridge
     let demo: Bool
     /// Workspaces a group or task can move to.
     var otherWorkspaces: [Workspace] = []
+    /// Their groups, keyed by workspace, for a task to move into.
+    var otherGroups: [String: [TaskGroup]] = [:]
     /// Every task in the library, for prerequisites and waits that name a task in another workspace.
     var libraryTasks: [FaciendaTask] = [] { didSet { derived = Derived() } }
     /// The last change, while the toast offering to undo it is up.
@@ -31,10 +33,14 @@ import FaciendaBridge
     // MARK: Navigation
 
     var destination: Destination = .dashboard { didSet { derived = Derived() } }
-    var selection: String?
+    /// The task opened over the board. Each workspace keeps its own between launches, so coming back to it, after a
+    /// switch or a restart, lands on the task that was left open rather than on the board.
+    var selection: String? {
+        didSet { if !demo, selection != oldValue { Self.saveOpenedTask(selection, for: storageKey) } }
+    }
     /// A task list asked for (⌘2, Go to Done…), until the board has turned on its chips.
     var requestedList: Destination?
-    var search = "" { didSet { derived = Derived() } }
+    var search = "" { didSet { derived.search = nil; derived.board = nil } }
     var showCapture = false
     var showSettings = false
     /// The pane Settings opens on; back to General once it closes.
@@ -67,6 +73,12 @@ import FaciendaBridge
     var newGroupRequested = false
     /// A task the board should scroll to and open, as when its row is clicked. Set when the top bar brings one back.
     var boardOpenRequest: String?
+    /// Where in the window the opened task's row is, so its view grows out of that row and folds back into it.
+    /// Nil for a task opened from anywhere else.
+    @ObservationIgnored var openedFrom: CGRect?
+    /// A row, planned row or group the board should bring into view and light, without opening anything: a task's
+    /// picture in Goals leads here.
+    var boardLandRequest: String?
 
     // MARK: Tasks and what hangs off them
 
@@ -90,6 +102,13 @@ import FaciendaBridge
     var headlines: [String: TaskHeadline] = [:]
     /// What a new row shows under its name: the path to what is open now, the user's last words and the answer.
     var recaps: [String: TaskRecap] = [:]
+    /// The agent's own end-of-turn words per task: the row's line, the thread's tail, and the recommendation the
+    /// task's card keeps. Written by the agent, never shown unasked.
+    var handovers: [String: TaskHandover] = [:]
+    /// When each task's chat last moved, by task ID, for the age under a row's glyph.
+    var lastMessages: [String: Date] = [:]
+    /// The user's last words and the agent's last answer in each task's chat, by task ID, for its row.
+    var chatEnds: [String: ChatEnd] = [:]
     /// Waits to offer in the composer, read from each task's chat when its turn finished.
     var waitOptions: [String: StoredWaitOptions] = [:]
     /// What a reviewed task offers when its row is clicked: a continuation for the agent and a guess at the user's own step.
@@ -107,7 +126,6 @@ import FaciendaBridge
 
     // MARK: The selected task
 
-    var timeline: [TaskEvent] = []
     var taskContext: DispatchContext?
     var result: String?
     var resultReportedAt: Date?
@@ -124,6 +142,8 @@ import FaciendaBridge
     // MARK: Groups
 
     var groups: [TaskGroup] = [] { didSet { derived = Derived() } }
+    /// Groups put away with their tasks, latest first, for the workspace's menu to restore.
+    var archivedGroups: [TaskGroup] = []
     /// Task ID to group ID. Tasks without an entry are ungrouped.
     var groupMembers: [String: String] = [:] { didSet { derived = Derived() } }
     /// Where the user put each task on the board. Tasks without an entry sort by when they were made, newest first.
@@ -240,8 +260,9 @@ import FaciendaBridge
     /// The one question Facienda asks before adding its permission hook to the Claude settings, once for all sessions.
     var askingClaudeAccess = false
     @ObservationIgnored var claudeAccessNext: (connect: Bool, repair: Bool) = (true, false)
-    /// Transcript modification dates already read, and whether a turn ran then, by session ID.
-    @ObservationIgnored var transcriptStamps: [String: (modified: Date, running: Bool)] = [:]
+    /// Transcript modification dates already read, whether a turn ran then, and when a background job the session
+    /// waits on stops counting, by session ID.
+    @ObservationIgnored var transcriptStamps: [String: (modified: Date, running: Bool, waitingUntil: Date?)] = [:]
     /// Opens Claude links. Tests replace it so they never launch the Claude app.
     @ObservationIgnored var openURL: @MainActor (URL) -> Bool = { NSWorkspace.shared.open($0) }
     /// Whether the Claude app adopted a session Facienda handed it, waiting briefly for it to appear.
@@ -275,6 +296,7 @@ import FaciendaBridge
     @ObservationIgnored var started = false
     @ObservationIgnored var serviceTask: Task<Void, Never>?
     @ObservationIgnored private var refreshQueued = false
+    @ObservationIgnored var claudeReadQueued = false
     @ObservationIgnored var derived = Derived()
     @ObservationIgnored var folderLookups = FolderLookups()
 
@@ -291,12 +313,22 @@ import FaciendaBridge
         storageKey = scoped.url.path + "#" + workspace.id
         if demo && seed { try seedDemo() }
         refresh()
+        // The task left open here last time opens again, while it is still open work.
+        if !demo, let kept = Self.openedTask(for: storageKey) {
+            if tasksByID[kept]?.state.isOpen == true { select(kept) } else { Self.saveOpenedTask(nil, for: storageKey) }
+        }
+    }
+
+    static func openedTaskKey(_ storageKey: String) -> String { "openedTask:" + storageKey }
+    static func openedTask(for storageKey: String) -> String? { UserDefaults.standard.string(forKey: openedTaskKey(storageKey)) }
+    static func saveOpenedTask(_ id: String?, for storageKey: String) {
+        if let id { UserDefaults.standard.set(id, forKey: openedTaskKey(storageKey)) } else { UserDefaults.standard.removeObject(forKey: openedTaskKey(storageKey)) }
     }
 
     /// Fast is chosen for one task at a time, so it never comes back on by itself.
     static func savedComposerModel() -> TaskModelChoice {
         guard let data = UserDefaults.standard.data(forKey: "composerModel"),
-              var choice = try? JSONDecoder().decode(TaskModelChoice.self, from: data), choice.details != nil else { return .standard }
+              var choice = try? JSONDecoder().decode(TaskModelChoice.self, from: data).current, choice.details != nil else { return .standard }
         choice.fast = false
         return choice
     }
@@ -304,7 +336,7 @@ import FaciendaBridge
     static func savedModelSettings() -> [String: TaskModelChoice] {
         guard let data = UserDefaults.standard.data(forKey: "composerModelSettings"),
               let settings = try? JSONDecoder().decode([String: TaskModelChoice].self, from: data) else { return [:] }
-        return settings.mapValues { var choice = $0; choice.fast = false; return choice }
+        return TaskModelChoice.current(settings).mapValues { var choice = $0; choice.fast = false; return choice }
     }
 
     var selectedTask: FaciendaTask? { selection.flatMap { tasksByID[$0] } }
@@ -324,9 +356,11 @@ import FaciendaBridge
             workspace = try store.workspace(workspaceID)
             let all = try store.library.workspaces()
             otherWorkspaces = all.filter { $0.id != workspaceID }
+            otherGroups = Dictionary(grouping: try store.library.groups().filter { $0.workspaceId != workspaceID }, by: { $0.workspaceId ?? "" })
             memorySpace = try workspace.map { try store.memorySpace($0.memorySpaceId) }
-            // The library holds every workspace's work; this model keeps its own.
-            tasks = try store.tasks(); libraryTasks = try store.library.tasks()
+            // The library holds every workspace's work; this model keeps its own, less what was archived with its group.
+            let archived = try store.archivedGroupTasks()
+            tasks = try store.tasks().filter { !archived.contains($0.id) }; libraryTasks = try store.library.tasks()
             let ids = Set(tasks.map(\.id))
             let dispatches = try store.dispatches()
             nativeRunner = try store.runnerState(); nativeDispatches = dispatches.filter { ids.contains($0.taskId) }; workspaceSetup = try store.workspaceSetup()
@@ -346,6 +380,9 @@ import FaciendaBridge
             latestResults = Self.byTask(try store.latestResults(), \.taskId, in: ids)
             headlines = Self.byTask(try store.headlines(), \.taskId, in: ids)
             recaps = Self.byTask(try store.recaps(), \.taskId, in: ids)
+            handovers = Self.byTask(try store.handovers(), \.taskId, in: ids)
+            lastMessages = try store.lastMessages().filter { ids.contains($0.key) }
+            chatEnds = try store.chatEnds().filter { ids.contains($0.key) }
             waitOptions = Self.byTask(try store.waitOptions(), \.taskId, in: ids)
             nextSteps = Self.byTask(try store.nextSteps(), \.taskId, in: ids)
             ownSteps = Self.byTask(try store.ownSteps(), \.taskId, in: ids)
@@ -356,7 +393,7 @@ import FaciendaBridge
             decisions = try store.decisions().filter { ids.contains($0.taskId) }
             memories = try store.allMemory()
             workspaceSources = try store.workspaceSources()
-            groups = try store.groups()
+            groups = try store.groups(); archivedGroups = try store.archivedGroups()
             groupMembers = Dictionary(try store.groupMembers().map { ($0.taskId, $0.groupId) }, uniquingKeysWith: { first, _ in first })
             taskPlaces = try store.boardPlaces()
             groupFolders = try store.groupFolders()
@@ -365,7 +402,6 @@ import FaciendaBridge
             readMarks = try store.readMarks()
 
             taskContext = try selection.flatMap { try store.latestDispatchContext(taskId: $0) }
-            timeline = try selection.map { try store.events(taskId: $0) } ?? []
             let report = try selection.flatMap { try store.latestEvent(taskId: $0, kind: "codex.result") }
             result = report?.payload; resultReportedAt = report?.at
         }
@@ -455,9 +491,10 @@ import FaciendaBridge
     func openSettings(_ pane: SettingsPane = .general) {
         settingsPane = pane; showSettings = true
     }
-    /// A task opens in its panel beside the board.
-    func showTask(_ task: FaciendaTask) {
+    /// A task opens over the board. With the frame of its row, it grows out of that row.
+    func showTask(_ task: FaciendaTask, from row: CGRect? = nil) {
         search = ""; destination = .dashboard
+        openedFrom = row
         select(task.id)
     }
     /// Ends the spotlight; the group's sheet folds back into its card.

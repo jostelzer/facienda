@@ -167,6 +167,13 @@ extension AppModel {
         folderLookups.automatic[key] = automatic
         return automatic
     }
+    /// Where the files an agent names in its text are looked for: where its task works first, then the task's own
+    /// folder and the data folder. Without a task only the data folder is.
+    func textFolders(for task: FaciendaTask?) -> [URL] {
+        var seen = Set<String>()
+        let paths = task.map { [$0.cwd].compactMap { $0 } + workFolders(of: $0) + [store.taskFolder($0.id).path] } ?? []
+        return (paths + [store.workFolder.path]).filter { !$0.isEmpty && seen.insert($0).inserted }.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
     /// The repository a folder belongs to, or the folder itself.
     func folderRoot(_ path: String) -> String {
         if let root = folderLookups.roots[path] { return root }

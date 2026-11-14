@@ -12,6 +12,7 @@ extension AppModel {
             started = true
             serviceTask = Task { await runServices() }
             if !demo { Task { await offerAutomaticSources() } }
+            readOlderChatEnds()
         }
     }
     func stop() async {
@@ -34,6 +35,14 @@ extension AppModel {
                 model.refreshSoon()
             }
         }, FaciendaStore.changeNotification as CFString, nil, .deliverImmediately)
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, pointer, _, _, _ in
+            guard let pointer else { return }
+            let address = UInt(bitPattern: pointer)
+            Task { @MainActor in
+                guard let pointer = UnsafeRawPointer(bitPattern: address) else { return }
+                Unmanaged<AppModel>.fromOpaque(pointer).takeUnretainedValue().readClaudeSoon()
+            }
+        }, FaciendaStore.claudeTurnEndedNotification as CFString, nil, .deliverImmediately)
         if !demo, !connected { await codex.connectOnLaunch(); if connected { await pollThreads() } }
         while !Task.isCancelled {
             if !demo {
@@ -69,6 +78,7 @@ extension AppModel {
                     }
                 }
                 else if codex.reconnectIsDue { await connect() }
+                await markChatsRead()
                 refresh()
             }
             do { try await Task.sleep(for: .seconds(30)) } catch { return }

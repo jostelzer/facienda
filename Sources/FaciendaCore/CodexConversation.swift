@@ -30,6 +30,9 @@ public struct CodexConversation: Codable, Equatable, Sendable {
         return "active"
     }
 
+    /// When the chat last moved: the newest turn's end, or its start while it runs, from the user or the agent.
+    public var lastMessageAt: Date? { turns.compactMap { $0.completedAt ?? $0.startedAt }.max() }
+
     public func containsDelivery(_ dispatchId: String) -> Bool {
         turns.contains { turn in
             turn.items.contains { item in
@@ -79,7 +82,7 @@ extension CodexConversationTurn {
             let messageId = "\(id):\(item["id"].string ?? String(index))"
             if item["type"].string == "agentMessage", let text = item["text"].string,
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return CodexConversationMessage(id: messageId, role: .codex, text: text,
+                return CodexConversationMessage(id: messageId, role: .codex, text: Self.withoutHeartbeat(text),
                     isCommentary: item["phase"].string == "commentary")
             }
             let delegated = item.delegatedInput
@@ -106,7 +109,16 @@ extension CodexConversationTurn {
                 // instructions inspectable without guessing which text was user-authored.
                 return CodexConversationMessage(id: messageId, role: .automation, text: text)
             }
-            return CodexConversationMessage(id: messageId, role: delegated == nil ? .user : .automation, text: text, attachments: attachments)
+            if delegated != nil { return CodexConversationMessage(id: messageId, role: .automation, text: text, attachments: attachments) }
+            // A Codex automation wakes its chat with its own instructions.
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<heartbeat>") {
+                return CodexConversationMessage(id: messageId, role: .automation, text: "Automation run")
+            }
+            // The agent apps write into the user's turn too: a summary that carries a long session on, reminders,
+            // the page open in the browser. Only the user's own words are shown as theirs.
+            let words = MemoryUserMessages.words(in: text) ?? ""
+            guard !words.isEmpty || !attachments.isEmpty else { return nil }
+            return CodexConversationMessage(id: messageId, role: .user, text: words, attachments: attachments)
         }
         // Older workers were created by another dispatcher. Their exact task request
         // is saved locally, while Codex exposes the dispatcher prompt as a tool item.
@@ -115,6 +127,18 @@ extension CodexConversationTurn {
             messages.insert(CodexConversationMessage(id: id + ":original-request", role: .user, text: originalRequest), at: 0)
         }
         return messages
+    }
+}
+
+extension CodexConversationTurn {
+    /// A Codex automation ends its answer with a block for the app that woke it. What that block tells the user is
+    /// the answer above it already, or else its own message.
+    static func withoutHeartbeat(_ text: String) -> String {
+        guard text.contains("<heartbeat>") else { return text }
+        let rest = text.replacing(/<heartbeat>.*?<\/heartbeat>/.dotMatchesNewlines(), with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rest.isEmpty { return rest }
+        let message = text.firstMatch(of: /<message>(.*?)<\/message>/.dotMatchesNewlines()).map { String($0.output.1).trimmingCharacters(in: .whitespacesAndNewlines) }
+        return message.flatMap { $0.isEmpty ? nil : $0 } ?? text
     }
 }
 
@@ -133,7 +157,14 @@ private extension JSONValue {
 /// Adapts Codex's native file references for the Markdown renderer without altering
 /// stored message text or the source document's destination.
 public enum CodexMarkdown {
-    public static func render(_ text: String) -> String {
+    /// `folders` are where the task works: a file the text names by a path relative to one of them, in code or as
+    /// a link, becomes a link to it, as does an absolute path to a file that exists. Code blocks stay as written.
+    public static func render(_ text: String, folders: [URL] = []) -> String {
+        let cited = citations(text)
+        return folders.isEmpty ? cited : linkingFiles(cited, folders: folders)
+    }
+
+    private static func citations(_ text: String) -> String {
         text.replacing(/:codex-file-citation\{path="((?:\\.|[^"\\])+)"(?:\s+[^}]*)?\}/) { match in
             let quotedPath = "\"" + String(match.output.1) + "\""
             guard let path = try? JSONDecoder().decode(String.self, from: Data(quotedPath.utf8)), path.hasPrefix("/") else {
@@ -148,8 +179,69 @@ public enum CodexMarkdown {
         }
     }
 
+    /// Paths in code, in plain text or as a link's address. Links come first, so a path is never linked twice.
+    private static let fileMention = try! NSRegularExpression(pattern: #"(\[[^\]\n]*\]\(\s*(<[^>\n]*>|[^)\s]+)[^)\n]*\))|(`+)([^`\n]+?)\3(?!`)|(?<![\w/:@.~\-])((?:~/|\.{1,2}/|/)?[\w@+.\-]+(?:/[\w@+.\-]+)*\.[A-Za-z][A-Za-z0-9]{0,7})(?![\w/])"#)
+
+    private static func linkingFiles(_ text: String, folders: [URL]) -> String {
+        // Fenced code is shown as written; only the prose between fences is read for paths.
+        var fenced = false
+        return text.components(separatedBy: "\n").map { line in
+            let start = line.trimmingCharacters(in: .whitespaces)
+            if start.hasPrefix("```") || start.hasPrefix("~~~") { fenced.toggle(); return line }
+            return fenced ? line : linkingFiles(line: line, folders: folders)
+        }.joined(separator: "\n")
+    }
+
+    private static func linkingFiles(line: String, folders: [URL]) -> String {
+        var line = line
+        for match in fileMention.matches(in: line, range: NSRange(line.startIndex..., in: line)).reversed() {
+            guard let whole = Range(match.range, in: line) else { continue }
+            func group(_ index: Int) -> String? { Range(match.range(at: index), in: line).map { String(line[$0]) } }
+            let link: String
+            if group(1) != nil {
+                // A link to a relative path leads nowhere as it stands; it leads to the file in the task's folder.
+                guard let raw = group(2), let address = Range(match.range(at: 2), in: line) else { continue }
+                let path = raw.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+                guard !path.hasPrefix("/"), !path.hasPrefix("#"), URL(string: path)?.scheme == nil,
+                      let file = file(named: path, in: folders) else { continue }
+                line.replaceSubrange(address, with: "<" + file.absoluteString + ">")
+                continue
+            } else if let code = group(4) {
+                // Only code that is a path and nothing more, as agents write a file they made.
+                guard let file = file(named: code.trimmingCharacters(in: .whitespaces), in: folders) else { continue }
+                // A link inside a link's own text is not a link: leave code that already stands in one alone.
+                if whole.lowerBound > line.startIndex, line[line.index(before: whole.lowerBound)] == "[" { continue }
+                link = "[" + String(line[whole]) + "](<" + file.absoluteString + ">)"
+            } else if let bare = group(5) {
+                // In plain text only a path with a folder in it, or a page, is looked for: not every word with a dot.
+                guard bare.contains("/") || [".html", ".htm"].contains(where: bare.lowercased().hasSuffix),
+                      let file = file(named: bare, in: folders) else { continue }
+                var label = bare
+                for character in ["\\", "[", "]", "*", "_", "`"] { label = label.replacingOccurrences(of: character, with: "\\" + character) }
+                link = "[" + label + "](<" + file.absoluteString + ">)"
+            } else { continue }
+            line.replaceSubrange(whole, with: link)
+        }
+        return line
+    }
+
+    /// The regular file a path in agent text names: an absolute one as it stands, a relative one in the first of
+    /// `folders` that has it. A trailing line number, as in `View.swift:42`, is not part of the name.
+    static func file(named written: String, in folders: [URL]) -> URL? {
+        let path = written.replacing(/:\d+(?::\d+)?$/, with: "")
+        guard !path.isEmpty, !path.contains("://") else { return nil }
+        let candidates: [URL]
+        if path.hasPrefix("/") { candidates = [URL(fileURLWithPath: path)] }
+        else if path.hasPrefix("~/") { candidates = [FileManager.default.homeDirectoryForCurrentUser.appending(path: String(path.dropFirst(2)))] }
+        else { candidates = folders.map { $0.appending(path: path) } }
+        return candidates.lazy.map(\.standardizedFileURL).first { file in
+            (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+        }
+    }
+
     /// What clicking a link in agent-written text may do. The text is untrusted: web and mail links open, files are only
-    /// shown in Finder, Codex and Claude chat links open by their ID alone, and everything else does nothing.
+    /// shown in Finder (or, for a page in the task's folders, offline in Facienda: see `localPage`), Codex and Claude
+    /// chat links open by their ID alone, and everything else does nothing.
     public enum LinkAction: Equatable, Sendable {
         case web(URL), mail(URL), reveal(String), codexThread(String), claudeSession(String), ignore
     }
@@ -219,8 +311,17 @@ public enum CodexMarkdown {
         return !(honest && (barePlain || !shown.isEmpty))
     }
 
+    /// A web page agent text links to that Facienda may show itself: a local `.html` file inside one of `roots`,
+    /// shown with nothing loaded from the network. Pages elsewhere are only revealed in Finder, like any other file.
+    public static func localPage(_ url: URL, within roots: [URL]) -> URL? {
+        guard let file = localFile(url, within: roots), ["html", "htm"].contains(file.pathExtension.lowercased()) else { return nil }
+        return file
+    }
+
     /// A local picture agent text may show: a regular file, not a link, inside one of `roots`. Nothing on the network ever loads.
-    public static func localImage(_ url: URL, within roots: [URL]) -> URL? {
+    public static func localImage(_ url: URL, within roots: [URL]) -> URL? { localFile(url, within: roots) }
+
+    private static func localFile(_ url: URL, within roots: [URL]) -> URL? {
         guard case let .reveal(path) = action(for: url), !roots.isEmpty else { return nil }
         let file = URL(fileURLWithPath: path)
         let resolved = file.resolvingSymlinksInPath().standardizedFileURL.path
@@ -267,8 +368,9 @@ extension FaciendaStore {
                 guard let task = try FaciendaTask.fetchOne(db, key: existing.taskId) else { throw StoreError.notFound }
                 return task
             }
+            // The user imports a chat they started themselves, so its agent goes ahead like on any task they make.
             var task = FaciendaTask(title: originalRequest, state: .needsMe,
-                nextAction: "Review the latest \(provider.name) answer", returnAt: nil, cwd: cwd.isEmpty ? nil : cwd)
+                nextAction: "Review the latest \(provider.name) answer", returnAt: nil, automationScope: .autonomous, cwd: cwd.isEmpty ? nil : cwd)
             if provider == .claude { task.workerProvider = .claude }
             if !title.isEmpty { task.displayTitle = title; task.displayTitleSource = "import" }
             task.workspaceId = workspaceID
@@ -289,9 +391,38 @@ extension FaciendaStore {
     private static func insertConversation(_ db: Database, taskId: String, conversation: CodexConversation, fetchedAt: Date) throws {
         let payload = String(decoding: try JSONEncoder().encode(conversation), as: UTF8.self)
         try db.execute(sql: """
-            INSERT INTO threadSnapshots(taskId, threadId, payload, fetchedAt) VALUES (?, ?, ?, ?)
-            ON CONFLICT(taskId, threadId) DO UPDATE SET payload = excluded.payload, fetchedAt = excluded.fetchedAt
+            INSERT INTO threadSnapshots(taskId, threadId, payload, fetchedAt, lastMessageAt, chatEnd) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(taskId, threadId) DO UPDATE SET payload = excluded.payload, fetchedAt = excluded.fetchedAt,
+              lastMessageAt = excluded.lastMessageAt, chatEnd = excluded.chatEnd
             WHERE excluded.fetchedAt >= threadSnapshots.fetchedAt
-            """, arguments: [taskId, conversation.threadId, payload, fetchedAt])
+            """, arguments: [taskId, conversation.threadId, payload, fetchedAt, conversation.lastMessageAt, try chatEnd(db, taskId: taskId, conversation: conversation)])
     }
+
+    /// When each task's chats last moved, by task ID. Read beside the snapshot, so the board never decodes whole chats.
+    public func lastMessages() throws -> [String: Date] {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT s.taskId AS taskId, MAX(s.lastMessageAt) AS at FROM threadSnapshots s
+                JOIN threadLinks l ON l.taskId = s.taskId AND l.codexThreadId = s.threadId
+                JOIN tasks t ON t.id = s.taskId
+                WHERE s.lastMessageAt IS NOT NULL \(workspaceID == nil ? "" : "AND t.workspaceId = ?")
+                GROUP BY s.taskId
+                """, arguments: StatementArguments(workspaceID.map { [$0] } ?? []))
+            return Dictionary(rows.compactMap { row in (row["at"] as Date?).map { (row["taskId"] as String, $0) } }, uniquingKeysWith: max)
+        }
+    }
+
+    static func registerLastMessages(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("snapshot_last_message") { db in
+            try db.execute(sql: "ALTER TABLE threadSnapshots ADD COLUMN lastMessageAt DATETIME")
+            try db.execute(sql: lastMessageBackfill)
+        }
+    }
+
+    /// Saved chats keep their turns' times as seconds since 2001; this reads them once, in GRDB's date format.
+    static let lastMessageBackfill = """
+        UPDATE threadSnapshots SET lastMessageAt = (
+          SELECT strftime('%Y-%m-%d %H:%M:%f', 978307200 + MAX(coalesce(json_extract(value, '$.completedAt'), json_extract(value, '$.startedAt'))), 'unixepoch')
+          FROM json_each(payload, '$.turns'))
+        """
 }

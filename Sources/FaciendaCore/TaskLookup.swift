@@ -11,6 +11,19 @@ public struct TaskHit: Equatable, Sendable {
 /// Finding an earlier task from loose words. People type "we had a task on the omnibar, where was it",
 /// not "omnibar": filler words are left out, the rest need not all match, and a hit in the task's name counts most.
 public enum TaskLookup {
+    public enum Order: Sendable {
+        case relevance
+        case recent(preferredWorkspaceID: String)
+    }
+
+    /// The open workspace comes first; within each part, use the same date shown beside a result.
+    public static func recentFirst(_ lhs: FaciendaTask, _ rhs: FaciendaTask, preferredWorkspaceID: String) -> Bool {
+        let left = lhs.workspaceId == preferredWorkspaceID, right = rhs.workspaceId == preferredWorkspaceID
+        if left != right { return left }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+        return lhs.id < rhs.id
+    }
+
     /// Words that say you are looking for something, not what it was about.
     static let filler: Set<String> = [
         "a", "an", "the", "and", "or", "but", "of", "on", "in", "at", "to", "for", "from", "with", "about", "by", "as", "into",
@@ -75,27 +88,30 @@ public enum TaskLookup {
 }
 
 extension FaciendaStore {
-    /// Tasks matching at least half the words that count, best first: most words found, then found in the name,
-    /// then tasks that were not themselves searches, then newest.
+    /// Tasks matching at least half the words that count. Relevance favours words found in the name and tasks
+    /// that were not themselves searches; the omnibar instead asks for recent activity in its workspace first.
     /// Finished tasks are included; dropped ones are not.
-    public func lookUpTasks(_ text: String, limit: Int? = nil) throws -> [TaskHit] {
+    public func lookUpTasks(_ text: String, limit: Int? = nil, order: TaskLookup.Order = .relevance) throws -> [TaskHit] {
+        try Task.checkCancellation()
         let terms = TaskLookup.terms(text)
         guard !terms.isEmpty else { return [] }
         let scope = workspaceID.map { [$0] }
         let match = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
         let names = terms.map { _ in "displayTitle LIKE ? ESCAPE '\\'" }.joined(separator: " OR ")
         let (tasks, links) = try db.read { db in
+            try Task.checkCancellation()
             let tasks = try FaciendaTask.fetchAll(db, sql: """
                 SELECT * FROM tasks WHERE state != 'dropped'
                 AND (id IN (SELECT id FROM taskSearch WHERE taskSearch MATCH ? UNION SELECT taskId FROM threadSearch WHERE threadSearch MATCH ?) OR \(names))
-                \(scope == nil ? "" : "AND workspaceId = ?") ORDER BY updatedAt DESC
+                \(scope == nil ? "" : "AND workspaceId = ?") ORDER BY updatedAt DESC, id
                 """, arguments: StatementArguments([match, match] + terms.map { Self.likePattern($0) } + (scope ?? [])))
             let ids = tasks.map(\.id)
             let links = ids.isEmpty ? [] : try ThreadLink.fetchAll(db, sql: "SELECT * FROM threadLinks WHERE taskId IN (\(ids.map { _ in "?" }.joined(separator: ", ")))", arguments: StatementArguments(ids))
             return (tasks, Dictionary(grouping: links, by: \.taskId))
         }
         let needed = (terms.count + 1) / 2
-        let ranked = tasks.enumerated().compactMap { index, task -> (hit: TaskHit, weight: Int, index: Int)? in
+        let ranked = try tasks.enumerated().compactMap { index, task -> (hit: TaskHit, weight: Int, index: Int)? in
+            try Task.checkCancellation()
             let chats = (links[task.id] ?? []).flatMap { [$0.title, $0.preview] }
             let body = ([task.intention, task.brief, task.nextAction] + chats).joined(separator: "\n")
             let score = TaskLookup.score(terms, name: task.displayName + "\n" + task.title, body: body)
@@ -104,8 +120,13 @@ extension FaciendaStore {
             let search = TaskLookup.asksForEarlier(task.title) ? 0 : 1
             return (TaskHit(task: task, complete: score.matched == terms.count), score.matched * 1000 + score.weight * 10 + search, index)
         }
-        // Equal matches keep the newest first, as fetched.
-        let hits = ranked.sorted { $0.weight != $1.weight ? $0.weight > $1.weight : $0.index < $1.index }.map(\.hit)
+        // Relevance ties keep the newest first, as fetched.
+        let hits = ranked.sorted { lhs, rhs in
+            switch order {
+            case .relevance: return lhs.weight != rhs.weight ? lhs.weight > rhs.weight : lhs.index < rhs.index
+            case let .recent(workspace): return TaskLookup.recentFirst(lhs.hit.task, rhs.hit.task, preferredWorkspaceID: workspace)
+            }
+        }.map(\.hit)
         return limit.map { Array(hits.prefix($0)) } ?? hits
     }
 }

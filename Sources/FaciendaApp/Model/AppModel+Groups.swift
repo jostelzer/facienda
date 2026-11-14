@@ -42,8 +42,27 @@ extension AppModel {
             refresh()
         }
     }
+    /// Sends one task, with its chat, to another workspace: into one of its groups, or none. Undo brings it back to the
+    /// same place on this board. The bar learns where such work goes, as it does from a move between cards.
+    func moveTask(_ task: FaciendaTask, to target: Workspace, group: TaskGroup? = nil) {
+        let place = group.map { "\(target.name) · \($0.name)" } ?? target.name
+        perform(undo: "Move Task", offering: "Moved “\(task.displayName)” to \(place)") {
+            try store.moveTask(task.id, toWorkspace: target.id, groupID: group?.id)
+            if selection == task.id { selection = nil }
+            refresh()
+        }
+        if tasksByID[task.id] == nil { learnPlace(of: task.id, workspaceID: target.id, groupID: group?.id) }
+    }
     func deleteGroup(_ group: TaskGroup) {
         perform(undo: "Delete Group", offering: "Deleted “\(group.name)”") { try store.deleteGroup(group.id); refresh() }
+    }
+    /// Takes a group off the board with its tasks. Open ones are archived along and their agents stop, until restored.
+    func archiveGroup(_ group: TaskGroup) {
+        if omnibarGroup == group.id { omnibarGroup = nil }
+        perform(undo: "Archive Group", offering: "Archived “\(group.name)”") { try store.archiveGroup(group.id); refresh() }
+    }
+    func restoreGroup(_ group: TaskGroup) {
+        perform(undo: "Restore Group", offering: "Restored “\(group.name)”") { try store.restoreGroup(group.id); refresh() }
     }
     /// A task dropped on another card arrives at its top, like a new one.
     func move(taskID: String, to groupID: String?) {

@@ -4,6 +4,8 @@ import FaciendaCore
 /// Where each plan row sits, read when a drag starts. A plain class so recording a move never redraws the plan.
 final class RowFrames {
     var rows: [String: CGRect] = [:]
+    /// Where the rows' own space starts in the window, so a row's frame can be handed to something outside the board.
+    var origin = CGPoint.zero
 }
 
 /// One group's plan: lines the user writes, nested under larger goals, each started as a task on its own.
@@ -420,7 +422,9 @@ struct PlanBoard: View {
         .contextMenu {
             if let recovery = model.recoveryDispatch(for: task.id) { DeliveryRecoveryMenu(model: model, item: recovery); Divider() }
             if model.canOpen(task) { Button("Open in \(model.agent(for: task).name)") { model.open(task) } }
-            if let entry { if model.canOpen(task) { Divider() }; lineActions(entry, group: group, launched: true) }
+            if HandoverChoices.offered(task, in: model) { Menu("Continue in a new chat") { HandoverChoices(model: model, task: task) } }
+            if !model.otherWorkspaces.isEmpty { Menu("Move to workspace") { WorkspaceMoveChoices(model: model, task: task) } }
+            if let entry { if model.canOpen(task) || !model.otherWorkspaces.isEmpty { Divider() }; lineActions(entry, group: group, launched: true) }
         }
         .fullTextOnHover(task.displayName, help: model.offersChoices(task) || !model.canOpen(task) ? "Choose what's next. Drag to move." : "Open in \(model.agent(for: task).name). Drag to move.")
         .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)

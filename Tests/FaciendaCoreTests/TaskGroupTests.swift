@@ -100,3 +100,60 @@ private func store() throws -> FaciendaStore {
     try db.deleteTask(first.id)
     #expect(try db.boardPlaces().keys.sorted() == [second.id])
 }
+
+@Test func archivingAGroupTakesItsOpenTasksAlongAndRestoreBringsThemBackAsTheyWere() throws {
+    let db = try store(), group = try db.createGroup(name: "Garden"), other = try db.createGroup(name: "Kitchen")
+    let check = Date().addingTimeInterval(3 * 86400), later = Date().addingTimeInterval(7 * 86400)
+    let fresh = try db.create(FaciendaTask(title: "Plan the beds"))
+    let waiting = try db.update(try db.create(FaciendaTask(title: "Order seeds")).id) { $0.state = .waiting; $0.waitingOn = "The seed shop"; $0.checkAt = check }
+    let scheduled = try db.update(try db.create(FaciendaTask(title: "Prune the hedge")).id) { $0.state = .scheduled; $0.returnAt = later }
+    let running = try db.update(try db.create(FaciendaTask(title: "Compare sheds")).id) { $0.state = .running }
+    let asked = try db.create(FaciendaTask(title: "Pick a fence"))
+    let question = try db.requestDecision(Decision(taskId: asked.id, question: "Wood or metal?", recommendation: "Wood", options: ["Wood", "Metal"]))
+    let mine = try db.create(FaciendaTask(title: "Measure the lawn"))
+    try db.takeOn(mine.id, step: "Borrow a tape")
+    let finished = try db.update(try db.create(FaciendaTask(title: "Buy gloves")).id) { $0.state = .done }
+    let elsewhere = try db.create(FaciendaTask(title: "Fix the tap"))
+    let members = [fresh, waiting, scheduled, running, asked, mine, finished]
+    for task in members { try db.assignGroup(taskId: task.id, groupId: group.id) }
+    try db.assignGroup(taskId: elsewhere.id, groupId: other.id)
+
+    try db.archiveGroup(group.id)
+    #expect(try db.groups().map(\.id) == [other.id] && db.archivedGroups().map(\.id) == [group.id])
+    #expect(try db.groupMembers().map(\.taskId) == [elsewhere.id])
+    #expect(try db.archivedGroupTasks() == Set(members.map(\.id)))
+    for task in members where task.id != finished.id { #expect(try db.task(task.id).state == .dropped) }
+    #expect(try db.task(finished.id).state == .done && db.task(elsewhere.id).state == .inbox)
+    #expect(try db.decisions(taskId: asked.id).isEmpty && db.ownSteps().isEmpty)
+    // Nothing new lands in an archived group, whoever files it.
+    let stray = try db.create(FaciendaTask(title: "Water the roses"))
+    #expect(throws: StoreError.self) { try db.assignGroup(taskId: stray.id, groupId: group.id) }
+    try db.bindRunner(threadId: "runner", automationId: nil)
+    #expect(try db.proposeGroup(taskId: stray.id, runnerID: "runner", name: "garden")?.id != group.id)
+
+    try db.restoreGroup(group.id)
+    #expect(try db.archivedGroups().isEmpty && db.archivedGroupTasks().isEmpty)
+    #expect(try db.groups().map(\.name) == ["Garden", "Kitchen", "garden"])
+    #expect(try db.task(fresh.id).state == .inbox)
+    let back = try db.task(waiting.id)
+    #expect(back.state == .waiting && back.checkAt.map { abs($0.timeIntervalSince(check)) < 0.01 } == true)
+    #expect(try db.task(scheduled.id).state == .scheduled && db.task(scheduled.id).returnAt.map { abs($0.timeIntervalSince(later)) < 0.01 } == true)
+    // Its agent was stopped, so running work comes back to the user.
+    #expect(try db.task(running.id).state == .needsMe)
+    #expect(try db.task(asked.id).state == .needsMe && db.decisions(taskId: asked.id).map(\.id) == [question.id])
+    #expect(try db.ownSteps().map(\.text) == ["Borrow a tape"])
+    #expect(try db.task(finished.id).state == .done)
+    // Restoring twice changes nothing.
+    try db.restoreGroup(group.id)
+    #expect(try db.task(fresh.id).state == .inbox)
+}
+
+@Test func aTaskReopenedWhileItsGroupWasArchivedIsLeftAsItIs() throws {
+    let db = try store(), group = try db.createGroup(name: "Garage")
+    let task = try db.create(FaciendaTask(title: "Sort the tools"))
+    try db.assignGroup(taskId: task.id, groupId: group.id)
+    try db.archiveGroup(group.id)
+    _ = try db.update(task.id) { $0.state = .done }
+    try db.restoreGroup(group.id)
+    #expect(try db.task(task.id).state == .done)
+}

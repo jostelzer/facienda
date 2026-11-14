@@ -2,7 +2,7 @@
 
 **Run a dozen projects with AI agents. Forget none of them.**
 
-![Facienda 0.3.0 in dark mode, showing the fictional Side Project example workspace](Assets/Brand/facienda-app-preview-dark.png)
+![Facienda 0.5.0 in dark mode, showing fictional demo workspaces and tasks](Assets/Brand/facienda-app-preview-dark.png)
 
 **[Download for Mac](https://github.com/jostelzer/facienda/releases/latest)** · macOS 26+ · works with Claude Code and Codex · Beta
 

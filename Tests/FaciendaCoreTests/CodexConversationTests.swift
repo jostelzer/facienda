@@ -31,13 +31,36 @@ private func conversation(_ thread: String = "owner", text: String = "Exact answ
     #expect(try reopened.conversationSnapshot(taskId: task.id, threadId: "owner") == nil)
 }
 
+@Test func lastMessageIsTheNewestTurnEndOrARunningTurnsStartAndSurvivesTheBackfill() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "last-message-\(UUID().uuidString)/tasks.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Original request", state: .running))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    #expect(try store.lastMessages().isEmpty)
+    let answered = Date(timeIntervalSince1970: 1_800_000_000.25), asked = Date(timeIntervalSince1970: 1_800_000_600.5)
+    let chat = CodexConversation(threadId: "owner", title: "Chat", turns: [
+        CodexConversationTurn(id: "one", status: "completed", startedAt: Date(timeIntervalSince1970: 1_799_999_000), completedAt: answered, error: .null, items: []),
+        CodexConversationTurn(id: "two", status: "inProgress", startedAt: asked, completedAt: nil, error: .null, items: []),
+    ])
+    #expect(chat.lastMessageAt == asked)
+    try store.saveConversation(taskId: task.id, conversation: chat)
+    #expect(try store.lastMessages()[task.id] == asked)
+    // Snapshots saved before the column read their time from the payload, to the same millisecond.
+    try store.db.write { db in
+        try db.execute(sql: "UPDATE threadSnapshots SET lastMessageAt = NULL")
+        try db.execute(sql: FaciendaStore.lastMessageBackfill)
+    }
+    #expect(try store.lastMessages()[task.id] == asked)
+    try store.unlink(try #require(try store.links(taskId: task.id).first))
+    #expect(try store.lastMessages().isEmpty)
+}
+
 @Test func directImportPreservesRequestAndConversationWithoutCreatingWorkOrDeadlines() throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "import-\(UUID().uuidString)/tasks.sqlite"))
     let original = "What documents do I need?\nPlease prepare a checklist."
     let task = try store.importThread(originalRequest: original, title: "Birth registration", cwd: "/tmp/project", conversation: conversation())
     #expect(task.title == original && task.displayName == "Birth registration")
     #expect(task.definitionOfDone.isEmpty && task.returnAt == nil && task.checkAt == nil)
-    #expect(task.automationScope == .prepareOnly && task.state == .needsMe)
+    #expect(task.automationScope == .autonomous && task.state == .needsMe)
     #expect(task.ruleViolations.isEmpty)
     #expect(try store.conversationSnapshot(taskId: task.id, threadId: "owner")?.conversation == conversation())
     #expect(try store.dispatches().isEmpty && store.checkPlans().isEmpty)
@@ -240,6 +263,47 @@ private func conversation(_ thread: String = "owner", text: String = "Exact answ
     #expect(CodexMarkdown.localImage(data.appending(path: "task/../../outside/secret.png"), within: [data]) == nil)
     #expect(CodexMarkdown.localImage(URL(string: "https://evil.example/p.png?k=SECRET")!, within: [data]) == nil)
     #expect(CodexMarkdown.localImage(URL(string: "data:image/png;base64,AAAA")!, within: [data]) == nil)
+}
+
+@Test func filesTheAgentNamesInItsFoldersBecomeLinks() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "named-\(UUID().uuidString)").standardizedFileURL
+    let repo = root.appending(path: "repo"), data = root.appending(path: "data")
+    try FileManager.default.createDirectory(at: repo.appending(path: "docs/mocks"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+    let spaced = repo.appending(path: "docs/mocks/board rows.html"), mock = repo.appending(path: "docs/mocks/rows.html")
+    let view = repo.appending(path: "View.swift")
+    for file in [spaced, mock, view] { try Data("x".utf8).write(to: file) }
+    let folders = [data, repo], rows = "<" + mock.absoluteString + ">"
+    // In code, as agents write a file they made, looked for in each of the task's folders.
+    #expect(CodexMarkdown.render("Mock: `docs/mocks/rows.html` (dark).", folders: folders) == "Mock: [`docs/mocks/rows.html`](\(rows)) (dark).")
+    #expect(CodexMarkdown.render("`docs/mocks/board rows.html`", folders: folders) == "[`docs/mocks/board rows.html`](<\(spaced.absoluteString)>)")
+    #expect(CodexMarkdown.render("See `View.swift:42`", folders: folders) == "See [`View.swift:42`](<\(view.absoluteString)>)")
+    #expect(CodexMarkdown.render("`\(mock.path)`", folders: []) == "`\(mock.path)`")
+    #expect(CodexMarkdown.render("`\(mock.path)`", folders: folders) == "[`\(mock.path)`](\(rows))")
+    // In plain text, and as a link to a relative path, which otherwise leads nowhere.
+    #expect(CodexMarkdown.render("Open docs/mocks/rows.html now", folders: folders) == "Open [docs/mocks/rows.html](\(rows)) now")
+    #expect(CodexMarkdown.render("[the mock](docs/mocks/rows.html)", folders: folders) == "[the mock](\(rows))")
+    // What does not exist, web addresses, code blocks and links that already lead somewhere stay as written.
+    for text in ["`docs/mocks/gone.html`", "https://example.org/docs/mocks/rows.html", "```\ndocs/mocks/rows.html\n```",
+                 "[`docs/mocks/rows.html`](https://example.org)", "Motion.travel and e.g. this", "`let x = docs/mocks/rows.html`"] {
+        #expect(CodexMarkdown.render(text, folders: folders) == text)
+    }
+    #expect(CodexMarkdown.render("`docs/mocks/rows.html`") == "`docs/mocks/rows.html`")
+}
+
+@Test func onlyPagesInsideTheTasksFoldersShowInFacienda() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "pages-\(UUID().uuidString)").standardizedFileURL
+    let repo = root.appending(path: "repo"), outside = root.appending(path: "outside")
+    try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let page = repo.appending(path: "mock.HTML"), notes = repo.appending(path: "notes.md"), far = outside.appending(path: "far.html")
+    for file in [page, notes, far] { try Data("x".utf8).write(to: file) }
+    try FileManager.default.createSymbolicLink(at: repo.appending(path: "link.html"), withDestinationURL: far)
+    #expect(CodexMarkdown.localPage(page, within: [repo]) == page.resolvingSymlinksInPath())
+    #expect(CodexMarkdown.localPage(notes, within: [repo]) == nil)
+    #expect(CodexMarkdown.localPage(far, within: [repo]) == nil)
+    #expect(CodexMarkdown.localPage(repo.appending(path: "link.html"), within: [repo]) == nil)
+    #expect(CodexMarkdown.localPage(URL(string: "https://example.org/mock.html")!, within: [repo]) == nil)
 }
 
 private func approval(_ method: String, _ extra: [String: JSONValue]) -> CodexApproval {

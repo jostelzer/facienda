@@ -34,13 +34,7 @@ extension FaciendaStore {
         if try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE taskId = ? AND state IN ('claimed', 'dispatching')", arguments: [taskId]) != nil {
             throw StoreError.invalid("A message to this task's chat is being delivered right now. Switch once it has arrived.")
         }
-        let replaced = try ThreadLink.fetchAll(db, sql: "SELECT * FROM threadLinks WHERE taskId = ? AND role = 'work' AND codexThreadId != ?", arguments: [taskId, chat.threadId])
-        for link in replaced {
-            _ = try ThreadLink.deleteOne(db, key: link.id)
-            try db.execute(sql: "DELETE FROM claudeSessions WHERE threadId = ? AND taskId = ?", arguments: [link.threadId, taskId])
-            // Recorded as unlinked, so discovery never makes it the task's chat again.
-            try TaskEvent(taskId: taskId, threadId: link.threadId, source: source, kind: "thread.unlinked", payload: "replaced", at: now).insert(db)
-        }
+        let replaced = try unlinkWorkChats(db, taskId: taskId, except: chat.threadId, source: source, now: now)
         let link: ThreadLink
         if var existing = try ThreadLink.fetchOne(db, sql: "SELECT * FROM threadLinks WHERE taskId = ? AND codexThreadId = ?", arguments: [taskId, chat.threadId]) {
             existing.role = "work"
@@ -70,6 +64,75 @@ extension FaciendaStore {
         try task.update(db)
         try TaskEvent(taskId: taskId, threadId: chat.threadId, source: source, kind: "thread.handover", payload: replaced.map(\.threadId).joined(separator: "\n"), at: now).insert(db)
         return link
+    }
+
+    /// The task's chats leave it and are never sent anything again. Recorded as unlinked, so discovery never makes one the task's chat again.
+    static func unlinkWorkChats(_ db: Database, taskId: String, except kept: String? = nil, source: EventSource, now: Date) throws -> [ThreadLink] {
+        let replaced = try ThreadLink.fetchAll(db, sql: "SELECT * FROM threadLinks WHERE taskId = ? AND role = 'work'", arguments: [taskId]).filter { $0.threadId != kept }
+        for link in replaced {
+            _ = try ThreadLink.deleteOne(db, key: link.id)
+            try db.execute(sql: "DELETE FROM claudeSessions WHERE threadId = ? AND taskId = ?", arguments: [link.threadId, taskId])
+            try TaskEvent(taskId: taskId, threadId: link.threadId, source: source, kind: "thread.unlinked", payload: "replaced", at: now).insert(db)
+        }
+        return replaced
+    }
+
+    /// The task carries on in a new chat on `choice`'s model, often in the other app. Its chat leaves it as in `handOver`,
+    /// and a handover note in the task's private folder gives the new chat what the old one knew: its last answer and
+    /// the conversation. Nothing is started here; the caller starts the task as usual, and the start prompt points to the note.
+    @discardableResult public func continueInNewChat(taskId: String, on choice: TaskModelChoice, now: Date = Date()) throws -> URL {
+        let (task, chats, answer, dispatches) = try db.read { db in
+            guard let task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen else { throw StoreError.invalid("The task is closed or missing.") }
+            let links = try ThreadLink.fetchAll(db, sql: "SELECT * FROM threadLinks WHERE taskId = ? AND role = 'work' ORDER BY rowid", arguments: [taskId])
+            guard !links.isEmpty else { throw StoreError.invalid("This task has no chat yet. Pick its model and start it instead.") }
+            if try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE taskId = ? AND state IN ('queued', 'claimed', 'dispatching')", arguments: [taskId]) != nil {
+                throw Self.deliveryUnderway
+            }
+            let answer = try String.fetchOne(db, sql: "SELECT payload FROM events WHERE taskId = ? AND kind = 'codex.result' ORDER BY at DESC, rowid DESC LIMIT 1", arguments: [taskId])
+            let dispatches = try NativeDispatch.fetchAll(db, sql: "SELECT * FROM dispatches WHERE taskId = ?", arguments: [taskId])
+            return (task, links, answer, dispatches)
+        }
+        let conversations = try chats.map { try conversationSnapshot(taskId: taskId, threadId: $0.threadId)?.conversation }
+        let note = HandoverNote.text(task: task, chats: Array(zip(chats, conversations)), lastAnswer: answer, dispatches: dispatches, to: choice, at: now)
+        let file = try privateTaskFolder(taskId).appending(path: "handover-\(HandoverNote.stamp(now)).md")
+        try DispatchPrompt.writePrivately(note, to: file)
+        try write { db in
+            guard var task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen else { throw StoreError.invalid("The task is closed or missing.") }
+            if try NativeDispatch.fetchOne(db, sql: "SELECT * FROM dispatches WHERE taskId = ? AND state IN ('queued', 'claimed', 'dispatching')", arguments: [taskId]) != nil {
+                throw Self.deliveryUnderway
+            }
+            let replaced = try Self.unlinkWorkChats(db, taskId: taskId, source: .user, now: now)
+            // Another window may have moved the task meanwhile; the note would then describe the wrong chat.
+            guard Set(replaced.map(\.threadId)) == Set(chats.map(\.threadId)) else { throw StoreError.conflict }
+            task.workerModel = choice.model; task.workerReasoningEffort = choice.effort
+            task.workerServiceTier = choice.serviceTier; task.workerProvider = choice.provider
+            task.revision += 1; task.updatedAt = now
+            try task.update(db)
+            // A start held for prerequisites goes to the new chat; clearing its provider makes the queue take the task's new one.
+            try db.execute(sql: "DELETE FROM dispatchContext WHERE dispatchId IN (SELECT id FROM dispatches WHERE taskId = ? AND state = 'held')", arguments: [taskId])
+            try db.execute(sql: "UPDATE dispatches SET threadId = NULL, provider = NULL WHERE taskId = ? AND state = 'held'", arguments: [taskId])
+            // Checks wait for the new chat, which may take the plan on once it is there.
+            if var plan = try CheckPlan.fetchOne(db, key: taskId), !plan.paused {
+                plan.paused = true; plan.revision += 1; plan.lastOutcome = CheckPlan.handoverPause
+                try plan.update(db)
+            }
+            try TaskEvent(taskId: taskId, source: .user, kind: "thread.handover", payload: replaced.map(\.threadId).joined(separator: "\n"), at: now).insert(db)
+            let record = HandoverNote.Record(file: file.path, from: replaced.map { ChatCandidate(threadId: $0.threadId, provider: $0.provider, title: $0.title) })
+            try TaskEvent(taskId: taskId, source: .user, kind: HandoverNote.eventKind, payload: try JSONValue.encoded(record).json, at: now).insert(db)
+        }
+        return file
+    }
+
+    static let deliveryUnderway = StoreError.invalid("A message to this task's chat is on its way. Switch once it has arrived, or cancel it.")
+
+    /// The note a fresh start reads first: there is one while the task has had no chat since it moved to a new one.
+    public func pendingHandoverNote(taskId: String) throws -> HandoverNote.Record? {
+        try db.read { db in
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM threadLinks WHERE taskId = ? AND role = 'work'", arguments: [taskId]) == 0,
+                  let payload = try String.fetchOne(db, sql: "SELECT payload FROM events WHERE taskId = ? AND kind = ? ORDER BY at DESC, rowid DESC LIMIT 1",
+                                                    arguments: [taskId, HandoverNote.eventKind]) else { return nil }
+            return try? JSONDecoder().decode(HandoverNote.Record.self, from: Data(payload.utf8))
+        }
     }
 
     /// Tasks already moved to another chat. The choice is made: their request and answers stop offering chats to continue in.
@@ -170,6 +233,10 @@ extension ClaudeDesktop {
         /// The error that ended its last turn, as the app shows it, such as a usage limit and when it resets.
         public var error: String? = nil
         public var errorAt: Date? = nil
+        /// When the user last opened the session in the Claude app, and when its latest turn ended.
+        public var focusedAt: Date? = nil
+        public var turnEdgeAt: Date? = nil
+        public var turnEndedAt: Date { max(turnEdgeAt ?? .distantPast, lastActivityAt) }
         public var chat: ChatCandidate { ChatCandidate(threadId: id, provider: .claude, title: title, cwd: cwd, cliSessionId: cliSessionId) }
     }
 
@@ -219,12 +286,13 @@ extension ClaudeDesktop {
               let id = root["sessionId"] as? String, let cli = root["cliSessionId"] as? String, !cli.isEmpty else { return nil }
         let cwd = (root["cwd"] as? String) ?? (root["originCwd"] as? String) ?? ""
         let activity = (root["lastActivityAt"] as? Double) ?? (root["createdAt"] as? Double) ?? 0
+        let date = { (key: String) in (root[key] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } }
         return Session(id: id, cliSessionId: cli, title: (root["title"] as? String) ?? "", cwd: cwd,
                        lastActivityAt: Date(timeIntervalSince1970: activity / 1000),
                        archived: (root["isArchived"] as? Bool) == true || archived.contains(id),
                        model: root["model"] as? String, effort: root["effort"] as? String,
                        error: (root["error"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                       errorAt: (root["errorAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
+                       errorAt: date("errorAt"), focusedAt: date("lastFocusedAt"), turnEdgeAt: date("lastTurnEdgeAt"))
     }
 
     private static func archivedSessions(in organisation: URL) -> Set<String> {

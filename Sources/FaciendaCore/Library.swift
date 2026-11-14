@@ -10,7 +10,7 @@ public struct Workspace: Codable, FetchableRecord, PersistableRecord, Identifiab
     public var position: Int
     public var createdAt: Date
     public var nameUpdatedAt: Date
-    /// Removed workspaces stay as tombstones so their IDs cannot be reused.
+    /// Set while the workspace is archived. It stays in the library, its ID unused by anything else, until restored.
     public var removedAt: Date?
     /// The painting style Codex chose for the sidebar picture, kept so a repaint stays recognisable.
     public var coverStyle: String?
@@ -155,24 +155,6 @@ extension FaciendaStore {
         }
     }
 
-    /// Hides a workspace. Its finished tasks stay in the library file; open work must move or finish first.
-    public func removeWorkspace(_ id: String) throws {
-        try write { db in
-            var workspace = try Self.workspace(db, id)
-            guard workspace.removedAt == nil else { return }
-            let others = try Int.fetchOne(db, sql: "SELECT count(*) FROM workspaces WHERE removedAt IS NULL AND id != ?", arguments: [id]) ?? 0
-            guard others > 0 else { throw StoreError.invalid("Keep at least one workspace. Create another before deleting this one.") }
-            let open = try Int.fetchOne(db, sql: "SELECT count(*) FROM tasks WHERE workspaceId = ? AND state NOT IN ('done', 'dropped')", arguments: [id]) ?? 0
-            guard open == 0 else {
-                throw StoreError.invalid("“\(workspace.name)” still has \(open) open \(open == 1 ? "task" : "tasks"). Finish them or move them to another workspace first.")
-            }
-            workspace.removedAt = Date()
-            try workspace.update(db)
-        }
-        try? FileManager.default.removeItem(at: coverURL(workspaceId: id))
-        try? FileManager.default.removeItem(at: previousCoverURL(workspaceId: id))
-    }
-
     // MARK: Moving work between workspaces
 
     /// A group moves whole: its tasks, their chats and history go with it and keep running.
@@ -190,6 +172,41 @@ extension FaciendaStore {
             let members = try String.fetchAll(db, sql: "SELECT taskId FROM taskGroupMembers WHERE groupId = ?", arguments: [groupID])
             for id in members { try Self.setWorkspace(db, taskID: id, to: target) }
         }
+    }
+
+    /// A task moves alone, into one of the other workspace's groups or none, and arrives at the top of that card like a
+    /// new task. Its chat and history go with it and it keeps running. A task that has started keeps the folders it works
+    /// in; one that hasn't takes its new place's when it starts. Learning works as for a group that moves.
+    public func moveTask(_ taskID: String, toWorkspace targetID: String, groupID: String? = nil) throws {
+        try write { db in
+            guard let task = try FaciendaTask.fetchOne(db, key: taskID) else { throw StoreError.notFound }
+            let target = try Self.availableWorkspace(db, targetID)
+            guard task.workspaceId != target.id else { return }
+            if let groupID {
+                guard try TaskGroup.fetchOne(db, key: groupID)?.workspaceId == target.id else { throw StoreError.invalid("That group isn't in “\(target.name)”.") }
+            }
+            let card = try Self.cardKeys(db, workspaceID: target.id, groupID: groupID)
+            try Self.setWorkspace(db, taskID: taskID, to: target)
+            // Changed in place, not removed and added again, so undo can put the old group back.
+            if let groupID { try TaskGroupMember(taskId: taskID, groupId: groupID, assignedBy: "user").save(db) } else {
+                _ = try TaskGroupMember.deleteOne(db, key: taskID)
+                // No group was the user's choice, as on the board: the runner will not file it later.
+                if try Self.keptUnsorted(db, taskID) == false { try TaskEvent(taskId: taskID, source: .user, kind: Self.unsortedKind).insert(db) }
+            }
+            try TaskBoardPlace(taskId: taskID, sortKey: min((card.min() ?? 0) - 1, -Date().timeIntervalSince1970)).save(db)
+        }
+        if groupID != nil { offerAttachments(of: taskID) }
+    }
+
+    /// The board keys of a card's tasks: a group's, or the workspace's tasks in no group.
+    private static func cardKeys(_ db: Database, workspaceID: String, groupID: String?) throws -> [Double] {
+        let tasks = try FaciendaTask.fetchAll(db, sql: groupID == nil
+            ? "SELECT t.* FROM tasks t WHERE t.workspaceId = ? AND NOT EXISTS (SELECT 1 FROM taskGroupMembers m JOIN taskGroups g ON g.id = m.groupId WHERE m.taskId = t.id AND g.workspaceId = t.workspaceId)"
+            : "SELECT t.* FROM tasks t JOIN taskGroupMembers m ON m.taskId = t.id WHERE t.workspaceId = ? AND m.groupId = ?",
+            arguments: StatementArguments([workspaceID] + (groupID.map { [$0] } ?? [])))
+        let placed = try TaskBoardPlace.fetchAll(db, keys: tasks.map(\.id))
+        let keys = Dictionary(uniqueKeysWithValues: placed.map { ($0.taskId, $0.sortKey) })
+        return tasks.map { keys[$0.id] ?? TaskBoardPlace.unplaced($0) }
     }
 
     /// Removes a task and everything Facienda keeps about it, however stuck it is. The Codex chat itself is untouched,

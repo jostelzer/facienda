@@ -41,27 +41,31 @@ struct GroupBoard: View {
     private var looseSlotKey: String { "dashboardLoosePlace:" + model.storageKey }
     /// The cards folded to their title, by group ID or looseKey for "Unsorted". Kept per workspace.
     @State private var folded: Set<String> = []
+    /// The cards sorted by date, newest message first, the same way. The rest keep the order the user dragged.
+    @State private var byDate: Set<String> = []
     /// True while a released card glides into its slot.
     @State private var settling = false
     /// The group that just landed, for a brief confirming pulse.
     @State private var landed: String?
-    /// The task whose row was clicked and now offers what to do next.
-    @State private var choosing: String?
     /// A card to scroll into view.
     @State private var scrollTarget: String?
     /// The task awaiting confirmation to be deleted.
     @State private var deleting: FaciendaTask?
+    /// A group with work running, awaiting confirmation to be archived.
+    @State private var archiving: TaskGroup?
     /// The task whose name is being edited in place, and the name being typed.
     @State private var renamingTask: String?
     @State private var taskDraft = ""
     @FocusState private var taskNameFocused: Bool
-    static let actionWidth: CGFloat = 46
     /// The card's horizontal padding: how far a row reaches to touch the card's edge.
     static let cardInset: CGFloat = 20
     private static let unreadDot: CGFloat = 7
-    /// How far down a row with a recap its name's first line sits, in the middle: slip 3, row 8, half a 16 pt line.
-    private static let recapNameMiddle: CGFloat = 3 + 8 + 8
-    /// How far an unread row's slip stays in from the card's edge.
+    /// A row's padding above and below, and its name's one line, which the glyph and the unread dot centre on.
+    static let rowPadding: CGFloat = 7
+    static let nameLine: CGFloat = 16
+    /// Each row is a tile of its own; this is half the gap between two tiles, kept above and below every row.
+    static let tileSpace: CGFloat = 3
+    /// How far a row's tile, and an unread row's slip in the same place, stays in from the card's edge.
     static let slipInset: CGFloat = 4
     @FocusState private var nameFocused: Bool
     private nonisolated static let boardSpace = "board"
@@ -138,9 +142,11 @@ struct GroupBoard: View {
         let hidden = hidden, onlyNew = onlyNew
         var lists: [String: [FaciendaTask]] = [:]
         for (group, tasks) in model.boardLists {
-            lists[group ?? Self.looseKey] = tasks.filter {
+            let key = group ?? Self.looseKey
+            let shown = tasks.filter {
                 !hidden.contains(TaskDot.Kind(model: model, task: $0).legend.rawValue) && (!onlyNew || model.isUnread($0))
             }
+            lists[key] = byDate.contains(key) ? DateOrder.sorted(shown, movedAt: model.movedAt) : shown
         }
         return lists
     }
@@ -159,6 +165,13 @@ struct GroupBoard: View {
                     let name = task.displayName
                     Text("“" + (name.count > 60 ? String(name.prefix(60)) + "…" : name) + "” disappears from Facienda for good. The Codex chat is left alone.")
                 }
+                .alert("Archive this group?", isPresented: Binding(presenting: $archiving), presenting: archiving) { group in
+                    Button("Archive") { model.archiveGroup(group); archiving = nil }
+                    Button("Cancel", role: .cancel) { archiving = nil }
+                } message: { group in
+                    let running = runningCount(in: group)
+                    Text("\(running == 1 ? "One task is" : "\(running) tasks are") running in “\(group.name)”. \(running == 1 ? "Its agent stops" : "Their agents stop"), and Restore brings \(running == 1 ? "it" : "them") back as Needs me.")
+                }
                 // A new group may land below the fold; bring it into view.
                 .onChange(of: scrollTarget) { _, key in
                     guard let key else { return }
@@ -168,13 +181,12 @@ struct GroupBoard: View {
             }
             // The File menu, the shortcut and the command bar all press the board's +.
             // The folded cards come first, so a task asked for on arrival can open its card.
-            .onAppear { folded = FoldedCards.load(model.storageKey); if model.newGroupRequested { beginNewGroup() }; openRequested() }
+            .onAppear { folded = FoldedCards.load(model.storageKey); byDate = DateSortedCards.load(model.storageKey); if model.newGroupRequested { beginNewGroup() }; openRequested(); landRequested() }
             .onChange(of: model.boardOpenRequest) { _, _ in openRequested() }
+            .onChange(of: model.boardLandRequest) { _, _ in landRequested() }
             .onChange(of: model.newGroupRequested) { _, requested in if requested { beginNewGroup() } }
             // A group made on the board's + may land below the fold; its sheet folds into it there.
             .onChange(of: model.sheetLanding) { _, group in if let group { scrollTarget = group } }
-            // A new row keeps its recap while its choices are open, and counts as read once they close.
-            .onChange(of: choosing) { closed, _ in if let closed, let task = model.tasksByID[closed] { model.noteOpened(task) } }
         }
     }
 
@@ -206,7 +218,10 @@ struct GroupBoard: View {
                 if let saved = UserDefaults.standard.array(forKey: looseSlotKey) as? [Int], saved.count == 2 { looseSlot = BoardSlot(lane: saved[0], row: saved[1]) }
             }
             .onChange(of: folded) { _, now in FoldedCards.save(now, for: model.storageKey) }
+            .onChange(of: byDate) { _, now in DateSortedCards.save(now, for: model.storageKey) }
             .coordinateSpace(.named(Self.boardSpace))
+            // An opened task grows out of its row, which lies in the window, not on the board.
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { rowFrames.origin = $0 }
             .overlay(alignment: .topLeading) {
                 // The lifted card follows the pointer while its slot stays in the layout and the others make room.
                 if let drag {
@@ -221,14 +236,15 @@ struct GroupBoard: View {
                 // The lifted task or planned row follows the pointer; its slot stays open where it will land.
                 if let rowDrag {
                     Group {
-                        if !rowDrag.planned, let task = model.tasksByID[rowDrag.id] { rowFace(task, previous: nil) }
+                        if !rowDrag.planned, let task = model.tasksByID[rowDrag.id] { rowFace(task, aged: isSorted(cardKey(of: task.id))) }
                         else if rowDrag.planned, let line = model.planLines.first(where: { $0.id == rowDrag.id }) {
-                            PlannedRow(model: model, line: line, hover: hover, above: nil, lifted: false, carrying: true)
+                            PlannedRow(model: model, line: line, hover: hover, carrying: true)
                         }
                     }
                     .frame(width: rowDrag.size.width, height: rowDrag.size.height)
-                    .background { RoundedRectangle(cornerRadius: 10).fill(Palette.card).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
-                    .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line, lineWidth: 1).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
+                    // Hugs the row's tile, not the gap around it.
+                    .background { RoundedRectangle(cornerRadius: 8).fill(Palette.card).padding(.horizontal, -(Self.cardInset - Self.slipInset)).padding(.vertical, Self.tileSpace) }
+                    .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line, lineWidth: 1).padding(.horizontal, -(Self.cardInset - Self.slipInset)).padding(.vertical, Self.tileSpace) }
                     .shadow(color: .black.opacity(rowSettling ? 0.06 : 0.22), radius: rowSettling ? 3 : 14, y: rowSettling ? 1 : 6)
                     .scaleEffect(rowSettling ? 1 : 1.025)
                     .offset(x: rowDrag.location.x - rowDrag.grab.width, y: rowDrag.location.y - rowDrag.grab.height)
@@ -312,6 +328,25 @@ struct GroupBoard: View {
         withAnimation(Motion.move) { if fold { folded.formUnion(keys) } else { folded.subtract(keys) } }
     }
 
+    /// Whether a card shows its tasks by date.
+    private func isSorted(_ key: String) -> Bool { byDate.contains(key) }
+
+    /// Sorts the card by date, or gives it back its own order. With ⌥ held it does the same to every card on the board, as folding does.
+    private func toggleSort(_ key: String) {
+        let every = NSEvent.modifierFlags.contains(.option)
+        setSorted(every ? Set(shownKeys(visibleLists).filter { $0 != Self.newKey }) : [key], !isSorted(key))
+    }
+
+    /// The rows glide to their new places in one move, as they do when the user drags one.
+    private func setSorted(_ keys: Set<String>, _ sorted: Bool) {
+        withAnimation(Motion.move) { if sorted { byDate.formUnion(keys) } else { byDate.subtract(keys) } }
+    }
+
+    /// The card a task sits in: its group's ID, or looseKey for "Unsorted".
+    private func cardKey(of taskID: String) -> String {
+        model.groupMembers[taskID].flatMap { group in model.groups.contains { $0.id == group } ? group : nil } ?? Self.looseKey
+    }
+
     /// How far a + sits in from the edge of the board or of its card, so every + on the board lines up.
     static let plusInset: CGFloat = cardInset - 6
 
@@ -352,6 +387,7 @@ struct GroupBoard: View {
                 Button(isFolded(key) ? "Show tasks" : "Fold tasks") { setFolded([key], !isFolded(key)) }
                 let every = Set(shownKeys(visibleLists).filter { $0 != Self.newKey })
                 Button(every.isSubset(of: folded) ? "Show every card" : "Fold every card") { setFolded(every, !every.isSubset(of: folded)) }
+                Button(isSorted(key) ? "Back to your order" : "Sort by date") { setSorted([key], !isSorted(key)) }
                 if let group {
                     if showCovers, model.coverPainter != nil {
                         let painting = model.paintingCovers.contains(group.id)
@@ -362,9 +398,15 @@ struct GroupBoard: View {
                         if model.canUndoCover(group) { Button("Restore previous cover") { model.undoCover(group) } }
                     }
                     Divider()
+                    // Archiving asks first only when it would stop an agent at work.
+                    Button("Archive group") { if runningCount(in: group) > 0 { archiving = group } else { model.archiveGroup(group) } }
                     Button("Delete group", role: .destructive) { if model.omnibarGroup == group.id { model.omnibarGroup = nil }; model.deleteGroup(group) }
                 }
             }
+    }
+
+    private func runningCount(in group: TaskGroup) -> Int {
+        model.tasks.filter { $0.state == .running && model.groupMembers[$0.id] == group.id }.count
     }
 
     /// Shows only while a task is carried, at the foot of the shortest column: drop the task on it and it becomes a group
@@ -408,7 +450,7 @@ struct GroupBoard: View {
             }
         }
         // A folded card is one 44 pt band: the cover's own, or the title row's with even padding.
-        .padding(.horizontal, Self.cardInset).padding(.top, shut && !banner ? 11 : 12).padding(.bottom, shut ? (banner ? 0 : 11) : 8)
+        .padding(.horizontal, Self.cardInset).padding(.top, shut && !banner ? 11 : 12).padding(.bottom, shut ? (banner ? 0 : 11) : Self.slipInset - Self.tileSpace)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(resting ? Color.clear : Palette.card, in: RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -417,23 +459,46 @@ struct GroupBoard: View {
 
     /// The card's tasks and planned lines, below its title.
     @ViewBuilder private func cardRows(_ id: String?, group: TaskGroup?, tasks: [FaciendaTask], planned: [PlanLine]) -> some View {
-        ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
-            // The dragged task's own slot stays open where it will land.
-            let lifted = rowDrag?.planned == false && rowDrag?.id == task.id
-            row(task, in: id, among: tasks, at: index)
-                .opacity(lifted ? 0 : 1)
-                .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
+        let dated = isSorted(id ?? Self.looseKey)
+        ForEach(entries(tasks, dated: dated)) { entry in
+            if let band = entry.band {
+                DayCaption(band: band, first: entry.index == 0).transition(.opacity)
+            } else if let task = entry.task {
+                // The dragged task's own slot stays open where it will land.
+                let lifted = rowDrag?.planned == false && rowDrag?.id == task.id
+                row(task, in: id, among: tasks, at: entry.index, aged: dated)
+                    .opacity(lifted ? 0 : 1)
+                    .background { if lifted { RoundedRectangle(cornerRadius: 8).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)).padding(.vertical, Self.tileSpace) } }
+            }
         }
         ForEach(Array(planned.enumerated()), id: \.element.id) { index, line in
             // A planned row moves like a task: its slot stays open where it will land.
             let lifted = rowDrag?.planned == true && rowDrag?.id == line.id
-            PlannedRow(model: model, line: line, hover: hover,
-                       above: index == 0 ? tasks.last?.id : Self.plannedKey(planned[index - 1].id), lifted: index == 0 && tasks.last.map(model.isUnread) == true,
-                       carrying: rowDrag != nil)
+            PlannedRow(model: model, line: line, hover: hover, carrying: rowDrag != nil)
                 .opacity(lifted ? 0 : 1)
-                .background { if lifted { RoundedRectangle(cornerRadius: 10).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) } }
+                .background { if lifted { RoundedRectangle(cornerRadius: 8).fill(Palette.ink.opacity(0.04)).padding(.horizontal, -(Self.cardInset - Self.slipInset)).padding(.vertical, Self.tileSpace) } }
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[Self.plannedKey(line.id)] = $0 }
         }
+    }
+
+    /// What a card lists: its tasks, and by date a day's caption wherever the day changes. `index` counts the tasks only.
+    private struct CardEntry: Identifiable {
+        let id: String
+        var task: FaciendaTask?
+        var band: DayBand?
+        var index: Int
+    }
+
+    private func entries(_ tasks: [FaciendaTask], dated: Bool) -> [CardEntry] {
+        guard dated else { return tasks.enumerated().map { CardEntry(id: $1.id, task: $1, index: $0) } }
+        let now = Date()
+        var result: [CardEntry] = [], last: DayBand?
+        for (index, task) in tasks.enumerated() {
+            let band = DayBand.of(model.movedAt(task), now: now)
+            if band != last { result.append(CardEntry(id: "day:\(band.caption)", band: band, index: index)); last = band }
+            result.append(CardEntry(id: task.id, task: task, index: index))
+        }
+        return result
     }
 
     /// The group's name, with where it works when that is not the workspace's usual place, set on the cover's fade or on a row of its own. Folded, the counts take that place;
@@ -461,6 +526,10 @@ struct GroupBoard: View {
                     .font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1).transition(.opacity)
             } else if fold.folded { FoldTally(model: model, tasks: fold.tasks, planned: fold.planned).transition(.opacity) }
             else if let group, model.worksElsewhere(group) { WorkPlaceChip(model: model, group: group).background(GraceZone()).transition(.opacity) }
+            // Beside the +, in every open card: the order the user dragged, or newest message first.
+            if !resting && !fold.folded {
+                SortButton(byDate: isSorted(key)) { toggleSort(key) }.padding(.vertical, -2).transition(.opacity)
+            }
             // The island's +, in the same corner of every card, Unsorted's too: a task in this group, or in the pile.
             PlusButton(help: "New task in " + name, label: "New task in " + name) { newTask(in: group) }
                 .padding(.trailing, -6).padding(.vertical, -2)
@@ -480,7 +549,9 @@ struct GroupBoard: View {
     /// While a task is dragged, each card shows its rows as they will be once it lands.
     private func arranged(_ tasks: [FaciendaTask], in key: String) -> [FaciendaTask] {
         guard let ids = liveRows?[key] else { return tasks }
-        return ids.compactMap { model.tasksByID[$0] }
+        let live = ids.compactMap { model.tasksByID[$0] }
+        // By date a carried row has no spot to aim at: it shows where its date puts it.
+        return isSorted(key) ? DateOrder.sorted(live, movedAt: model.movedAt) : live
     }
 
     /// While a planned row is dragged, each group shows its planned rows as they will be once it lands.
@@ -512,7 +583,7 @@ struct GroupBoard: View {
                         livePlanned = Dictionary(uniqueKeysWithValues: model.groups.filter { keys.contains($0.id) }.map { ($0.id, visiblePlannedLines(in: $0.id).map(\.id)) })
                         rowDrag = lift(line.id, frame, planned: true)
                     } else { return }
-                    choosing = nil; hover.row = nil
+                    hover.row = nil
                     NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
                 }
                 guard var current = rowDrag else { return }
@@ -555,8 +626,13 @@ struct GroupBoard: View {
                                 model.placePlanLine(current.id, in: card, parentId: nil, before: index + 1 < rows.count ? rows[index + 1] : nil)
                             }
                         } else {
-                            let spot: AppModel.TaskSpot = index > 0 ? .below(rows[index - 1]) : rows.count > 1 ? .above(rows[1]) : .top
-                            model.place(taskID: current.id, in: card == Self.looseKey ? nil : card, at: spot)
+                            if isSorted(card) {
+                                // Its own order has no say here: a row from another card joins at the top of it, one already there stays.
+                                if cardKey(of: current.id) != card { model.place(taskID: current.id, in: card == Self.looseKey ? nil : card, at: .top) }
+                            } else {
+                                let spot: AppModel.TaskSpot = index > 0 ? .below(rows[index - 1]) : rows.count > 1 ? .above(rows[1]) : .top
+                                model.place(taskID: current.id, in: card == Self.looseKey ? nil : card, at: spot)
+                            }
                         }
                     }
                     finishRowDrag()
@@ -571,10 +647,12 @@ struct GroupBoard: View {
     /// and whether that took it into another card. Nil between cards, and over a card `lists` doesn't hold.
     private func carry(_ id: String, in lists: [String: [String]], to centre: CGPoint, frame: (String) -> CGRect?) -> (lists: [String: [String]], crossed: Bool)? {
         guard let card = lists.keys.first(where: { cardFrames[$0]?.contains(centre) == true }) else { return nil }
+        // A card sorted by date keeps a row it already holds where its date puts it, so there is nothing to aim at inside it.
+        if isSorted(card), lists[card]?.contains(id) == true { return (lists, false) }
         var moved = lists
         for key in moved.keys { moved[key]?.removeAll { $0 == id } }
-        // A folded card takes it at the top: its rows aren't there to aim between.
-        let above = isFolded(card) ? 0 : moved[card, default: []].filter { (frame($0)?.midY ?? .infinity) < centre.y }.count
+        // A folded card, or one sorted by date, takes it at the top: its rows aren't there to aim between.
+        let above = isFolded(card) || isSorted(card) ? 0 : moved[card, default: []].filter { (frame($0)?.midY ?? .infinity) < centre.y }.count
         moved[card, default: []].insert(id, at: above)
         return (moved, lists[card]?.contains(id) != true)
     }
@@ -684,7 +762,7 @@ struct GroupBoard: View {
     }
 
     /// A planned line's key among the rows the pointer can be over, apart from task IDs.
-    static func plannedKey(_ id: String) -> String { "planned:" + id }
+    static func plannedKey(_ id: String) -> String { AppModel.plannedRowKey(id) }
 
     /// Opens the group's sheet: the task started there joins it. No group means "Unsorted".
     /// Asking again for the lit group lets it go.
@@ -695,92 +773,111 @@ struct GroupBoard: View {
     }
 
     /// The row at `index` among the card's shown tasks.
-    private func row(_ task: FaciendaTask, in group: String?, among tasks: [FaciendaTask], at index: Int) -> some View {
+    /// `aged` shows the row's age whatever its state, as a card sorted by date does; it has no order of the user's to move within.
+    private func row(_ task: FaciendaTask, in group: String?, among tasks: [FaciendaTask], at index: Int, aged: Bool) -> some View {
         let unread = model.isUnread(task), dot = TaskDot.Kind(model: model, task: task)
-        return rowFace(task, previous: index > 0 ? tasks[index - 1] : nil)
+        return rowFace(task, aged: aged)
         .contentShape(Rectangle())
         .onTapGesture { choose(task) }
-        // Its own anchor, so it never competes with the rename popover on the row.
-        .background {
-            Color.clear.popover(isPresented: Binding(get: { choosing == task.id }, set: { if !$0 && choosing == task.id { choosing = nil } }), arrowEdge: .bottom) {
-                TaskChoicesPopover(model: model, task: task, done: { finish(task) },
-                                   parked: { _, label in withAnimation(Motion.move) { model.offerUndo("Parked · " + label) } }) { choosing = nil }
-            }
-        }
         .popover(isPresented: Binding(get: { renamingTask == task.id }, set: { if !$0 && renamingTask == task.id { renamingTask = nil } }), arrowEdge: .bottom) {
             renamePopover(task)
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.boardSpace)) } action: { rowFrames.rows[task.id] = $0 }
-        .contextMenu { actions(task, in: group, among: tasks, at: index) }
-        // A name cut short shows whole under the pointer, anywhere on the row.
-        .fullTextOnHover(task.displayName, help: dot.label + ". Click to choose what's next, or drag to move")
+        .contextMenu { actions(task) }
+        // A name cut short shows whole under the pointer, anywhere on the row. Where the task works is told here too, so
+        // the tile keeps to the name and the exchange.
+        .fullTextOnHover(task.displayName, help: dot.label + (waitingSince(task, dot).map { " since " + $0.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()) } ?? "")
+                         + (model.folderLabel(for: task).map { ". Works in " + $0 } ?? "") + ". Click to open, or drag to move")
         .accessibilityElement(children: .contain).accessibilityAddTraits(.isButton)
         .accessibilityAction { choose(task) }
-        .accessibilityAction(named: "Move up") { if index > 0 { reorder(task, in: group, at: .above(tasks[index - 1].id)) } }
-        .accessibilityAction(named: "Move down") { if index < tasks.count - 1 { reorder(task, in: group, at: .below(tasks[index + 1].id)) } }
+        .accessibilityActions {
+            if !aged {
+                Button("Move up") { if index > 0 { reorder(task, in: group, at: .above(tasks[index - 1].id)) } }
+                Button("Move down") { if index < tasks.count - 1 { reorder(task, in: group, at: .below(tasks[index + 1].id)) } }
+            }
+        }
         .accessibilityLabel(task.displayName + ", " + dot.label + (unread ? ", new" : ""))
         .onHover { inside in if inside, rowDrag == nil { hover.row = task.id } else if hover.row == task.id { hover.row = nil } }
     }
 
+    /// Since when the task's agent has waited on the user. Nil while it works, is parked or done.
+    private func waitingSince(_ task: FaciendaTask, _ dot: TaskDot.Kind) -> Date? {
+        dot.waitsOnUser ? model.lastMessageAt(for: task) : nil
+    }
+
     /// What a row looks like, on its card or lifted under the pointer.
-    private func rowFace(_ task: FaciendaTask, previous: FaciendaTask?) -> some View {
+    /// A row's name, with the thread's latest turn after it in grey when there is one.
+    private func rowName(_ task: FaciendaTask, tail: String?) -> some View {
+        let name = Text(task.displayName)
+        let text = tail.map { Text("\(name)\(Text(" · " + $0).foregroundStyle(Palette.muted))") } ?? name
+        return text.shortened(to: 1)
+    }
+
+    private func rowFace(_ task: FaciendaTask, aged: Bool = false) -> some View {
         let unread = model.isUnread(task), dot = TaskDot.Kind(model: model, task: task)
         let naming = model.namingTasks.contains(task.id)
         let detail = naming ? "Finding a clearer name…" : model.subtitle(for: task)
-        // A new row tells where its task went and what came back; closing the task's choices folds it to its line.
-        let recap = naming ? nil : model.recap(for: task)
-        return HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                // A recap's one time, when the agent answered, ends the name's line.
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(task.displayName).font(.system(size: 13, weight: unread ? .semibold : .regular))
-                        .foregroundStyle(dot == .done || naming ? Palette.muted : Palette.ink).shortened(to: 2).multilineTextAlignment(.leading)
-                    if let time = recap.flatMap(TaskRecapView.time(of:)) {
-                        Spacer(minLength: 0)
-                        Text(time).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(Palette.muted).fixedSize()
-                    }
+        // Every row shows its last exchange: the user's last words and the answer. Without one it keeps its line.
+        let exchange = naming ? nil : model.rowExchange(for: task)
+        // By date every row says how long ago it last moved; otherwise only the ones waiting on the user do.
+        let waiting = aged ? model.movedAt(task) : waitingSince(task, dot)
+        return VStack(alignment: .leading, spacing: 3) {
+            // The glyph and how long the agent has waited on the user sit at the end of the name's line, so state and time
+            // read as one (a question, 2 h) and everything under the name has the row's whole width.
+            HStack(spacing: 8) {
+                // The name stays the one the user recognises; where the thread went follows it, greyed. A tail shows
+                // only when it fits whole: half a word after a dot says less than nothing.
+                ViewThatFits(in: .horizontal) {
+                    rowName(task, tail: model.handovers[task.id]?.tail ?? model.recaps[task.id]?.steps.last)
+                    rowName(task, tail: nil)
                 }
-                if let recap {
-                    // It runs on under the glyph's column, so its lines wrap less.
-                    TaskRecapView(recap: recap, agent: model.agent(for: task)).padding(.top, 2).padding(.trailing, -(Self.actionWidth - 12)).transition(.opacity)
-                } else if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2).multilineTextAlignment(.leading) }
-                if let folders = model.folderLabel(for: task) {
-                    Label(folders, systemImage: "folder").font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1).help("Works in " + folders)
+                .font(.system(size: 13, weight: unread ? .semibold : .regular))
+                .foregroundStyle(dot == .done || naming ? Palette.muted : Palette.ink)
+                Spacer(minLength: 0)
+                // The glyph only shows the state; the whole row is the one place to click.
+                HStack(spacing: 4) {
+                    TaskDot(kind: dot)
+                    if let waiting { MessageAge(date: waiting).transition(.opacity) }
                 }
+                .allowsHitTesting(false)
             }
-            // The words come first, so a recap gets the row's whole width rather than half of it.
-            .layoutPriority(1)
-            Spacer(minLength: 6)
+            .frame(minHeight: Self.nameLine)
+            if let exchange {
+                TaskRecapView(exchange: exchange, agent: model.agent(for: task), asking: dot.waitsOnUser).padding(.top, 1).transition(.opacity)
+                // What holds the task stays in view under the exchange: a wait, a permission, a prerequisite.
+                if let held = model.statusLine(for: task) {
+                    Text(held).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(1)
+                }
+            } else if let detail {
+                // No exchange to show, so the line stands alone; it keeps the exchange's column all the same, or the
+                // board's left edge would jump from row to row.
+                Text(detail).font(.system(size: 11)).foregroundStyle(Palette.muted).lineLimit(2).multilineTextAlignment(.leading)
+                    .padding(.leading, TaskRecapView.gutter)
+            }
         }
-        .padding(.vertical, 8).padding(.trailing, Self.actionWidth).frame(maxWidth: .infinity, alignment: .leading)
-        // The wash takes the slip's shape; the rules either side give way to it.
+        .padding(.vertical, Self.rowPadding).frame(maxWidth: .infinity, alignment: .leading)
+        // The wash takes the tile's shape and lies over it.
         .background { RowWash(hover: hover, id: task.id, slip: unread) }
         .background { UnreadSlip(on: unread, since: model.cameBack(task)).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
+        // Every row is a tile of its own, so rows part by a gap rather than a rule. An unread row's slip covers it.
+        .background { RowTile() }
         // The task the top bar's reading acts on, in the slip's own shape.
         .overlay { ReadingRing(on: model.readingTarget == task.id).padding(.horizontal, -(Self.cardInset - Self.slipInset)) }
-        // A lifted slip stands a little apart from its neighbours, so two in a row read as two.
-        .padding(.vertical, unread ? 3 : 0)
-        .overlay(alignment: .top) { RowRule(hover: hover, id: task.id, above: previous?.id, lifted: unread || previous.map(model.isUnread) == true) }
-        // Unread is a dot centred in the slip's margin, like an unread mail: the eye runs down one column.
+        .padding(.vertical, Self.tileSpace)
+        // Unread is a dot in the slip's margin beside the name, like an unread mail: the eye runs down one column.
         // Centred on what the eye sees: from inside the slip's 1 pt edge to where the title's ink begins, half a point in.
-        // Beside the name on a row with a recap: the slip's 3 pt, the row's 8 pt, then half the name's first line.
-        .overlay(alignment: recap == nil ? .leading : .topLeading) {
+        .overlay(alignment: .topLeading) {
             if unread { UnreadDot(size: Self.unreadDot).offset(x: ((Self.slipInset + 1) + (Self.cardInset + 0.5)) / 2 - Self.cardInset - Self.unreadDot / 2,
-                                                               y: recap == nil ? 0 : Self.recapNameMiddle - Self.unreadDot / 2) }
+                                                               y: Self.tileSpace + Self.rowPadding + Self.nameLine / 2 - Self.unreadDot / 2) }
         }
         // The slip rises once when the work comes back and settles when the task's choices close.
         .animation(Motion.move, value: unread)
-        // The glyph only shows the state; the whole row is the one place to click.
-        .overlay(alignment: .trailing) {
-            // Beside the name on a row with a recap, rather than in the middle of it.
-            TaskDot(kind: dot).frame(width: Self.actionWidth - 6).frame(maxHeight: .infinity, alignment: recap == nil ? .center : .top)
-                .padding(.top, recap == nil ? 0 : Self.recapNameMiddle - 8).allowsHitTesting(false)
-        }
     }
 
-    /// Every row opens the same choices: what's next with the chat, and Done or Wait until….
+    /// Every row opens the same way: the task over the board, grown out of its row, with what it says and what's next.
     private func choose(_ task: FaciendaTask) {
-        choosing = task.id
+        let row = rowFrames.rows[task.id]?.offsetBy(dx: rowFrames.origin.x, dy: rowFrames.origin.y)
+        withAnimation(TaskOpenLayer.motion(from: row)) { model.showTask(task, from: row) }
     }
 
     /// Scrolls to the task the top bar brought back and opens its choices, showing its state again if a filter hid it.
@@ -792,25 +889,53 @@ struct GroupBoard: View {
         // Its card opens if it was folded, so the row is there for its choices.
         if isFolded(card) { setFolded([card], false) }
         scrollTarget = card
-        // The choices wait for the scroll, so they open on the row where it lands.
-        Task { try? await Task.sleep(for: .milliseconds(400)); choosing = id }
+        // The task waits for the scroll, so it opens out of the row where it lands.
+        Task { try? await Task.sleep(for: .milliseconds(400)); if let task = model.tasksByID[id] { choose(task) } }
     }
 
-    @ViewBuilder private func actions(_ task: FaciendaTask, in group: String?, among tasks: [FaciendaTask], at index: Int) -> some View {
+    /// Brings the row Goals pointed at into view once the window has turned, and lights it and its card. A filter
+    /// hiding it gives way, and Planned shows for a planned row.
+    private func landRequested() {
+        guard let id = model.boardLandRequest else { return }
+        model.boardLandRequest = nil
+        let line = model.planLines.first { Self.plannedKey($0.id) == id }
+        let group = model.groups.contains { $0.id == id } ? id : line?.groupId ?? model.groupMembers[id]
+        let card = group.flatMap { group in model.groups.contains { $0.id == group } ? group : nil } ?? Self.looseKey
+        if line != nil, hidden.contains("notStarted") {
+            hiddenStates = hidden.subtracting(["notStarted"]).sorted().joined(separator: ",")
+        } else if line == nil, group != id, !visibleLists.values.contains(where: { $0.contains { $0.id == id } }) {
+            hiddenStates = LegendScope.board.defaultHidden; onlyNew = false
+        }
+        if isFolded(card) { setFolded([card], false) }
+        scrollTarget = card
+        Task {
+            // The landing ripple keeps its own clock: it plays once the turn (Motion.travel) has brought the card in.
+            try? await Task.sleep(for: .milliseconds(520))
+            landed = card
+            if group != id { hover.row = id }
+            try? await Task.sleep(for: .seconds(1.6))
+            if hover.row == id { hover.row = nil }
+        }
+    }
+
+    @ViewBuilder private func actions(_ task: FaciendaTask) -> some View {
         if let recovery = model.recoveryDispatch(for: task.id) { DeliveryRecoveryMenu(model: model, item: recovery); Divider() }
+        if task.state.isOpen {
+            Button("Mark as done", systemImage: "checkmark") { withAnimation(Motion.move) { model.complete(task) } }
+            Divider()
+        }
         Button("Rename automatically", systemImage: "sparkles") { model.generateName(for: task) }.disabled(model.namingTasks.contains(task.id))
         Button("Rename…", systemImage: "pencil") { beginRename(task) }
         Divider()
-        // Ask first is the old, stricter scope; it shows as the careful choice.
-        Picker(selection: Binding(get: { task.automationScope == .autonomous ? AutomationScope.autonomous : .prepareOnly }, set: { model.setScope(task, $0) })) {
-            Text("Prepares, then asks me").tag(AutomationScope.prepareOnly)
-            Text("Goes ahead").tag(AutomationScope.autonomous)
-        } label: { Label("Agent", systemImage: "hand.raised") }
+        Menu("Goal", systemImage: "scope") { ServesChoices(model: model, taskID: task.id) }
+        if HandoverChoices.offered(task, in: model) {
+            Menu("Continue in a new chat", systemImage: "arrow.triangle.swap") { HandoverChoices(model: model, task: task) }
+        }
         Divider()
-        // Up and down step past the neighbours on screen.
-        Button("Move up", systemImage: "arrow.up") { reorder(task, in: group, at: .above(tasks[index - 1].id)) }.disabled(index == 0)
-        Button("Move down", systemImage: "arrow.down") { reorder(task, in: group, at: .below(tasks[index + 1].id)) }.disabled(index == tasks.count - 1)
-        Divider()
+        if !model.otherWorkspaces.isEmpty {
+            Menu("Move to workspace", systemImage: "arrow.right.circle") { WorkspaceMoveChoices(model: model, task: task) }
+            Divider()
+        }
         Button("Delete task…", systemImage: "trash", role: .destructive) { deleting = task }
     }
 
@@ -844,10 +969,6 @@ struct GroupBoard: View {
         guard renamingTask == task.id else { return }
         renamingTask = nil
         model.renameTask(task, name: taskDraft)
-    }
-
-    private func finish(_ task: FaciendaTask) {
-        withAnimation(Motion.move) { model.complete(task) }
     }
 
     /// The board's +: a sheet with the group's name and its first task. Asking again while it is up lets it go.
@@ -884,6 +1005,28 @@ struct GroupBoard: View {
     }
 }
 
+/// Where a task can move, as menu items: each other workspace, and in it no group or one of its groups.
+/// A workspace without groups is a single choice.
+struct WorkspaceMoveChoices: View {
+    let model: AppModel
+    let task: FaciendaTask
+
+    var body: some View {
+        ForEach(model.otherWorkspaces) { workspace in
+            let groups = model.otherGroups[workspace.id] ?? []
+            if groups.isEmpty {
+                Button(workspace.name) { model.moveTask(task, to: workspace) }
+            } else {
+                Menu(workspace.name) {
+                    Button("No group") { model.moveTask(task, to: workspace) }
+                    Divider()
+                    ForEach(groups) { group in Button(group.name) { model.moveTask(task, to: workspace, group: group) } }
+                }
+            }
+        }
+    }
+}
+
 /// A task lifted off the board: where the pointer is, where it grabbed the row, the row's size, and whether it is over the New group card.
 /// A planned row lifts the same way; its `id` is then its plan line's.
 struct RowDrag: Equatable {
@@ -917,7 +1060,7 @@ struct PlusButton: View {
         .background(GroupBoard.GraceZone())
     }
 
-    private struct PressFade: ButtonStyle {
+    struct PressFade: ButtonStyle {
         func makeBody(configuration: Configuration) -> some View { configuration.label.opacity(configuration.isPressed ? 0.7 : 1) }
     }
 }
@@ -929,41 +1072,60 @@ private struct PlannedRow: View {
     let model: AppModel
     let line: PlanLine
     let hover: BoardHover
-    let above: String?
-    let lifted: Bool
     /// True while a row is carried across the board: the rows it passes don't wash, and letting go over play doesn't start this one.
     let carrying: Bool
     @State private var launching = false
+    /// Its popover is open: the words, its group and Start, in one place.
+    @State private var opened = false
     private var key: String { GroupBoard.plannedKey(line.id) }
 
     var body: some View {
         let hot = hover.row == key
         VStack(alignment: .leading, spacing: 3) {
-            Text(line.text).font(.system(size: 13)).foregroundStyle(Palette.ink).shortened(to: 2).multilineTextAlignment(.leading)
+            // Laid out as a task's row: the circle that starts it at the end of the name's line.
+            HStack(spacing: 8) {
+                Text(line.text).font(.system(size: 13)).foregroundStyle(Palette.ink).shortened(to: 1)
+                Spacer(minLength: 0)
+                Button { start() } label: {
+                    Group {
+                        if launching { ProgressView().controlSize(.mini) }
+                        else if hot { Image(systemName: "play.fill").font(.system(size: 9)).foregroundStyle(Palette.blue) }
+                        else { TaskDot(kind: .notStarted) }
+                    }
+                    // A target wider than the circle, so play is easy to hit; it doesn't widen the line.
+                    .frame(width: 16, height: GroupBoard.nameLine).padding(8).contentShape(Rectangle()).padding(-8)
+                }
+                .buttonStyle(.plain).disabled(launching)
+                .help("Start it on \(model.composerModel.name)")
+                .accessibilityLabel("Start “\(line.text)”")
+            }
+            .frame(minHeight: GroupBoard.nameLine)
             Text("Planned").font(.system(size: 11)).foregroundStyle(Palette.muted)
         }
-        .padding(.vertical, 8).padding(.trailing, GroupBoard.actionWidth).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, GroupBoard.rowPadding).frame(maxWidth: .infinity, alignment: .leading)
         .background { GroupBoard.RowWash(hover: hover, id: key) }
-        .overlay(alignment: .top) { GroupBoard.RowRule(hover: hover, id: key, above: above, lifted: lifted) }
-        .overlay(alignment: .trailing) {
-            Button(action: start) {
-                Group {
-                    if launching { ProgressView().controlSize(.mini) }
-                    else if hot { Image(systemName: "play.fill").font(.system(size: 9)).foregroundStyle(Palette.blue) }
-                    else { TaskDot(kind: .notStarted) }
-                }
-                .frame(width: GroupBoard.actionWidth - 6).frame(maxHeight: .infinity).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).disabled(launching)
-            .help("Start it on \(model.composerModel.name)")
-            .accessibilityLabel("Start “\(line.text)”")
-        }
+        .background { GroupBoard.RowTile() }
+        .padding(.vertical, GroupBoard.tileSpace)
         .contentShape(Rectangle())
+        .onTapGesture { if !carrying { opened = true } }
+        .popover(isPresented: $opened, arrowEdge: .bottom) {
+            PlannedPopover(text: line.text, canStart: !launching, startHelp: "Start it on \(model.composerModel.name)") {
+                Menu {
+                    ForEach(model.groups) { group in
+                        Button { move(to: group) } label: {
+                            if group.id == line.groupId { Label(group.name, systemImage: "checkmark") } else { Text(group.name) }
+                        }
+                    }
+                } label: { PlannedPlaceLabel(name: model.groups.first { $0.id == line.groupId }?.name ?? "Its group") }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            } save: { model.setPlanText(line.id, $0) } start: { start($0) } remove: { model.deletePlanLine(line.id) } dismiss: { opened = false }
+        }
         .onHover { inside in if inside, !carrying { hover.row = key } else if hover.row == key { hover.row = nil } }
         // A line cut short shows whole under the pointer, before the row's hint.
-        .fullTextOnHover(line.text, help: "Planned. Drag to move")
+        .fullTextOnHover(line.text, help: "Planned. Click to change it, or drag to move")
         .contextMenu {
             Button("Start now", systemImage: "play") { start() }.disabled(launching)
+            Button("Edit…", systemImage: "pencil") { opened = true }
             Divider()
             Button("Remove from the plan", systemImage: "trash", role: .destructive) { model.deletePlanLine(line.id) }
         }
@@ -971,12 +1133,18 @@ private struct PlannedRow: View {
         .accessibilityLabel(line.text + ", planned")
     }
 
-    private func start() {
+    private func start(_ text: String? = nil) {
         guard !launching, !carrying else { return }
         launching = true
         Task {
-            _ = await model.launchPlanLine(line, text: line.text)
+            _ = await model.launchPlanLine(line, text: text ?? line.text)
             launching = false
         }
+    }
+
+    /// To the end of another group's plan, as carrying it to that card does.
+    private func move(to group: TaskGroup) {
+        guard group.id != line.groupId else { return }
+        withAnimation(Motion.move) { model.placePlanLine(line.id, in: group.id, parentId: nil, before: nil) }
     }
 }

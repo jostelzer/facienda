@@ -69,6 +69,7 @@ public actor CodexDispatcher {
         try store.runnerHeartbeat(Self.runnerId)
         if !filedTaskChats { await fileTaskChats() }
         await releaseFinishedChats()
+        await applyModelChanges()
         try await inspectUnreportedChecks()
         let store = store
         let item = try await Task.detached { try store.waitForDispatch(runnerId: Self.runnerId, seconds: 50) }.value
@@ -137,6 +138,8 @@ public actor CodexDispatcher {
 
     private func send(_ id: String) async throws {
         guard let item = try store.dispatches().first(where: { $0.id == id }) else { throw StoreError.notFound }
+        // A model picked just before this message is set first, so the message runs on it.
+        if let thread = item.threadId { await applyModelChanges(in: thread) }
         let task = try store.task(item.taskId)
         let snapshot = try NativeDispatchPreparation(dispatch: item, task: task, context: store.dispatchContext(id))
         let delivery = try await DispatchPrompt.payload(item, store: store, base: base)
@@ -219,6 +222,33 @@ public actor CodexDispatcher {
                     }
                 }
             } catch { log("Inspect Codex queue \(item.id): \(error.localizedDescription)") }
+        }
+    }
+
+    // MARK: Model changes
+
+    /// Sets the models the user picked for chats that carry on. Codex takes them for the chat's next turn, and the
+    /// Codex app shows them. A refusal is recorded and Facienda shows the model the chat still has; a lost connection
+    /// leaves the change for the next cycle.
+    func applyModelChanges(in thread: String? = nil) async {
+        for change in (try? store.chatModelChanges()) ?? [] where thread == nil || change.threadId == thread {
+            var params: [String: JSONValue] = ["threadId": .string(change.threadId), "model": .string(change.model), "effort": .string(change.effort)]
+            // Null puts the chat back on the standard tier; Fast is for the start it was switched on for.
+            params["serviceTier"] = change.serviceTier.map(JSONValue.string) ?? .null
+            do {
+                do { _ = try await bridge.request("thread/settings/update", params: .object(params)) }
+                catch BridgeError.server {
+                    // A chat Codex has not loaded since it last started takes settings once it is resumed.
+                    _ = try await bridge.request("thread/resume", params: .object(["threadId": .string(change.threadId), "excludeTurns": .bool(true)]), timeout: .seconds(60))
+                    _ = try await bridge.request("thread/settings/update", params: .object(params))
+                }
+                try store.finishChatModelChange(change, applied: true)
+            } catch BridgeError.server(let message) {
+                log("Model change for \(change.threadId): \(message)")
+                try? store.finishChatModelChange(change, applied: false, note: message.contains("active writer") ? "Another Codex window holds the chat." : message)
+            } catch {
+                log("Model change for \(change.threadId) waits: \(error.localizedDescription)")
+            }
         }
     }
 

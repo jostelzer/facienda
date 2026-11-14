@@ -12,7 +12,7 @@ extension FaciendaStore {
         guard let groups = try? db.read({ try String.fetchAll($0, sql: "SELECT id FROM taskGroups") }),
               let files = try? FileManager.default.contentsOfDirectory(atPath: coversDirectory.path) else { return }
         let kept = Set(groups)
-        for file in files where file.hasSuffix(".jpg") && !file.hasPrefix("workspace-") {
+        for file in files where file.hasSuffix(".jpg") && !file.hasPrefix("workspace-") && !file.hasPrefix("goal-") {
             let id = String(file.dropLast(4)).replacingOccurrences(of: ".previous", with: "")
             if !kept.contains(id) { try? FileManager.default.removeItem(at: coversDirectory.appending(path: file)) }
         }

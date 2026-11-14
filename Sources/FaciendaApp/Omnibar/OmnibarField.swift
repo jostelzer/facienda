@@ -28,7 +28,9 @@ struct OmnibarField: View {
     @State private var dropping = false
     private var model: AppModel { omnibar.model }
     /// Results follow the text and the page. Letting a lit group go brings back the results for what was typed.
-    private var refreshKey: String { [omnibar.query, model.destination.rawValue, model.spotlitGroup ?? "-", omnibar.wraps ? "wraps" : "-"].joined(separator: "|") }
+    private var refreshKey: String {
+        [omnibar.query, model.destination.rawValue, model.spotlitGroup ?? "-", omnibar.wraps ? "wraps" : "-", omnibar.aim?.lineID ?? "-"].joined(separator: "|")
+    }
     /// The most the bar can take.
     private var room: CGFloat { min(widest, slotWidth + spare) }
     /// Wide enough for the text on one line beside the chips.
@@ -52,16 +54,12 @@ struct OmnibarField: View {
             // The mic opens the bar, where the eye starts: a 30 pt target that keeps the bar one line tall.
             MicButton(dictation: omnibar.dictation, shortcut: "⌘D", size: 16, look: .lead) { focused = true; omnibar.toggleDictation() }
                 .padding(.leading, -7).padding(.vertical, -3)
+            if let aim = omnibar.aim {
+                chip(aim.text, symbol: "scope", width: 220, help: "The next task works toward “\(aim.text)”", stop: "Let this line go") { omnibar.dropAim() }
+            }
             if let chat = omnibar.followUp {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.turn.down.right").font(.system(size: 9, weight: .semibold))
-                    Text(chat.title).lineLimit(1).frame(maxWidth: 140)
-                    Button { omnibar.followUp = nil } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)) }
-                        .buttonStyle(.plain).accessibilityLabel("Stop continuing from this chat")
-                }.font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
-                    .padding(.horizontal, 7).padding(.vertical, 3).background(Palette.blue.opacity(0.1), in: Capsule())
-                    .frame(height: 24)
-                    .help("The next task continues from “\(chat.title)”")
+                chip(chat.title, symbol: "arrow.turn.down.right", width: 140, help: "The next task continues from “\(chat.title)”",
+                     stop: "Stop continuing from this chat") { omnibar.followUp = nil }
             }
             VStack(alignment: .leading, spacing: 6) {
                 TextField(placeholder, text: $omnibar.query, selection: $selection, axis: .vertical)
@@ -152,6 +150,19 @@ struct OmnibarField: View {
         .onChange(of: model.dictationRequest) { if model.composersOnScreen == 0 { focused = true; omnibar.toggleDictation() } }
     }
 
+    /// What the next task hangs on, before the text: the line from Goals it works toward, or the chat it continues from.
+    private func chip(_ text: String, symbol: String, width: CGFloat, help: String, stop: String, remove: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 9, weight: .semibold))
+            Text(text).lineLimit(1).frame(maxWidth: width)
+            Button(action: remove) { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)) }
+                .buttonStyle(.plain).accessibilityLabel(stop)
+        }.font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue)
+            .padding(.horizontal, 7).padding(.vertical, 3).background(Palette.blue.opacity(0.1), in: Capsule())
+            .frame(height: 24)
+            .help(help)
+    }
+
     private var placeholder: String {
         switch omnibar.dictation.phase {
         case .downloading: return "Downloading the speech model… \(Int(omnibar.dictation.progress * 100))%"
@@ -162,6 +173,8 @@ struct OmnibarField: View {
         case .listening: return omnibar.dictation.showsVoice ? "" : "Listening…"
         case .idle, .finishing: break
         }
+        // A line from Goals is a small goal, not a task yet: the bar asks for what it lacks.
+        if omnibar.aim != nil { return "Add detail…" }
         if !omnibar.attachments.isEmpty { return "What should happen with \(omnibar.attachments.count == 1 ? "it" : "them")?" }
         return omnibar.followUp != nil ? "What should happen next?" : "Start a task, find anything, or ask…"
     }

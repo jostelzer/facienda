@@ -20,12 +20,15 @@ struct WorkspaceSheetView: View {
 private struct WorkspaceManagerView: View {
     @Bindable var workspaces: WorkspaceController
     @State private var search = ""
-    @State private var deletion: Workspace?
-    @State private var deleting = false
+    @State private var archiving: Workspace?
+    @State private var busy = false
     @FocusState private var searchFocused: Bool
 
     private var matches: [Workspace] {
         workspaces.workspaces.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
+    }
+    private var archivedMatches: [Workspace] {
+        workspaces.archived.filter { search.isEmpty || $0.name.localizedStandardContains(search) }
     }
 
     var body: some View {
@@ -54,11 +57,28 @@ private struct WorkspaceManagerView: View {
                             }.buttonStyle(.plain).accessibilityLabel("Open \(workspace.name)")
                             Button { workspaces.error = nil; workspaces.sheet = .edit(workspace) } label: { Image(systemName: "pencil") }
                                 .buttonStyle(.borderless).help("Edit \(workspace.name)").accessibilityLabel("Edit \(workspace.name)")
-                            Button(role: .destructive) { deletion = workspace } label: { Image(systemName: "trash") }
-                                .buttonStyle(.borderless).help("Delete \(workspace.name)").accessibilityLabel("Delete \(workspace.name)")
+                            Button { workspaces.error = nil; archiving = workspace } label: { Image(systemName: "archivebox") }
+                                .buttonStyle(.borderless).help("Archive \(workspace.name)").accessibilityLabel("Archive \(workspace.name)")
+                                .disabled(workspaces.workspaces.count < 2)
                         }.padding(16).background(Palette.card, in: RoundedRectangle(cornerRadius: 10))
                     }
-                    if matches.isEmpty { Text(search.isEmpty ? "Create a workspace to get started." : "No matching workspaces").foregroundStyle(Palette.muted).padding(24) }
+                    if matches.isEmpty && archivedMatches.isEmpty {
+                        Text(search.isEmpty ? "Create a workspace to get started." : "No matching workspaces").foregroundStyle(Palette.muted).padding(24)
+                    }
+                    if !archivedMatches.isEmpty {
+                        Text("Archived").font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 12).padding(.leading, 4)
+                        ForEach(archivedMatches) { workspace in
+                            HStack(spacing: 12) {
+                                Image(systemName: "archivebox").foregroundStyle(Palette.muted)
+                                Text(workspace.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.muted)
+                                Spacer()
+                                Button("Restore") { workspaces.restore(workspace) }.buttonStyle(QuietButton())
+                                    .accessibilityLabel("Restore \(workspace.name)")
+                            }.padding(.horizontal, 16).padding(.vertical, 10)
+                                .background(Palette.card.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
                 }
             }.frame(minHeight: 140, maxHeight: .infinity)
             if let error = workspaces.error { Text(error).font(.system(size: 12)).foregroundStyle(Palette.accent).fixedSize(horizontal: false, vertical: true) }
@@ -67,15 +87,15 @@ private struct WorkspaceManagerView: View {
                 Button("New workspace…") { workspaces.error = nil; workspaces.sheet = .create }.buttonStyle(QuietButton(prominent: true))
             }
         }.padding(28).frame(width: 570, height: 480).onAppear { searchFocused = true }
-            .disabled(deleting)
-            .alert("Delete workspace?", isPresented: Binding(presenting: $deletion), presenting: deletion) { workspace in
-                Button("Cancel", role: .cancel) { deletion = nil }
-                Button("Delete workspace", role: .destructive) {
-                    deleting = true
-                    Task { _ = await workspaces.remove(workspace); deleting = false; deletion = nil }
+            .disabled(busy)
+            .alert("Archive workspace?", isPresented: Binding(presenting: $archiving), presenting: archiving) { workspace in
+                Button("Cancel", role: .cancel) { archiving = nil }
+                Button("Archive") {
+                    busy = true
+                    Task { _ = await workspaces.archive(workspace); busy = false; archiving = nil }
                 }
             } message: { workspace in
-                Text("Remove “\(workspace.name)” from Facienda? Its finished tasks, Codex chats and memory are kept in your library. A workspace with open tasks can't be deleted until they're done or moved.")
+                Text(WorkspaceSidebar.archiveMessage(workspace, running: workspaces.runningCount(for: workspace)))
             }
     }
 }

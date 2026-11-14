@@ -4,29 +4,41 @@ import UniformTypeIdentifiers
 extension View {
     /// Pasting, dropping or picking files into a field that writes the omnibar's text: the top bar and a group's sheet.
     func takesAttachments(_ omnibar: OmnibarModel, focus: FocusState<Bool>.Binding, dropping: Binding<Bool>? = nil) -> some View {
-        modifier(AttachmentInput(omnibar: omnibar, focus: focus, dropping: dropping))
+        modifier(AttachmentInput(focused: { focus.wrappedValue }, dropping: dropping) { urls, dropped in
+            omnibar.attach(urls)
+            if dropped { focus.wrappedValue = true }
+        })
+    }
+
+    /// The same for a field with a list of its own, such as the answer field of an opened task. `focused` says whether
+    /// ⌘V is meant for it; `attach` also hears whether the files were dropped, so it can take the keyboard.
+    func takesAttachments(focused: @escaping () -> Bool, dropping: Binding<Bool>? = nil, attach: @escaping (_ urls: [URL], _ dropped: Bool) -> Void) -> some View {
+        modifier(AttachmentInput(focused: focused, dropping: dropping, attach: attach))
     }
 }
 
 private struct AttachmentInput: ViewModifier {
-    let omnibar: OmnibarModel
-    let focus: FocusState<Bool>.Binding
+    let focused: () -> Bool
     let dropping: Binding<Bool>?
+    let attach: (_ urls: [URL], _ dropped: Bool) -> Void
     @State private var pasteMonitor: Any?
 
     func body(content: Content) -> some View {
         content
             .dropDestination(for: URL.self) { urls, _ in
                 guard urls.contains(where: \.isFileURL) else { return false }
-                omnibar.attach(urls); focus.wrappedValue = true
+                attach(urls, true)
                 return true
             } isTargeted: { dropping?.wrappedValue = $0 }
             // The text field takes only text, so ⌘V with a picture or copied files would do nothing.
             .onAppear {
-                let focus = focus, omnibar = omnibar
+                let focused = focused, attach = attach
                 pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    guard focus.wrappedValue, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                          event.charactersIgnoringModifiers?.lowercased() == "v", omnibar.pasteAttachments() else { return event }
+                    guard focused(), event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                          event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
+                    let files = OmnibarModel.pastedFiles()
+                    guard !files.isEmpty else { return event }
+                    attach(files, false)
                     return nil
                 }
             }
@@ -64,17 +76,25 @@ struct AttachmentRow: View {
     let omnibar: OmnibarModel
 
     var body: some View {
+        AttachmentChips(urls: omnibar.attachments) { url in omnibar.attachments.removeAll { $0 == url } }
+    }
+}
+
+/// Files waiting to be sent, in one line that scrolls sideways.
+struct AttachmentChips: View {
+    let urls: [URL]
+    var remove: (URL) -> Void
+
+    var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(omnibar.attachments, id: \.self) { url in
-                    AttachmentChip(url: url) { omnibar.attachments.removeAll { $0 == url } }
-                }
+                ForEach(urls, id: \.self) { url in AttachmentChip(url: url) { remove(url) } }
             }
         }.frame(height: 32)
     }
 }
 
-/// A file waiting to go with the next task: a thumbnail for pictures, the file's icon otherwise.
+/// A file waiting to be sent: a thumbnail for pictures, the file's icon otherwise.
 private struct AttachmentChip: View {
     let url: URL
     var remove: () -> Void

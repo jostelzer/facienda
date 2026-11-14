@@ -72,7 +72,11 @@ enum ClaudeCommand {
             if let group = naming["group"].string { _ = try? store.proposeGroup(taskId: named.id, runnerID: session, name: group) }
             return JSONValue.object(["displayTitle": .string(named.displayName)]).json
         case "begin":
-            return try JSONValue.encoded(store.beginClaudeDelivery(arguments.required("--dispatch-id"), runnerId: session)).json
+            // Only what the runner goes on with. The whole record holds a reply's words under "message", and a runner
+            // sent those on in place of the job's message: the session then never read the request from Facienda.
+            let item = try store.beginClaudeDelivery(arguments.required("--dispatch-id"), runnerId: session)
+            return JSONValue.object(["dispatchId": .string(item.id), "state": .string(item.state), "threadId": item.threadId.map(JSONValue.string) ?? .null,
+                                     "next": .string("Send the \"message\" that --claude next gave for this dispatch. It starts with \"Facienda dispatch: \(item.id)\".")]).json
         case "ack":
             let id = try arguments.required("--dispatch-id")
             guard let item = try store.dispatches().first(where: { $0.id == id }), let thread = item.threadId else { throw StoreError.notFound }
@@ -166,6 +170,16 @@ enum ClaudeCommand {
             let task = try store.task(session.taskId)
             let groups = try (task.workspaceId.map { store.scoped(to: $0) } ?? store).groups().map { JSONValue.string($0.name) }
             let choice = session.model.map { TaskModelChoice(model: $0, effort: session.effort ?? "high", fast: session.fast) }
+            // A session that already works on its task only switches model. Its job says so itself, since a runner set up
+            // from older instructions knows configure as a new session's step, with a title and Fast only ever turned on.
+            if session.changedAt != nil {
+                return .object([
+                    "type": .string("configure"), "threadId": .string(session.threadId), "taskId": .string(task.id), "change": .bool(true),
+                    "model": session.model.map(JSONValue.string) ?? .null, "modelName": choice.map { .string($0.name) } ?? .null,
+                    "effort": session.effort.map(JSONValue.string) ?? .null, "fast": .bool(session.fast), "start": .null,
+                    "next": .string("The user picked another model for this existing session in Facienda. Leave its title alone and send it no message. In one message call mcp__ccd_session_mgmt__set_session_model with exactly \"model\" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with \"effort\" (when not null) and mcp__ccd_session_mgmt__set_session_fast_mode with enabled = \"fast\" (true or false), each with session_id = threadId. Then run \(base) --claude configured --thread-id \(session.threadId) --applied true (false when a step was refused) --note \"what was applied or refused\" && \(base) --claude next.")
+                ])
+            }
             return .object([
                 "type": .string("configure"), "threadId": .string(session.threadId), "taskId": .string(task.id),
                 "model": session.model.map(JSONValue.string) ?? .null, "modelName": choice.map { .string($0.name) } ?? .null,
@@ -226,11 +240,11 @@ enum ClaudeCommand {
         You are the Facienda runner for Claude, session \(runner.sessionId ?? "unknown"), serving every workspace in the Facienda library at \(store.nativeProjectDirectory.path). Facienda is the user's task dashboard. You only relay between Facienda and the user's Claude task sessions: never do task work, never read or change project files, never message any session except those this protocol names, and never answer permission prompts for other sessions. Reread these instructions with \(base) --claude instructions whenever you are unsure.
 
         HOW YOU WAKE
-        Keep exactly one background wait running. Start it with the Bash tool with run_in_background set to true:
+        Keep exactly one background wait running. Start it with the Bash tool with run_in_background set to true, exactly as written:
           \(base) --claude watch --seconds 3000
-        It finishes when Facienda has work for you, and that wakes you. An hourly alarm in this session wakes you too, with the prompt "\(alarmPrompt)"; when --claude next returns an "alarm" field, do what it says before step 2.
+        It finishes when Facienda has work for you, and that wakes you. Never put it inside a timeout, alarm, retry loop or script: it already rides out a busy library, and each early exit is a wake for nothing. An hourly alarm in this session wakes you too, with the prompt "\(alarmPrompt)"; when --claude next returns an "alarm" field, do what it says before step 2.
         Once now, not on later wakes: if you have a tool for starting a new Claude Code session (such as mcp__ccd_session__start_session), run \(base) --claude capabilities --can-start-sessions true; otherwise run it with false. Facienda then knows whether it must open new task sessions in the Claude app for the user to send.
-        Each wake rereads this whole conversation, so keep wakes short: no plan or to-do list, no notes to yourself, and one Bash call where one will do. Each time you wake, and once now:
+        Each wake rereads this whole conversation, so keep wakes short: no plan or to-do list, no notes to yourself, no plan or wrap-up tools (such as mcp__ccd_turn__update_plan or mcp__ccd_turn__wrap_up), and one Bash call where one will do. Each time you wake, and once now:
         1. Run \(base) --claude next; \(base) --claude unreported as one Bash command. Handle the job next returned, as below, and run next again until it returns "status": "idle", at most 8 jobs per wake.
         2. For each check unreported listed, read that session's latest messages with mcp__ccd_session_mgmt__list_events (limit 6). Only if its turn has clearly finished without a report, run \(base) --claude missed-report --dispatch-id DISPATCH_ID. Leave active sessions alone.
         3. Start the background wait again unless one is still running (never run two at once).
@@ -239,10 +253,11 @@ enum ClaudeCommand {
         JOBS FROM --claude next
         Every step you take rereads this whole conversation, and the user is waiting, so make the calls of each step together in one message.
         type "configure": a new task session has linked and waits for its settings before it starts work.
-          a. In one message, call together: mcp__ccd_session_mgmt__set_session_model with exactly "model" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with "effort" (when not null), mcp__ccd_session_mgmt__set_session_fast_mode with enabled true (when "fast" is true), and mcp__ccd_session_mgmt__set_session_title (session_id = threadId) with the title. The title is "title", unless "needsTitle" is true: then write a concise title for originalRequest (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language), and in the same message run one Bash command that saves task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and then runs \(base) --claude name --task-id TASK_ID --title-file FILE. When "sidebar" is not null, do what it says.
+          a. In one message, call together: mcp__ccd_session_mgmt__set_session_model with exactly "model" (when not null; never choose a different model), mcp__ccd_session_mgmt__set_session_effort with "effort" (when not null), mcp__ccd_session_mgmt__set_session_fast_mode with enabled true (when "fast" is true), and mcp__ccd_session_mgmt__set_session_title (session_id = threadId) with the title. The title is "title", unless "needsTitle" is true: then write a concise title for originalRequest (action plus subject in the user's own words, at most \(TaskNameWriter.anchorLength) characters, with room to spare (their board writes where the thread went after it), in the request's language), and in the same message run one Bash command that saves task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, adding "group":"exact name" only when the task clearly belongs to one of "groups", and then runs \(base) --claude name --task-id TASK_ID --title-file FILE. When "sidebar" is not null, do what it says.
           b. If the app refused the model but listed an id for the same model, set that id. Any other refused step is not retried.
           c. If "start" is not null, send its "message" verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId, once the calls in a have returned. It starts the session's work on the settings you just applied.
           d. Always finish with one Bash command: \(base) --claude configured --thread-id THREAD_ID --applied true (or false when a step was refused) --note "what was applied or refused", then, when you sent the start and the result said delivered or queued, && \(base) --claude ack --dispatch-id START_DISPATCH_ID, then && \(base) --claude next, and handle what it returns. If sending the start failed, defer it as for a delivery (c below) instead of ack. A session without a start is waiting for configured, so never put it off.
+          When "change" is true, the session already works on its task and the user only picked another model: do what its "next" says instead of a to d.
         type "deliver": the start of a task session Facienda created, or a reply, an answer or a scheduled check for an existing one.
           a. Run \(base) --claude begin --dispatch-id DISPATCH_ID.
           b. Send the "message" field verbatim with mcp__ccd_session_mgmt__send_message, session_id = threadId; it starts the session even when it is idle. If that tool is unavailable, use SendMessage with threadId as the recipient.

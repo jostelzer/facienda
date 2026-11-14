@@ -55,8 +55,11 @@ public enum TaskNameWriter {
     public static let reasoningEffort = "low"
     /// Codex clips longer chat titles with an ellipsis, so the chat would no longer carry the task's name.
     public static let maximumLength = 40
+    /// What a name is asked for: the anchor the user recognises, short enough that where the thread went since fits
+    /// after it on their board. The limit above is what a name may never exceed.
+    public static let anchorLength = 28
     public static let developerInstructions = """
-    Name a task on the user's dashboard: a short label they recognise at a glance, at most \(maximumLength) characters. Action plus subject, like a good email subject.
+    Name a task on the user's dashboard: a short label they recognise at a glance, at most \(anchorLength) characters and never more than \(maximumLength). Action plus subject, like a good email subject, in the user's own words where they used any. Their board writes where the thread went since after the name, so leave it room.
     Base it on what the task is really about now. Tasks drift: the REQUEST is only where it started; its NOTES, NEXT STEP, RECENT CHAT (oldest first) and LATEST RESULT show where it went.
     When the work has moved on from the request, name where it stands now, giving the user's latest messages the most weight. The CURRENT NAME is what the user found unhelpful, so do not just repeat it.
     No quotes, no trailing period, no emoji, no dates unless they identify the task. Write in the user's LANGUAGE.

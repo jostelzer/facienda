@@ -122,7 +122,7 @@ struct RunnersPane: View {
 
     /// The runner's model, and a warning when it costs far more than passing work on needs.
     @ViewBuilder private func runnerModel(_ id: String, effort: String?) -> some View {
-        let name = TaskModelChoice.catalog.first { $0.id == id }?.name ?? id
+        let name = TaskModelChoice.name(of: id)
         let setting = "Runs on \(name)" + (effort.map { ", \(TaskModelChoice.effortName($0).lowercased()) effort" } ?? "") + "."
         if ClaudeRunnerState.isCostly(model: id) {
             Label(setting + " The runner only passes work on, so Sonnet does that as well for far less. Switch it in the runner’s session.", systemImage: "exclamationmark.circle")

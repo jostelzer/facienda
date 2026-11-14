@@ -51,7 +51,7 @@ extension FaciendaStore {
         guard ["start", nil].contains(item.kind), task.state.isOpen, task.displayTitle == nil else { return nil }
         let title = sessionId.isEmpty ? "" : " Then title this session with it using mcp__ccd_session_mgmt__set_session_title (session_id = \(sessionId)), if you have that tool."
         return """
-        FIRST, NAME THIS TASK: Facienda has no short name for it yet. Write a concise title for the original request (action plus subject, at most \(TaskNameWriter.maximumLength) characters, in the request's language), save task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, and run \(base) --claude name --task-id \(task.id) --title-file FILE. Use the title it prints, which may be one set meanwhile.\(title) Naming must never block the task: if it fails, carry on. The original request stays the task's title in Facienda.
+        FIRST, NAME THIS TASK: Facienda has no short name for it yet. Write a concise title for the original request (action plus subject in the user's own words, at most \(TaskNameWriter.anchorLength) characters, with room to spare (their board writes where the thread went after it), in the request's language), save task-local JSON {"displayTitle":"TITLE"} to a file in your scratch space, and run \(base) --claude name --task-id \(task.id) --title-file FILE. Use the title it prints, which may be one set meanwhile.\(title) Naming must never block the task: if it fails, carry on. The original request stays the task's title in Facienda.
         """
     }
 

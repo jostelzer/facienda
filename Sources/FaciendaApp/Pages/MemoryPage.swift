@@ -344,7 +344,7 @@ struct MemoryPage: View {
     }
     /// What agents here may read from other workspaces, read-only, and who reads this one. Links are made on the island.
     private var readsCard: some View {
-        card("Read from other workspaces", hint: "Agents here may read these, never change them. Rules and moves stay home. To link one, right-click this workspace's planet on the island and choose Read another memory, or hold ⌥ and drag another planet onto it.") {
+        card("Read from other workspaces", hint: "Agents here may read these, never change them. Rules and moves stay home. To link one, right-click this workspace on the island and choose Read another memory, or hold ⌥ and drag another workspace onto it.") {
             ForEach(readFrom, id: \.name) { source in
                 DisclosureGroup {
                     ForEach(source.entries.prefix(30)) { entry in

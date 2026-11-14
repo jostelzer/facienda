@@ -14,7 +14,7 @@ Agents are treated as untrusted, since a web page, email or file they read can c
 
 - Each task's chat gets a secret handle. Facienda's tools act only on the task whose handle they are given; they cannot answer approvals, start a task or mark it done.
 - Facienda's permission rules in Claude are limited to its own task folders and pinned to your library.
-- Text agents write is shown with care: no remote images, links open only web pages, mail or Facienda's own chat links, files are only revealed in Finder, and approval requests show the full command, files and access asked for.
+- Text agents write is shown with care: no remote images, links open only web pages, mail or Facienda's own chat links, files are only revealed in Finder (a web page in the task's folders, such as a mock, opens in a Facienda window that loads nothing from the network and reads only its own folder), and approval requests show the full command, files and access asked for.
 
 What Facienda cannot protect against:
 

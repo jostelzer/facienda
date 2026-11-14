@@ -17,6 +17,15 @@ enum Destination: String, CaseIterable, Identifiable {
     }
 }
 
+/// The end of a task's chat as its row shows it: the user's last words and the agent's last answer, or while there is
+/// no answer yet, a line saying where the words are.
+struct RowExchange: Equatable {
+    var said: String?
+    var answer: String?
+    /// "Claude is working", "On its way to Codex": stands in for an answer still to come.
+    var working: String?
+}
+
 enum TaskStatus: Equatable {
     /// For review, by what the user is asked: close it (ready), answer (needsInput), allow (needsPermission) or just read.
     case ready, needsInput, needsPermission, needsReview, recovery, prerequisiteChanged, paused
@@ -134,16 +143,87 @@ extension AppModel {
         abs(date.timeIntervalSinceNow) < 6 * 86400 ? date.formatted(Date.FormatStyle().weekday(.abbreviated).hour().minute()) : date.formatted(date: .abbreviated, time: .shortened)
     }
 
-    /// What a new row shows in place of its line: the recap written from the turn that brought the work back.
-    /// Nil once the task is read (on the board, when its choices close), and until a recap for this return is written.
+    /// What every row shows in place of its line: the recap written from the turn that last brought the work back, the
+    /// user's last words and the answer. Read or new alike. Nil until a recap for the latest return is written, so a stale
+    /// exchange never stands in for newer work.
     func recap(for task: FaciendaTask) -> TaskRecap? {
-        guard isUnread(task), let recap = recaps[task.id], recap.at >= (cameBack(task) ?? .distantPast) else { return nil }
+        guard let recap = recaps[task.id], recap.at >= (cameBack(task) ?? .distantPast) else { return nil }
         return recap
+    }
+
+    /// What the user last sent from Facienda while nothing has answered it yet. The recap and the saved chat hold only
+    /// finished turns, so without this the words vanished from the row and the opened task once sent, until the agent
+    /// was done. An answer is the recap of a later turn, a later answer in the chat, a saved result or the agent's handover.
+    func unanswered(for task: FaciendaTask) -> (words: String, at: Date)? {
+        guard let sent = dispatches(for: task.id).last(where: { $0.kind == "reply" && $0.state != "cancelled" }),
+              let words = sent.message?.trimmingCharacters(in: .whitespacesAndNewlines), !words.isEmpty else { return nil }
+        let answered = [recaps[task.id]?.answeredAt, chatEnds[task.id]?.answeredAt, latestResults[task.id]?.at, handovers[task.id]?.at].compactMap { $0 }.max()
+        guard sent.requestedAt > (answered ?? .distantPast) else { return nil }
+        return (words, sent.requestedAt)
+    }
+
+    /// What every row shows under its name: the user's last words and the agent's last answer, word for word, as the
+    /// opened task shows them. Words just sent stand at once, over a line saying where they are; a task whose chat says
+    /// nothing yet shows its request. Nil when there is nothing to show, so the row keeps its line.
+    func rowExchange(for task: FaciendaTask) -> RowExchange? {
+        // A chat not read here yet, as when its app is not connected, still has the exchange its recap kept.
+        let end = chatEnds[task.id] ?? recaps[task.id].map { recap in
+            ChatEnd(said: recap.said, saidAt: recap.saidAt, answer: [recap.answer, recap.ask ?? ""].filter { !$0.isEmpty }.joined(separator: " "),
+                    answeredAt: recap.answeredAt)
+        }
+        var said = end?.said, answer = end?.answer.flatMap { $0.isEmpty ? nil : $0 }
+        // Sent from Facienda and not in the chat yet: those words, and no answer to them so far.
+        if let sent = unanswered(for: task), sent.words != said, sent.at > (end?.answeredAt ?? .distantPast) {
+            said = sent.words; answer = nil
+        }
+        // Before the chat is read, or before it has any words, the request is the user's words. One that is only the
+        // name again is left out: the row says it already.
+        if said == nil, answer == nil {
+            let request = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !request.isEmpty, request != task.displayName { said = TaskHeadline.clip(request, limit: 600) }
+        }
+        var working: String?
+        if answer == nil {
+            let agent = agent(for: task).name
+            // A start on its way already says so in the row's status line; words sent on are the user's own.
+            if pendingDispatch(for: task.id)?.kind == "reply" { working = "On its way to \(agent)" }
+            else if status(for: task) == .working { working = "\(agent) is working" }
+        }
+        guard said != nil || answer != nil || working != nil else { return nil }
+        return RowExchange(said: said, answer: answer, working: working)
+    }
+
+    /// When the task's chat last moved, from the user or the agent: its saved chats, its recap, its latest result,
+    /// which an agent can save between the chat reads, and what it asks the user, so a permission prompt mid-turn
+    /// counts from when it asked. Nil for a task with no chat yet.
+    func lastMessageAt(for task: FaciendaTask) -> Date? {
+        let recap = recaps[task.id]
+        let asks = decisions(for: task.id).map(\.createdAt) + (codexApprovals[task.id] ?? []).map(\.requestedAt)
+        return ([lastMessages[task.id], recap?.answeredAt, recap?.saidAt, latestResults[task.id]?.at].compactMap { $0 } + asks).max()
+    }
+
+    /// A row's age: now, 4 min, 2 h, 3 d, 2 w. Whole units only, so the column stays short and the eye compares numbers.
+    nonisolated static func age(since date: Date, now: Date = Date()) -> String {
+        let minutes = Int(max(0, now.timeIntervalSince(date)) / 60)
+        switch minutes {
+        case ..<1: return "now"
+        case ..<60: return "\(minutes) min"
+        case ..<(24 * 60): return "\(minutes / 60) h"
+        case ..<(14 * 24 * 60): return "\(minutes / (24 * 60)) d"
+        default: return "\(minutes / (7 * 24 * 60)) w"
+        }
     }
 
     /// The line under a task's name: the newest thing worth knowing, in a few words.
     /// Nil when there is nothing worth a line: the glyph already says "not started" or "running".
     func subtitle(for task: FaciendaTask) -> String? {
+        if let line = statusLine(for: task) { return line }
+        return newsLine(for: task)
+    }
+
+    /// What the task is held by, which its glyph can't say: a start under way, a permission, the user's own step, a wait
+    /// or a prerequisite. A row shows it under its last exchange too, so the exchange never hides why nothing moves.
+    func statusLine(for task: FaciendaTask) -> String? {
         let status = status(for: task)
         switch status {
         case .recovery, .prerequisiteChanged, .paused, .queued, .starting, .waitingForChat, .checking, .awaitingSend, .waitingForClaude, .startingInClaude: return status.label
@@ -161,12 +241,19 @@ extension AppModel {
             let names = unmet.map { blocker in blocker.prerequisiteId.flatMap { libraryTask($0)?.displayName } ?? blocker.title }
             return TaskHeadline.clip("Waiting for " + names.joined(separator: ", "))
         }
+        return nil
+    }
+
+    /// The newest thing the task's chat brought: its latest result's headline, a question, or what is next.
+    private func newsLine(for task: FaciendaTask) -> String? {
         let source = latestResults[task.id]
         // A reminder that went off after the latest result speaks for itself.
         if let ended = waits[task.id], !["active", "cancelled"].contains(ended.state), task.state == .needsMe,
            let settled = ended.settledAt, settled > (source?.at ?? .distantPast).addingTimeInterval(5) { return TaskHeadline.clip(task.nextAction) }
         if let source { return headlines[task.id].flatMap { $0.eventId == source.eventId ? $0.text : nil } ?? TaskHeadline.fallback(source.excerpt) }
         if let decision = decisions(for: task.id).first(where: { $0.kind != "completion" }) { return TaskHeadline.clip(decision.question) }
+        // A task kept while its agent was down looks like any other on the board, so its row says it never started.
+        if neverStarted(task) { return TaskStatus.notStarted.label }
         guard task.state.isOpen, ![.inbox, .running].contains(task.state), task.nextAction != FaciendaTask(title: "-").nextAction else { return nil }
         return TaskHeadline.clip(task.nextAction)
     }

@@ -31,6 +31,14 @@ struct TaskDot: View {
             }
         }
 
+        /// The agent has had its say and waits on the user. Only these rows count how long, under the glyph.
+        var waitsOnUser: Bool {
+            switch self {
+            case .review, .question, .permission, .finished, .attention, .onYou: true
+            case .running, .watching, .waiting, .done, .notStarted: false
+            }
+        }
+
         @MainActor init(model: AppModel, task: FaciendaTask) {
             let status = model.status(for: task)
             if status == .recovery || status == .prerequisiteChanged { self = .attention }
@@ -68,11 +76,14 @@ struct TaskDot: View {
 
     let kind: Kind
     var animated = true
+    /// Seconds for one turn of the running arc. The island's badges turn four times slower, so a busy island stays calm.
+    var turn: Double = 1.1
 
-    /// Driven by the clock rather than a repeatForever state animation, which stalls when the view is recycled.
+    /// Driven by the clock rather than a repeatForever state animation, which stalls when the view is recycled. Read off
+    /// the time itself, so every arc with the same turn is in step, however late it came.
     private var arc: some View {
         TimelineView(.animation(paused: !animated)) { context in
-            let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.1) / 1.1
+            let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: self.turn) / self.turn
             Circle().trim(from: 0, to: 0.3).stroke(Palette.green, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(animated ? turn * 360 : 0))
         }
@@ -113,6 +124,18 @@ extension TaskDot.Kind {
         case .done: self = .done
         case .inbox: self = .notStarted
         case .dropped: return nil
+        }
+    }
+}
+
+/// How long a task's agent has waited on the user, under its glyph. It ticks each minute.
+struct MessageAge: View {
+    let date: Date
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            Text(AppModel.age(since: date, now: context.date)).font(.system(size: 10).monospacedDigit()).foregroundStyle(Palette.muted)
+                .lineLimit(1).fixedSize()
         }
     }
 }

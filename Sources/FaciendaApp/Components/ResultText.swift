@@ -4,13 +4,17 @@ import Textual
 
 /// Agent-written Markdown. The text is untrusted: pictures load only from Facienda's data folder, never the network;
 /// links follow `CodexMarkdown.action(for:)`, and a web link whose text hides its address asks first, showing it.
+/// Files the text names in the task's folders become links; a page among them, such as a mock, opens in `PagePreview`.
 struct ResultText: View {
     let model: AppModel
     let text: String
+    var task: FaciendaTask?
     @State private var confirming: URL?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        let markdown = CodexMarkdown.render(text)
+        let folders = model.textFolders(for: task)
+        let markdown = CodexMarkdown.render(text, folders: folders)
         StructuredText(markdown: markdown)
             .font(.system(size: 13)).foregroundStyle(Palette.ink)
             .textual.textSelection(.enabled)
@@ -22,7 +26,8 @@ struct ResultText: View {
                 case .web(let url), .mail(let url):
                     if CodexMarkdown.linkNeedsConfirmation(url, in: markdown) { confirming = url } else { NSWorkspace.shared.open(url) }
                 case .reveal(let path):
-                    if FileManager.default.fileExists(atPath: path) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+                    if let page = CodexMarkdown.localPage(URL(fileURLWithPath: path), within: folders) { openWindow(id: PagePreview.window, value: page) }
+                    else if FileManager.default.fileExists(atPath: path) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
                     else { model.error = "Nothing exists at \(path) any more." }
                 case .codexThread(let id), .claudeSession(let id):
                     model.openThread(id)

@@ -28,21 +28,23 @@ extension FaciendaStore {
         try TaskEvent(taskId: taskId, source: .user, kind: "decision.superseded", payload: pending.map(\.question).joined(separator: "\n"), at: now).insert(db)
     }
 
-    /// Closes the agent's proposal to mark the task done because the user wrote again, so the work goes on.
-    /// Its other asks stay open. If the work is finished after all, the agent proposes again.
-    func setAsideCompletion(_ db: Database, taskId: String, source: EventSource, now: Date) throws {
-        let proposals = try Decision.fetchAll(db, sql: "SELECT * FROM decisions WHERE taskId = ? AND kind = 'completion' AND state = 'pending'", arguments: [taskId])
-        guard !proposals.isEmpty else { return }
-        try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE taskId = ? AND kind = 'completion' AND state = 'pending'", arguments: [now, taskId])
-        try TaskEvent(taskId: taskId, source: source, kind: "decision.superseded", payload: proposals.map(\.question).joined(separator: "\n"), at: now).insert(db)
+    /// Closes what the agent was asking because the user wrote again, so the work goes on: its questions, its requests
+    /// to be allowed something and its proposal to mark the task done. Left open, they stood under every later answer
+    /// as if still asked. What still needs an answer, the agent asks again. Whether the task may start by itself is
+    /// asked about the task, not in a turn, so that one stays.
+    func setAsideAsks(_ db: Database, taskId: String, source: EventSource, now: Date) throws {
+        let asks = try Decision.fetchAll(db, sql: "SELECT * FROM decisions WHERE taskId = ? AND state = 'pending' AND question != ?", arguments: [taskId, Self.readinessQuestion])
+        guard !asks.isEmpty else { return }
+        try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE taskId = ? AND state = 'pending' AND question != ?", arguments: [now, taskId, Self.readinessQuestion])
+        try TaskEvent(taskId: taskId, source: source, kind: "decision.superseded", payload: asks.map(\.question).joined(separator: "\n"), at: now).insert(db)
     }
 
-    /// The user wrote in the task's chat themselves, in Codex or Claude, so the agent's proposal to close the task no
-    /// longer stands. Facienda's own deliveries into the chat do not count.
-    public func setAsideCompletionInChat(_ taskId: String, now: Date = Date()) throws {
+    /// The user wrote in the task's chat themselves, in Codex or Claude, so what the agent was asking no longer
+    /// stands. Facienda's own deliveries into the chat do not count.
+    public func setAsideAsksInChat(_ taskId: String, now: Date = Date()) throws {
         try write { db in
             guard try !Self.delivering(db, taskId: taskId) else { return }
-            try setAsideCompletion(db, taskId: taskId, source: .hook, now: now)
+            try setAsideAsks(db, taskId: taskId, source: .hook, now: now)
         }
     }
 
@@ -62,6 +64,28 @@ extension FaciendaStore {
 
     static func registerOvertakenCompletions(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("overtaken_completions") { db in try setAsideOvertakenCompletions(db, now: Date()) }
+    }
+
+    /// Questions and requests the user had already written past before writing put them aside. They stood in a pile
+    /// under later answers, so they are closed once. A prompt in the chat within two minutes of a delivery is taken
+    /// for Facienda handing the chat a message, such as a check, and not for the user writing.
+    static func setAsideOvertakenQuestions(_ db: Database, now: Date) throws {
+        let overtaken = try Decision.fetchAll(db, sql: """
+            SELECT * FROM decisions d WHERE d.kind != 'completion' AND d.state = 'pending' AND d.question != ? AND EXISTS (
+              SELECT 1 FROM events e WHERE e.taskId = d.taskId AND e.at > d.createdAt
+              AND (e.kind IN ('user.reply', 'suggestion.used')
+                OR e.kind IN ('hook.UserPromptSubmit', 'hook.claude.UserPromptSubmit') AND NOT EXISTS (
+                  SELECT 1 FROM events s WHERE s.taskId = e.taskId AND s.kind = 'dispatch.started'
+                  AND abs(julianday(s.at) - julianday(e.at)) < 120.0 / 86400)))
+            """, arguments: [readinessQuestion])
+        for ask in overtaken {
+            try db.execute(sql: "UPDATE decisions SET state = 'closed', answeredAt = ? WHERE id = ?", arguments: [now, ask.id])
+            try TaskEvent(taskId: ask.taskId, source: .app, kind: "decision.superseded", payload: ask.question, at: now).insert(db)
+        }
+    }
+
+    static func registerOvertakenQuestions(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("overtaken_questions") { db in try setAsideOvertakenQuestions(db, now: Date()) }
     }
 
     /// Whether Facienda is handing the task's chat a message right now.
@@ -102,7 +126,7 @@ extension FaciendaStore {
     }
 
     /// The user wrote in the task's chat themselves, so they are carrying on: their step is done, any pause ends and
-    /// the agent's proposal to close the task no longer stands, leaving ordinary work that runs until it comes back.
+    /// what the agent was asking no longer stands, leaving ordinary work that runs until it comes back.
     /// Facienda's own deliveries into the chat do not count.
     public func carryOnInChat(_ taskId: String, now: Date = Date()) throws {
         let (step, waiting, delivering) = try db.read { db in
@@ -111,7 +135,7 @@ extension FaciendaStore {
              try Self.delivering(db, taskId: taskId))
         }
         guard !delivering else { return }
-        try setAsideCompletionInChat(taskId, now: now)
+        try setAsideAsksInChat(taskId, now: now)
         guard step != nil || waiting else { return }
         if waiting { try wake(taskId, now: now) }
         guard step != nil else { return }

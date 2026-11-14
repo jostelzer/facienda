@@ -206,14 +206,14 @@ extension FaciendaStore {
         }
     }
 
-    private static func siblings(_ db: Database, groupId: String, parentId: String?) throws -> [PlanLine] {
+    static func siblings(_ db: Database, groupId: String, parentId: String?) throws -> [PlanLine] {
         if let parentId {
             return try PlanLine.fetchAll(db, sql: "SELECT * FROM planLines WHERE groupId = ? AND parentId = ? ORDER BY position, createdAt", arguments: [groupId, parentId])
         }
         return try PlanLine.fetchAll(db, sql: "SELECT * FROM planLines WHERE groupId = ? AND parentId IS NULL ORDER BY position, createdAt", arguments: [groupId])
     }
 
-    private static func renumber(_ db: Database, _ lines: [PlanLine]) throws {
+    static func renumber(_ db: Database, _ lines: [PlanLine]) throws {
         for (index, line) in lines.enumerated() where line.position != index {
             try db.execute(sql: "UPDATE planLines SET position = ? WHERE id = ?", arguments: [index, line.id])
         }
