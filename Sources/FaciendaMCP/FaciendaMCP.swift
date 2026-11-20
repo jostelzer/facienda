@@ -27,7 +27,7 @@ import MCP
         }
         if mode == .tools {
             // The same tools the MCP server offers, for sessions that reach them through --call.
-            print(JSONValue.array(ToolService.definitions.map { definition in
+            print(JSONValue.array(ToolService.listed.map { definition in
                 .object(["name": .string(definition.name), "description": .string(definition.description), "arguments": definition.schema, "readOnly": .bool(definition.readOnly)])
             }).json)
             return
@@ -52,9 +52,8 @@ import MCP
         }
         let server = Server(name: "facienda", version: "0.1.0", capabilities: .init(tools: .init(listChanged: false)))
         await server.withMethodHandler(ListTools.self) { _ in
-            let tools = try ToolService.definitions.map { definition in
-                let context = definition.name.hasPrefix("facienda_memory_") ? " Pass taskId: your task's Facienda handle from your latest Facienda instructions. Its memory is the only one available to you." : ""
-                return Tool(name: definition.name, description: definition.description + context,
+            let tools = try ToolService.listed.map { definition in
+                return Tool(name: definition.name, description: definition.description,
                      inputSchema: try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(definition.schema)),
                      annotations: .init(readOnlyHint: definition.readOnly, openWorldHint: false))
             }

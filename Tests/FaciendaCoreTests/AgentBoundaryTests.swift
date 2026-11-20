@@ -96,12 +96,12 @@ private let helper = "/Apps/facienda-mcp"
     let handle = try store.taskHandle(task.id)
     let item = try store.enqueueDispatch(taskId: task.id)
     let prompt = try await DispatchPrompt.payload(item, store: store, base: "facienda-mcp --database DB")["workerPrompt"].string ?? ""
-    #expect(prompt.contains("TASK HANDLE: \(handle)") && prompt.contains("facienda_memory_find(text, taskId: \(handle))") && prompt.contains("fromTaskId \(handle)"))
+    #expect(prompt.contains("TASK HANDLE: \(handle)") && prompt.contains("Pass it as taskId to every Facienda tool"))
     #expect(!prompt.contains("--runner rules"))
     #expect(!prompt.replacingOccurrences(of: handle, with: "HANDLE").contains("taskId \(task.id)"))
-    // The saved answer is read in Facienda, so the chat only sums it up, on a first delivery and on a reply.
+    // The agent answers in its own chat, in full, on a first delivery and on a reply; nothing asks it to save the answer.
     let reply = try DispatchPrompt.replyPrompt(NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "started", requestedAt: Date(), kind: "reply", message: "Earlier one?"), task: task, message: "Earlier one?", store: store, base: "facienda-mcp")
-    #expect(prompt.contains(DispatchPrompt.chatReply) && reply.contains(DispatchPrompt.chatReply))
+    #expect(prompt.contains("answer in this chat, in full") && reply.contains("Answer in this chat, in full") && !(prompt + reply).contains("save_result"))
     try store.link(ThreadLink(taskId: task.id, codexThreadId: "chat", role: "work", linkedBy: "user"))
     let event = try JSONDecoder().decode(HookEvent.self, from: Data(#"{"session_id":"chat","hook_event_name":"UserPromptSubmit"}"#.utf8))
     let context = try event.apply(to: store)?["hookSpecificOutput"]["additionalContext"].string ?? ""
@@ -109,6 +109,43 @@ private let helper = "/Apps/facienda-mcp"
     // Its instructions come back only through the handle.
     let tools = ToolService(store: store, helper: helper)
     #expect(throws: StoreError.self) { try tools.call("task_instructions", arguments: .object(["taskId": .string(task.id)])) }
+}
+
+@Test func aFirstDeliveryLeadsWithTheRequestAndLeavesOutWhatTheTaskLacks() async throws {
+    let store = try library(), task = try store.create(FaciendaTask(title: "Book the ferry to the island", state: .needsMe))
+    let handle = try store.taskHandle(task.id)
+    let prompt = try await DispatchPrompt.payload(try store.enqueueDispatch(taskId: task.id), store: store, base: "facienda-mcp --database DB")["workerPrompt"].string ?? ""
+    // The user's words come before any rule.
+    let request = try #require(prompt.range(of: "Book the ferry to the island")), rules = try #require(prompt.range(of: "FACIENDA\n"))
+    #expect(request.lowerBound < rules.lowerBound && prompt.distance(from: prompt.startIndex, to: request.lowerBound) < 300)
+    // Nothing is said about what this task does not have, and nothing of Facienda's own bookkeeping.
+    for absent in ["START AUTHORIZATION", "USER ANSWERS", "RELATED CHATS", "ATTACHMENTS", "THE USER NOW WRITES", "report_check", "null", "[]", "snoozeCount", "memory_recall", "PREREQUISITES", "propose_completion", "plan_check", "request_decision"] {
+        #expect(!prompt.contains(absent), "\(absent)")
+    }
+    // The handle is spelled out once, where the tools are introduced.
+    #expect(prompt.components(separatedBy: handle).count - 1 == 1)
+    // A first delivery is the request and a short note on Facienda, not a rulebook.
+    #expect(prompt.count < 3200)
+}
+
+@Test func anAnswerOrACheckInAChatThatHoldsTheInstructionsComesShort() async throws {
+    let store = try library(), task = try store.create(FaciendaTask(title: "Book the ferry", state: .needsMe))
+    // Its chat already took the task's start, as a delivered start leaves it.
+    try store.write { db in
+        try ThreadLink(taskId: task.id, codexThreadId: "chat", linkedBy: "native runner").insert(db)
+        try NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "started", requestedAt: Date(), threadId: "chat", kind: "start").insert(db)
+    }
+    let asked = try store.requestDecision(Decision(taskId: task.id, question: "Morning or evening boat?", recommendation: "Morning", options: ["Morning", "Evening"]))
+    try store.answerDecision(asked.id, answer: "Evening")
+    let answer = try store.enqueueDispatch(taskId: task.id, triggerKey: "decision:\(asked.id)")
+    let prompt = try await DispatchPrompt.payload(answer, store: store, base: "facienda-mcp")["workerPrompt"].string ?? ""
+    #expect(prompt.contains("Question: Morning or evening boat?\nAnswer: Evening") && !prompt.contains("MEMORY INDEX") && prompt.count < 3000)
+    // The whole instructions stay one call away, with the answer among them.
+    let full = try await DispatchPrompt.payload(answer, store: store, base: "facienda-mcp", full: true)["workerPrompt"].string ?? ""
+    #expect(full.contains("MEMORY INDEX") && full.contains("- Morning or evening boat? → Evening"))
+    let check = NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "queued", requestedAt: Date(), threadId: "chat", kind: "check")
+    let due = try await DispatchPrompt.payload(check, store: store, base: "facienda-mcp")["workerPrompt"].string ?? ""
+    #expect(due.contains("facienda_report_check, dispatchId \(check.id)") && due.count < 1100 && !due.contains("MEMORY INDEX") && !due.contains("save the complete Markdown answer"))
 }
 
 @Test func agentsAskTheUserInsteadOfArmingAStart() throws {
@@ -152,7 +189,7 @@ private let helper = "/Apps/facienda-mcp"
         ("task_update", ["brief": .string("x"), "proposedState": .string("needsMe")]), ("save_result", ["text": .string("Done")]),
         ("request_decision", ["question": .string("Q?"), "recommendation": .string("A"), "options": .array([.string("A")])]),
         ("schedule_followup", ["nextAction": .string("Look"), "returnAt": .string("2099-01-01T00:00:00Z")]),
-        ("propose_completion", ["evidence": .string("Sent")]), ("memory_remember", ["text": .string("Fact"), "source": .string("User 2026")]),
+        ("propose_completion", ["evidence": .string("Sent")]),
         ("set_blocker", ["kind": .string("condition"), "title": .string("Reply"), "sourceReference": .string("Mail"), "criterion": .string("A reply")]),
         ("set_readiness", ["armed": .string("true"), "userInstruction": .string("Go")])
     ]

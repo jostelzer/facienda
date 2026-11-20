@@ -69,7 +69,7 @@ public enum HandoverNote {
     static func prompt(_ record: Record) -> String {
         let chats = record.from.map { ($0.title.isEmpty ? "" : "“\($0.title)”, ") + "\($0.provider.name): " + link($0) }.joined(separator: "; ")
         return """
-        HANDOVER: The user moved this task here from another chat (\(chats)). Carry on where it left off rather than starting over. Read the handover note first: \(record.file). It holds that chat's last answer and its conversation. The brief and next action in TASK say where the work stood. Before changing files, look at the working folder's branch and uncommitted changes (git status, git diff): they may be the old chat's unfinished work, so build on them and keep them. That chat no longer carries the task: never message it or continue it.
+        HANDOVER: The user moved this task here from another chat (\(chats)). Carry on where it left off rather than starting over. Read the handover note first: \(record.file). It holds that chat's last answer and its conversation. The task's Brief and Next action lines above say where the work stood. Before changing files, look at the working folder's branch and uncommitted changes (git status, git diff): they may be the old chat's unfinished work, so build on them and keep them. That chat no longer carries the task: never message it or continue it.
         """
     }
 }

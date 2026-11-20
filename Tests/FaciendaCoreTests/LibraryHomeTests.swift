@@ -22,7 +22,6 @@ private func scratch() throws -> URL {
     #expect(LibraryHome.backupDirectory.deletingLastPathComponent() == LibraryHome.supportDirectory)
     #expect(ChatIndex.defaultURL.deletingLastPathComponent() == LibraryHome.supportDirectory)
     #expect(MemoryModels.defaultCache.deletingLastPathComponent() == LibraryHome.cacheDirectory)
-    #expect(MemoryServiceCredentials.tokenURL.deletingLastPathComponent().deletingLastPathComponent() == LibraryHome.supportDirectory)
     #expect(HelperPolicy.appLibrary == LibraryHome.libraryFolder(in: LibraryHome.savedDataFolder ?? LibraryHome.defaultDataFolder).appending(path: LibraryHome.databaseName))
 }
 

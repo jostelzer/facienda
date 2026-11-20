@@ -63,8 +63,8 @@ public struct TaskModelChoice: Codable, Equatable, Sendable {
         public let offersFast: Bool
     }
     public static let catalog: [Model] = [
-        Model(id: "gpt-6-astra", name: "GPT-6 Astra", provider: .codex, offersFast: true),
-        Model(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", provider: .codex, offersFast: true),
+        Model(id: "gpt-6.2-astra", name: "GPT-6.2 Astra", provider: .codex, offersFast: true),
+        Model(id: "gpt-6.2-sol", name: "GPT-6.2 Sol", provider: .codex, offersFast: true),
         Model(id: "gpt-6-luna", name: "GPT-6 Luna", provider: .codex, offersFast: true),
         Model(id: "claude-fable-5-2", name: "Fable 5.2", provider: .claude, offersFast: false),
         Model(id: "claude-opus-5-5", name: "Opus 5.5", provider: .claude, offersFast: true),
@@ -73,7 +73,9 @@ public struct TaskModelChoice: Codable, Equatable, Sendable {
     ]
     /// Models the catalog swapped for a newer one. Tasks that ran on one keep its name; saved choices move to the successor.
     static let retired: [String: (name: String, successor: String)] = [
-        "claude-fable-5-1": ("Fable 5.1", "claude-fable-5-2")
+        "claude-fable-5-1": ("Fable 5.1", "claude-fable-5-2"),
+        "gpt-6-astra": ("GPT-6 Astra", "gpt-6.2-astra"),
+        "gpt-6.1-sol": ("GPT-6.1 Sol", "gpt-6.2-sol")
     ]
     public static func models(for provider: AgentProvider) -> [Model] { catalog.filter { $0.provider == provider } }
     public static func name(of model: String) -> String {
@@ -110,7 +112,7 @@ public struct TaskModelChoice: Codable, Equatable, Sendable {
         }
     }
     public static let fastTier = fastTier(for: .codex)
-    public static let standard = TaskModelChoice(model: "gpt-6.1-sol", effort: "high", fast: false)
+    public static let standard = TaskModelChoice(model: "gpt-6.2-sol", effort: "high", fast: false)
     public static let claudeStandard = TaskModelChoice(model: "claude-opus-5-5", effort: "high", fast: false)
     public static func standard(for provider: AgentProvider) -> TaskModelChoice {
         provider == .claude ? claudeStandard : standard
@@ -184,7 +186,10 @@ public struct FaciendaTask: Codable, FetchableRecord, PersistableRecord, Identif
     /// The workspace showing this task. Nil until it is saved; a store scoped to a workspace fills it in.
     public var workspaceId: String?
 
-    public init(id: String = UUID().uuidString, title: String, intention: String = "", definitionOfDone: String = "", area: String = "Personal", state: TaskState = .inbox, nextAction: String = "Clarify the next step", returnAt: Date? = Date(), automationScope: AutomationScope = .prepareOnly, brief: String = "", cwd: String? = nil) {
+    /// What a task says as its next action until someone writes one.
+    public static let unsetNextAction = "Clarify the next step"
+
+    public init(id: String = UUID().uuidString, title: String, intention: String = "", definitionOfDone: String = "", area: String = "Personal", state: TaskState = .inbox, nextAction: String = FaciendaTask.unsetNextAction, returnAt: Date? = Date(), automationScope: AutomationScope = .prepareOnly, brief: String = "", cwd: String? = nil) {
         self.id = id; self.title = title; self.intention = intention; self.definitionOfDone = definitionOfDone
         self.area = area; self.state = state; self.nextAction = nextAction; self.returnAt = returnAt
         self.automationScope = automationScope; self.brief = brief; self.cwd = cwd

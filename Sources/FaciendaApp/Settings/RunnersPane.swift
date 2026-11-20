@@ -310,7 +310,7 @@ struct RunnerSetupGuide: View {
                     if model.missingClaudeSetup.isEmpty {
                         ClaudeAccessStatus(model: model)
                     } else {
-                        note("Optional. Adds a hook to ~/.claude/settings.json that shows a raised hand on a task while its Claude session waits for your permission. It adds no allow rules there: only the runner’s and tasks’ own folders let Facienda’s own helper and tools run without asking. A backup is kept and you review the change first.")
+                        note("Optional. Adds a hook to ~/.claude/settings.json that shows a raised hand on a task while its Claude session waits for your permission, and lets through a command you allowed once on a task’s card. It adds no allow rules there: only the runner’s and tasks’ own folders let Facienda’s own helper and tools run without asking. A backup is kept and you review the change first.")
                         Button("Add hook…") { model.requestClaudeAccess() }.buttonStyle(QuietButton()).disabled(model.demo)
                     }
                 }

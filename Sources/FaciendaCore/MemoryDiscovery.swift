@@ -22,6 +22,10 @@ extension FaciendaStore {
         migrator.registerMigration("memory_discovery") { db in
             try db.execute(sql: "CREATE TABLE memoryDeliveries (id TEXT PRIMARY KEY, spaceId TEXT NOT NULL, taskId TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, at DATETIME NOT NULL); CREATE INDEX memory_deliveries_space ON memoryDeliveries(spaceId, at)")
         }
+        migrator.registerMigration("memory_upkeep") { db in
+            // Names each one-time cleanup that has run on this library.
+            try db.execute(sql: "CREATE TABLE memoryUpkeep (name TEXT PRIMARY KEY, at DATETIME NOT NULL)")
+        }
     }
 
     public func findMemoryEntries(_ query: String, spaceID: String, limit: Int = 12) throws -> [MemoryEntry] {
@@ -44,27 +48,41 @@ extension FaciendaStore {
         let currentRules = entries.filter { $0.shelf == .rules }.map(\.text)
         var seen = Set<String>()
         let ruleText = (oldRules + currentRules).filter { seen.insert(MemoryEntry.key($0)).inserted }.map { "- " + $0 }.joined(separator: "\n")
-        var lines = ["Memory: \(space.name). Only live entries apply; proposals wait for you.",
-                     "Open: memory_open(id). Search: memory_find(text). Suggest: memory_propose(shelf,text,why)."]
-        for shelf in MemoryShelf.allCases {
+        var lines = ["Memory: \(space.name)."]
+        // One line for the shelves that hold something: an empty shelf tells the agent nothing.
+        let shelves = MemoryShelf.allCases.compactMap { shelf -> String? in
             let count = entries.filter { $0.shelf == shelf }.count
-            lines.append("\(shelf.title): \(count)" + (shelf == .rules && !ruleText.isEmpty ? " · standing rules below" : ""))
+            return count == 0 ? nil : "\(shelf.title) \(count)" + (shelf == .rules && !ruleText.isEmpty ? " (the standing rules)" : "")
         }
+        if !shelves.isEmpty { lines.append("Shelves: " + shelves.joined(separator: " · ")) }
         let understanding = try memoryUnderstanding(spaceID: space.id)
-        lines.append("Understanding: \(understanding.count) subjects and processes · memory_reflect(question) reasons over evidence.")
         let words = Set(MemoryEntry.key(query).split(separator: " ").map(String.init))
         let relevant = understanding.sorted { a, b in
             let x = words.filter { a.searchText.localizedCaseInsensitiveContains($0) }.count
             let y = words.filter { b.searchText.localizedCaseInsensitiveContains($0) }.count
             return x == y ? a.updatedAt > b.updatedAt : x > y
         }
-        if let item = relevant.first { lines.append("understanding:\(item.id): \(item.subject) — \(item.summary.prefix(95)) (inferred, not a rule)") }
+        // A count tells an agent nothing about whether to look. The subjects themselves do, and there are few of them.
+        var names: [String] = [], listed = 0
+        for item in relevant {
+            let name = String(item.subject.prefix(48))
+            if let last = names.last, last.count + name.count + 3 <= 225 { names[names.count - 1] = last + " · " + name }
+            else if names.count < 2 { names.append(name) } else { break }
+            listed += 1
+        }
+        if !names.isEmpty {
+            lines.append("Knows about: " + names[0]); lines += names.dropFirst()
+            lines.append((listed < understanding.count ? "and \(understanding.count - listed) more. " : "") + "Inferred from the user's words, not rules; memory_find(text) reads them.")
+        }
+        if let item = relevant.first { lines.append("understanding:\(item.id): \(item.subject) — \(item.summary.prefix(95))") }
+        // Only moves the user wrote or accepted are left, so this is their own wish for what comes next.
         for move in try suggestedMoves(taskID: taskID).prefix(1) {
             lines.append("Usual next move (offer it): \(move.text.prefix(100).replacingOccurrences(of: "\n", with: " "))")
         }
         let sections = try memorySections(spaceID: space.id).filter { $0.state == .live }
         if !sections.isEmpty { lines.append("Sections: " + sections.prefix(2).map { $0.name + " (section:" + $0.id + ")" }.joined(separator: ", ")) }
-        lines.append(try memoryNow(taskID: taskID))
+        let now = try memoryNow(taskID: taskID)
+        if !now.hasSuffix("no active chats in this workspace") { lines.append(now) }
         let task = try task(taskID)
         if let workspace = task.workspaceId,
            let past = try scoped(to: workspace).lookUpTasks(String(query.prefix(300)), limit: 6).first(where: { $0.task.id != taskID && $0.task.state == .done })?.task {
@@ -79,7 +97,8 @@ extension FaciendaStore {
                 lines.append("\(linked.entry.id): \(linked.entry.subject) — \(linked.entry.text.prefix(80).replacingOccurrences(of: "\n", with: " ")) (from \(linked.from))")
             }
         }
-        lines.append("More past work: task_search in this workspace. About you: \(entries.filter { $0.spaceId == nil }.count) shared entries.")
+        let shared = entries.filter { $0.spaceId == nil }.count
+        if shared > 0 { lines.append("About you: \(shared) shared entries.") }
         // Bound discovery, including large names. The rules remain complete in their separate block.
         var index = ""
         for line in lines.prefix(15) {

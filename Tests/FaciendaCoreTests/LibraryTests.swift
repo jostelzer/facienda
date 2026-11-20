@@ -45,7 +45,13 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(try db.newCounts() == [work.id: 1])
     #expect(try db.runningCounts().isEmpty)
     // Work handed to an agent counts as running before the agent picks it up.
-    _ = try personal.enqueueDispatch(taskId: errand.id)
+    let handoff = try personal.enqueueDispatch(taskId: errand.id)
+    #expect(try db.runningCounts() == [home.id: 1])
+    // A Codex delivery put off mid-send waits under Needs recovery, not In progress.
+    try db.db.write { try $0.execute(sql: "UPDATE dispatches SET state = 'dispatching', availableAt = ?, provider = 'codex' WHERE id = ?", arguments: [Date(), handoff.id]) }
+    #expect(try db.runningCounts().isEmpty)
+    // The Claude runner retries its own, so those still run.
+    try db.db.write { try $0.execute(sql: "UPDATE dispatches SET provider = 'claude' WHERE id = ?", arguments: [handoff.id]) }
     #expect(try db.runningCounts() == [home.id: 1])
 }
 
@@ -242,17 +248,21 @@ private func documentSpaces(_ db: FaciendaStore) throws -> [String: String] {
     #expect(homeNotes.map(\.text) == ["Oak, never pine"] && workNotes.map(\.text) == ["Oak, never pine"])
     #expect(workNotes.first?.id != corrected.id && workNotes.first?.confirmedAt != nil)
     let copiedSpace = workNow.memorySpaceId
-    let units = try reopened.memoryUnits(spaceID: copiedSpace)
-    #expect(units.count == 2 && Set(units.map(\.id)).isDisjoint(with: ["fact-1", "obs-1"]))
-    let observation = try #require(units.first { $0.kind == .observation })
-    #expect(observation.sources == units.filter { $0.kind == .world }.map(\.id))
-    let searchable: Int? = try value(reopened, "SELECT count(*) FROM memoryUnitSearch WHERE unitId IN (?, ?)", [units[0].id, units[1].id])
+    // The migration copies raw rows; the record types for them are gone with the first engine.
+    let units = try reopened.db.read { try Row.fetchAll($0, sql: "SELECT id, kind, sourceIds FROM memoryUnits WHERE spaceId = ?", arguments: [copiedSpace]) }
+    let unitIDs: [String] = units.map { $0["id"] }
+    #expect(units.count == 2 && Set(unitIDs).isDisjoint(with: ["fact-1", "obs-1"]))
+    let observation = try #require(units.first { ($0["kind"] as String) == "observation" })
+    let world: [String] = units.filter { ($0["kind"] as String) == "world" }.map { $0["id"] }
+    #expect(observation["sourceIds"] as String? == String(decoding: try JSONEncoder().encode(world), as: UTF8.self))
+    let searchable: Int? = try value(reopened, "SELECT count(*) FROM memoryUnitSearch WHERE unitId IN (?, ?)", [unitIDs[0], unitIDs[1]])
     #expect(searchable == 2)
     let entities: Int? = try value(reopened, "SELECT count(*) FROM memoryUnitEntities ue JOIN memoryEntities e ON e.id = ue.entityId WHERE e.spaceId = ?", [copiedSpace])
     #expect(entities == 1)
     let links: Int? = try value(reopened, "SELECT count(*) FROM memoryLinks l JOIN memoryUnits u ON u.id = l.fromId WHERE u.spaceId = ?", [copiedSpace])
     #expect(links == 1)
-    #expect(try reopened.memoryUnits(spaceID: shared).count == 2)
+    let original: Int? = try value(reopened, "SELECT count(*) FROM memoryUnits WHERE spaceId = ?", [shared])
+    #expect(original == 2)
     // Each workspace's own task sources go with it.
     let docs = try documentSpaces(reopened)
     #expect(docs["task-\(errand.id)"] == shared && docs["task-\(report.id)"] == copiedSpace)

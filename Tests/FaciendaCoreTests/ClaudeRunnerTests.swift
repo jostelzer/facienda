@@ -21,7 +21,7 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
 @Test func modelChoiceDecidesTheAgentAppAndKeepsValidSettings() {
     #expect(TaskModelChoice.standard.provider == .codex)
     #expect(TaskModelChoice.claudeStandard.provider == .claude)
-    let ultra = TaskModelChoice(model: "gpt-6.1-sol", effort: "ultra", fast: true)
+    let ultra = TaskModelChoice(model: "gpt-6.2-sol", effort: "ultra", fast: true)
     let opus = ultra.choosing("claude-opus-5-5")
     #expect(opus.provider == .claude && opus.effort == "high" && opus.fast)
     #expect(opus.serviceTier == "fast")
@@ -34,10 +34,10 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
 
 @Test func switchingBackToAModelBringsBackItsReasoningAndFast() {
     let opus = TaskModelChoice(model: "claude-opus-5-5", effort: "xhigh", fast: true)
-    let sol = TaskModelChoice(model: "gpt-6.1-sol", effort: "ultra", fast: false)
-    let remembered = ["claude-opus-5-5": opus, "gpt-6.1-sol": sol]
+    let sol = TaskModelChoice(model: "gpt-6.2-sol", effort: "ultra", fast: false)
+    let remembered = ["claude-opus-5-5": opus, "gpt-6.2-sol": sol]
     #expect(sol.choosing("claude-opus-5-5", remembered: remembered) == opus)
-    #expect(opus.choosing("gpt-6.1-sol", remembered: remembered) == sol)
+    #expect(opus.choosing("gpt-6.2-sol", remembered: remembered) == sol)
     // A model never chosen before carries the current settings over, as plain switching does.
     #expect(sol.choosing("gpt-6-luna", remembered: remembered) == sol.choosing("gpt-6-luna"))
     // A remembered setting the model no longer offers is dropped.
@@ -57,6 +57,14 @@ private func claudeTask(_ store: FaciendaStore, title: String = "Draft the venue
     // The successor's own remembered settings win over the retired model's.
     let own = TaskModelChoice(model: "claude-fable-5-2", effort: "medium", fast: false)
     #expect(TaskModelChoice.current(["claude-fable-5-1": fable51, "claude-fable-5-2": own]) == ["claude-fable-5-2": own])
+}
+
+@Test func codexSolAndAstraMoveToSixPointTwo() {
+    #expect(TaskModelChoice.models(for: .codex).map(\.id) == ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-luna"])
+    let sol = TaskModelChoice(model: "gpt-6.1-sol", effort: "ultra", fast: true)
+    #expect(sol.name == "GPT-6.1 Sol" && sol.current == TaskModelChoice(model: "gpt-6.2-sol", effort: "ultra", fast: true))
+    #expect(TaskModelChoice(model: "gpt-6-astra", effort: "high", fast: false).current.model == "gpt-6.2-astra")
+    #expect(TaskModelChoice.standard.model == "gpt-6.2-sol")
 }
 
 @Test func onlyTheLargestModelsAreCostlyForTheRunner() {
@@ -546,7 +554,7 @@ private func isSet(_ alarm: FaciendaStore.ClaudeRunnerAlarm) -> Bool { if case .
         _ = try service.call("no_such_tool", arguments: .object([:]))
         Issue.record("Expected an unknown tool to be refused")
     } catch let StoreError.invalid(message) {
-        #expect(message.contains("facienda_save_result"))
+        #expect(message.contains("facienda_task_update") && !message.contains("facienda_save_result"))
     }
     _ = try await service.callWithMemory("save_result", arguments: .object(["taskId": .string(try store.taskHandle(task.id)), "text": .string("Done")]))
     #expect(try store.latestEvent(taskId: task.id, kind: "codex.result")?.payload == "Done")

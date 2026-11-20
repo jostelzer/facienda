@@ -205,7 +205,24 @@ import FaciendaBridge
     /// The reasoning and Fast each model last had, so switching back to a model brings them back. Fast lasts until a task starts.
     @ObservationIgnored var modelSettings = AppModel.savedModelSettings()
 
-    func chooseComposerModel(_ id: String) { composerModel = composerModel.choosing(id, remembered: modelSettings) }
+    func chooseComposerModel(_ id: String) { composerModel = composerChoice(id) }
+    /// What a model would start the next task with if picked now: the chosen one as it is, any other as it last was.
+    func composerChoice(_ id: String) -> TaskModelChoice {
+        id == composerModel.model ? composerModel : composerModel.choosing(id, remembered: modelSettings)
+    }
+    /// Picks a model and its reasoning in one go.
+    func chooseComposerModel(_ id: String, effort: String) {
+        var next = composerChoice(id)
+        if TaskModelChoice.efforts(for: next.provider).contains(effort) { next.effort = effort }
+        composerModel = next
+    }
+    /// Switches Fast for a model, picking it if it isn't the chosen one yet.
+    func toggleComposerFast(_ id: String) {
+        var next = composerChoice(id)
+        guard next.offersFast else { return }
+        next.fast.toggle()
+        composerModel = next
+    }
 
     // MARK: Codex
 

@@ -37,11 +37,8 @@ public struct MemoryMigration: Sendable {
         let (sources, generation) = try await store.db.read { db -> ([Source], String) in
             let notes = try MemoryFact.fetchAll(db, sql: "SELECT * FROM memoryFacts WHERE spaceId = ? AND forgottenAt IS NULL AND supersededBy IS NULL ORDER BY createdAt DESC", arguments: [spaceID])
                 .map { Source(id: "note:" + $0.id, text: $0.text, kind: $0.kind) }
-            // Legacy provenance is not strong enough to make anything live. Agent narration and progress are excluded even from proposals.
-            let units = try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND forgottenAt IS NULL AND level IN ('user', 'decision', 'note') AND memoryKind NOT IN ('status', 'project') ORDER BY updatedAt DESC", arguments: [spaceID])
-                .map { Source(id: "unit:" + $0.id, text: $0.text, kind: $0.memoryKind ?? "") }
             var seen = Set<String>()
-            return ((notes + units).filter { seen.insert(MemoryEntry.key($0.text)).inserted }, try Self.generation(db, spaceID: spaceID))
+            return (notes.filter { seen.insert(MemoryEntry.key($0.text)).inserted }, try Self.generation(db, spaceID: spaceID))
         }
         var proposals: [Proposal] = []
         for start in stride(from: 0, to: sources.count, by: 24) {
@@ -91,7 +88,6 @@ public struct MemoryMigration: Sendable {
                 }
             }
             try archive(MemoryFact.fetchAll(db, sql: "SELECT * FROM memoryFacts WHERE spaceId = ?", arguments: [spaceID]), kind: "note", id: { $0.id })
-            try archive(MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ?", arguments: [spaceID]), kind: "unit", id: { $0.id })
             try archive(MemoryDocument.fetchAll(db, sql: "SELECT * FROM memoryDocuments WHERE spaceId = ?", arguments: [spaceID]), kind: "document", id: { $0.id })
             var ids: [String] = []
             for proposal in prepared {
@@ -103,7 +99,6 @@ public struct MemoryMigration: Sendable {
                 try entry.insert(db); ids.append(entry.id)
             }
             try db.execute(sql: "UPDATE memoryFacts SET forgottenAt = ? WHERE spaceId = ? AND forgottenAt IS NULL", arguments: [now, spaceID])
-            try db.execute(sql: "UPDATE memoryUnits SET forgottenAt = ? WHERE spaceId = ? AND forgottenAt IS NULL", arguments: [now, spaceID])
             try db.execute(sql: "UPDATE memoryDocuments SET state = 'completed', leaseUntil = NULL WHERE spaceId = ?", arguments: [spaceID])
             try db.execute(sql: "INSERT INTO memoryMigrations (spaceId, at, entryIds) VALUES (?, ?, ?) ON CONFLICT(spaceId) DO UPDATE SET at = excluded.at, entryIds = excluded.entryIds, reversedAt = NULL", arguments: [spaceID, now, try JSONValue.encoded(ids).json])
             return .init(archived: archived, considered: sources.count, proposed: ids.count, alreadyMigrated: false, redacted: redacted)
@@ -113,8 +108,7 @@ public struct MemoryMigration: Sendable {
     private static func generation(_ db: Database, spaceID: String) throws -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .iso8601
         let notes = try MemoryFact.fetchAll(db, sql: "SELECT * FROM memoryFacts WHERE spaceId = ? ORDER BY id", arguments: [spaceID])
-        let units = try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? ORDER BY id", arguments: [spaceID])
-        let data = try encoder.encode(notes) + encoder.encode(units)
+        let data = try encoder.encode(notes)
         return MemoryChunker.digest(String(decoding: data, as: UTF8.self))
     }
 }
@@ -148,12 +142,12 @@ extension FaciendaStore {
             let date: Date = migration["at"]
             // Lift the old-writer guard in the same transaction as restoring the archived rows.
             try db.execute(sql: "UPDATE memoryMigrations SET reversedAt = ? WHERE spaceId = ?", arguments: [Date(), spaceID])
-            for row in try Row.fetchAll(db, sql: "SELECT * FROM memoryArchive WHERE spaceId = ? AND kind IN ('note','unit')", arguments: [spaceID]) {
-                let data = Data((row["snapshot"] as String).utf8), id: String = row["sourceId"], kind: String = row["kind"]
+            // Learned items from the first engine are gone for good; only notes come back.
+            for row in try Row.fetchAll(db, sql: "SELECT * FROM memoryArchive WHERE spaceId = ? AND kind = 'note'", arguments: [spaceID]) {
+                let data = Data((row["snapshot"] as String).utf8), id: String = row["sourceId"]
                 let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-                let previous = kind == "note" ? try decoder.decode(MemoryFact.self, from: data).forgottenAt : try decoder.decode(MemoryUnit.self, from: data).forgottenAt
-                let table = kind == "note" ? "memoryFacts" : "memoryUnits"
-                try db.execute(sql: "UPDATE \(table) SET forgottenAt = ? WHERE id = ? AND spaceId = ? AND forgottenAt = ?", arguments: [previous, id, spaceID, date])
+                let previous = try decoder.decode(MemoryFact.self, from: data).forgottenAt
+                try db.execute(sql: "UPDATE memoryFacts SET forgottenAt = ? WHERE id = ? AND spaceId = ? AND forgottenAt = ?", arguments: [previous, id, spaceID, date])
             }
             let ids = try JSONDecoder().decode([String].self, from: Data((migration["entryIds"] as String).utf8))
             for id in ids { try db.execute(sql: "UPDATE memoryEntries SET state = 'archived' WHERE id = ? AND state = 'proposed' AND revision = 1", arguments: [id]) }

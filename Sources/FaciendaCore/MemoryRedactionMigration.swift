@@ -4,12 +4,9 @@ import GRDB
 public struct MemoryRedactionSummary: Codable, Equatable, Sendable {
     public var documents = 0
     public var events = 0
-    public var units = 0
     public var notes = 0
-    public var entities = 0
-    public var history = 0
     public var errors = 0
-    public var total: Int { documents + events + units + notes + entities + history + errors }
+    public var total: Int { documents + events + notes + errors }
 }
 
 extension FaciendaStore {
@@ -44,31 +41,6 @@ extension FaciendaStore {
             guard text != note.text || source != note.source else { continue }
             counts.notes += 1
             if apply { try db.execute(sql: "UPDATE memoryFacts SET text = ?, source = ? WHERE id = ?", arguments: [text, source, note.id]) }
-        }
-        for entity in try MemoryEntity.fetchAll(db, sql: "SELECT * FROM memoryEntities WHERE spaceId = ?", arguments: [spaceID]) {
-            guard MemoryRedaction.redact(entity.name) != entity.name else { continue }
-            counts.entities += 1
-            if apply { try db.execute(sql: "UPDATE memoryEntities SET name = ? WHERE id = ?", arguments: ["[redacted] " + entity.id, entity.id]) }
-        }
-        for var unit in try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ?", arguments: [spaceID]) {
-            let text = MemoryRedaction.redact(unit.text), context = unit.context.map(MemoryRedaction.redact)
-            if text != unit.text || context != unit.context {
-                counts.units += 1
-                if apply {
-                    unit.text = text; unit.context = context; unit.embedding = Data(); unit.updatedAt = Date()
-                    try unit.update(db)
-                }
-            }
-            if apply {
-                let names = try String.fetchAll(db, sql: "SELECT e.name FROM memoryEntities e JOIN memoryUnitEntities ue ON ue.entityId = e.id WHERE ue.unitId = ?", arguments: [unit.id])
-                try Self.indexUnit(db, unit, entities: names)
-            }
-        }
-        for row in try Row.fetchAll(db, sql: "SELECT h.id, h.text FROM memoryObservationHistory h JOIN memoryUnits u ON u.id = h.observationId WHERE u.spaceId = ?", arguments: [spaceID]) {
-            let text: String = row["text"], clean = MemoryRedaction.redact(text)
-            guard clean != text else { continue }
-            counts.history += 1
-            if apply { try db.execute(sql: "UPDATE memoryObservationHistory SET text = ? WHERE id = ?", arguments: [clean, row["id"] as String]) }
         }
         for row in try Row.fetchAll(db, sql: "SELECT documentId, error FROM memoryRetained WHERE spaceId = ? AND error IS NOT NULL", arguments: [spaceID]) {
             let error: String = row["error"], clean = MemoryRedaction.redact(error)

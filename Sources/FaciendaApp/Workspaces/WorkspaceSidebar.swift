@@ -17,8 +17,10 @@ struct WorkspaceSidebar: View {
     @State private var carried: (id: String, start: CGPoint, point: CGPoint)?
     /// The tile under a pressed pointer, which answers before the click is even finished.
     @State private var pressed: String?
-    /// The workspace whose picture is being adjusted, and the wish being typed.
+    /// The workspace whose picture is being adjusted, and the wish being typed. The last one adjusted stays named, so its
+    /// popover keeps its place and contents while it closes.
     @State private var adjusting: String?
+    @State private var adjusted: String?
     @State private var wish = ""
     /// A memory link being made: with ⌥, a memory dragged onto the workspace that should read it; from a tile's menu,
     /// that tile waiting for the memory it should read to be clicked. Links draw no lines; the tile's menu lists them.
@@ -111,6 +113,7 @@ struct WorkspaceSidebar: View {
                         .zIndex(held ? 3 : hovered == workspace.id ? 2 : workspace.id == workspaces.current?.id ? 1 : 0)
                         .gesture(carry(workspace, workspaces, from: home, grid: grid, shown: shown, in: area))
                 }
+                pictureWish(workspaces, grid: grid, shown: shown)
             }
             .coordinateSpace(.named(Self.fieldSpace))
             .onContinuousHover(coordinateSpace: .named(Self.fieldSpace)) { phase in
@@ -251,12 +254,34 @@ struct WorkspaceSidebar: View {
         .accessibilityAddTraits(open ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { choose(workspace, workspaces) }
         .contextMenu { menu(workspace, workspaces) }
-        .popover(isPresented: Binding(get: { adjusting == workspace.id }, set: { if !$0 { adjusting = nil } }), arrowEdge: .trailing) {
-            CoverWishPopover(wish: $wish, notes: workspace.coverNoteList, subject: "picture",
-                             forget: { workspaces.forgetCoverNotes(workspace) },
-                             apply: { workspaces.adjustCover(workspace, instruction: wish); wish = ""; adjusting = nil },
-                             cancel: { adjusting = nil },
-                             restore: workspaces.canUndoCover(workspace) ? { workspaces.undoCover(workspace); adjusting = nil } : nil)
+    }
+
+    /// The popover for a picture's wish hangs from a still frame where the tile sits, not from the tile. Coming back from
+    /// the menu, the pointer passes over tiles that restack, lift and unfold their names, and a popover whose anchor
+    /// changes under it closes at once.
+    @ViewBuilder private func pictureWish(_ workspaces: WorkspaceController, grid: IslandGrid, shown: [String: Int]) -> some View {
+        let workspace = workspaces.workspaces.first { $0.id == adjusted }
+        Color.clear.frame(width: grid.tile, height: grid.tile)
+            .allowsHitTesting(false).accessibilityHidden(true)
+            .popover(isPresented: Binding(get: { adjusting != nil && workspace != nil }, set: { if !$0 { adjusting = nil } }),
+                     arrowEdge: .trailing) {
+                if let workspace {
+                    CoverWishPopover(wish: $wish, notes: workspace.coverNoteList, subject: "picture",
+                                     forget: { workspaces.forgetCoverNotes(workspace) },
+                                     apply: { workspaces.adjustCover(workspace, instruction: wish); wish = ""; adjusting = nil },
+                                     cancel: { adjusting = nil },
+                                     restore: workspaces.canUndoCover(workspace) ? { workspaces.undoCover(workspace); adjusting = nil } : nil)
+                }
+            }
+            .position(grid.centre(of: shown[adjusted ?? ""] ?? 0))
+    }
+
+    /// Opens the picture's wish once the menu has gone, so the popover is not shown while the menu still closes.
+    private func adjust(_ workspace: Workspace) {
+        wish = ""; adjusted = workspace.id
+        Task { @MainActor in
+            await Task.yield()
+            adjusting = workspace.id
         }
     }
 
@@ -422,14 +447,12 @@ struct WorkspaceSidebar: View {
         if workspaces.coverPainter != nil, !workspaces.demo {
             let painting = workspaces.paintingCovers.contains(workspace.id)
             Divider()
+            // One choice, as a group's cover has its one wand: the wish says whether to change the picture or paint a new
+            // one, and the way back sits in the same popover.
             if workspace.coverPaintedAt == nil {
-                Button("Paint a picture", systemImage: "paintbrush") { workspaces.paintCover(workspace) }.disabled(painting)
+                Button("Paint picture", systemImage: "paintbrush") { workspaces.paintCover(workspace) }.disabled(painting)
             } else {
-                Button("Adjust the picture…", systemImage: "wand.and.stars") { wish = ""; adjusting = workspace.id }.disabled(painting)
-                Button("Paint a new picture", systemImage: "paintbrush") { workspaces.paintCover(workspace, newStyle: true) }.disabled(painting)
-            }
-            if workspaces.canUndoCover(workspace) {
-                Button("Restore the previous picture", systemImage: "arrow.uturn.backward") { workspaces.undoCover(workspace) }
+                Button("Adjust picture…", systemImage: "wand.and.stars") { adjust(workspace) }.disabled(painting)
             }
         }
         if workspace.id == workspaces.current?.id, !model.archivedGroups.isEmpty {

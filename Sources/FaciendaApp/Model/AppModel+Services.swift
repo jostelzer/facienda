@@ -120,7 +120,13 @@ extension AppModel {
                 guard let task = try? store.task(wait.taskId) else { continue }
                 try await notify(task, identifier: "wait-\(task.id)")
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { backgroundFailed(error) }
+    }
+    /// A pass of the 30-second loop failed. Another process holding the library a moment too long is not worth an alert:
+    /// the next pass tries again. Every workspace visited since launch runs this loop, and an alert kept by one off
+    /// screen only appeared when the user next opened it, as if switching workspace had failed.
+    func backgroundFailed(_ error: any Error) {
+        if !FaciendaStore.isBusy(error) { self.error = error.localizedDescription }
     }
     /// Shows the task's next step as a notification. A failure is recorded on the task.
     private func notify(_ task: FaciendaTask, identifier: String) async throws {

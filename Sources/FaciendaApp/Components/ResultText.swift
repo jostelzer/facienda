@@ -4,7 +4,7 @@ import Textual
 
 /// Agent-written Markdown. The text is untrusted: pictures load only from Facienda's data folder, never the network;
 /// links follow `CodexMarkdown.action(for:)`, and a web link whose text hides its address asks first, showing it.
-/// Files the text names in the task's folders become links; a page among them, such as a mock, opens in `PagePreview`.
+/// Files the text names in the task's folders become links; a page or picture among them opens in `PagePreview`.
 struct ResultText: View {
     let model: AppModel
     let text: String
@@ -15,7 +15,7 @@ struct ResultText: View {
     var body: some View {
         let folders = model.textFolders(for: task)
         let markdown = CodexMarkdown.render(text, folders: folders)
-        StructuredText(markdown: markdown)
+        StructuredText(markdown, parser: PictureLinks())
             .font(.system(size: 13)).foregroundStyle(Palette.ink)
             .textual.textSelection(.enabled)
             .textual.imageAttachmentLoader(LocalImageLoader(roots: [model.store.workFolder]))

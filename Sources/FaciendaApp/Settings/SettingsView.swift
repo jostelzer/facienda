@@ -25,6 +25,13 @@ struct SettingsView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 32).padding(.vertical, 28)
             }
         }.frame(width: 820, height: 640).background(Palette.paper)
+            // Top right, where the other sheets keep their close button.
+            .overlay(alignment: .topTrailing) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24).contentShape(Circle())
+                }.buttonStyle(.plain).foregroundStyle(Palette.muted).keyboardShortcut(.cancelAction)
+                    .help("Close").accessibilityLabel("Close settings").padding(.top, 12).padding(.trailing, 12)
+            }
             .onDisappear { model.settingsPane = .general }
             .preferredColorScheme(appearance.colorScheme)
             .sheet(item: $model.connectionPlan) { plan in
@@ -48,7 +55,6 @@ struct SettingsView: View {
                 }.buttonStyle(.plain).accessibilityAddTraits(pane == item ? .isSelected : [])
             }
             Spacer()
-            Button("Done") { dismiss() }.buttonStyle(QuietButton()).keyboardShortcut(.cancelAction).padding(.horizontal, 6)
         }.padding(.horizontal, 10).padding(.vertical, 20).frame(width: 210).background(Palette.sidebar)
     }
 

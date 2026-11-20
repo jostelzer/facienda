@@ -131,8 +131,14 @@ struct TaskChoicesPopover: View {
                 situation = moves.first.flatMap { try? model.store.situationName($0.situationId) } ?? ""
             }
             .task { if !dock { loadRoutine() } }
-            // The opened task is there to be answered, so the caret waits in the field.
-            .task { if dock, hasChat, !running, model.ownStep(for: task) == nil { focus = .message } }
+            // The opened task is there to be answered, so the caret waits in the field, while the agent works too, since
+            // the words then steer it. Set as the sheet appears, the field was not in the window yet and the caret stayed
+            // in the bar; a moment later it takes it. A step of the user's own keeps Enter for "Did it".
+            .task {
+                guard dock, hasChat, model.ownStep(for: task) == nil else { return }
+                try? await Task.sleep(for: .milliseconds(60))
+                if !queued, !sending { focus = .message }
+            }
             .onDisappear { messageMic.cancel(); stepMic.cancel(); noteMic.cancel() }
     }
 

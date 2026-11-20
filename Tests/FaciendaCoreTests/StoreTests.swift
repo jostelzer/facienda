@@ -219,7 +219,9 @@ private func rollout(_ reviewers: [String], trailing: Int = 0) throws -> URL {
     let home = try db.scoped(to: personal.id).create(FaciendaTask(title: "Origin"))
     let job = try db.scoped(to: work.id).create(FaciendaTask(title: "Quarterly plan"))
     let args: JSONValue = .object(["text": .string("Use Sardinia"), "source": .string("User request 2026-10-04"), "taskId": .string(try db.taskHandle(home.id))])
-    _ = try api.call("facienda_memory_remember", arguments: args)
+    try db.scoped(to: personal.id).remember(MemoryFact(text: "Use Sardinia", taskId: home.id, source: "User request 2026-10-04"))
+    // Agents no longer add to memory.
+    #expect(throws: StoreError.self) { try api.call("facienda_memory_remember", arguments: args) }
     let reader = ToolService(store: try FaciendaStore(url: db.url))
     #expect(try reader.call("facienda_memory_recall", arguments: .object(["taskId": .string(try db.taskHandle(home.id)), "query": .string("Sardinia")])).array?.count == 1)
     // A task in another memory never sees it, and nothing is reachable without naming a task.

@@ -20,46 +20,46 @@ private func runningTask(_ store: FaciendaStore, chat: String, provider: AgentPr
 
 @Test func aCodexChatKeepsItsChatAndWaitsForTheDispatcherToSetTheModel() throws {
     let store = try modelStore()
-    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.1-sol")
+    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.2-sol")
     try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6-luna", effort: "low", fast: false))
     let changed = try store.task(task.id)
     #expect(changed.workerModel == "gpt-6-luna" && changed.workerReasoningEffort == "low")
     #expect(try store.links(taskId: task.id).map(\.threadId) == ["shed"])
     let change = try #require(try store.chatModelChanges().first)
-    #expect(change.threadId == "shed" && change.model == "gpt-6-luna" && change.previousModel == "gpt-6.1-sol")
+    #expect(change.threadId == "shed" && change.model == "gpt-6-luna" && change.previousModel == "gpt-6.2-sol")
     #expect(try store.chatModelChangeArrived(after: Date().addingTimeInterval(-60)))
 
     // A second pick before Codex took the first still remembers the model the chat really had.
-    try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6-astra", effort: "high", fast: false))
+    try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6.2-astra", effort: "high", fast: false))
     let second = try #require(try store.chatModelChanges().first)
-    #expect(try store.chatModelChanges().count == 1 && second.model == "gpt-6-astra" && second.previousModel == "gpt-6.1-sol")
+    #expect(try store.chatModelChanges().count == 1 && second.model == "gpt-6.2-astra" && second.previousModel == "gpt-6.2-sol")
 
     // Codex refused it: the task shows the model its chat still runs on.
     try store.finishChatModelChange(second, applied: false, note: "unknown model")
     #expect(try store.chatModelChanges().isEmpty)
-    #expect(try store.task(task.id).workerModel == "gpt-6.1-sol")
+    #expect(try store.task(task.id).workerModel == "gpt-6.2-sol")
 }
 
 @Test func anAppliedChangeLeavesTheNewModelAndANewerPickWaits() throws {
     let store = try modelStore()
-    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.1-sol")
+    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.2-sol")
     try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6-luna", effort: "high", fast: false))
     let first = try #require(try store.chatModelChanges().first)
-    try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6-astra", effort: "high", fast: false))
+    try store.changeChatModel(taskId: task.id, to: TaskModelChoice(model: "gpt-6.2-astra", effort: "high", fast: false))
     // The dispatcher finished the first pick after the second came in: the second stays to be set.
     try store.finishChatModelChange(first, applied: true)
-    #expect(try store.chatModelChanges().map(\.model) == ["gpt-6-astra"])
+    #expect(try store.chatModelChanges().map(\.model) == ["gpt-6.2-astra"])
     try store.finishChatModelChange(try #require(try store.chatModelChanges().first), applied: true)
-    #expect(try store.chatModelChanges().isEmpty && store.task(task.id).workerModel == "gpt-6-astra")
+    #expect(try store.chatModelChanges().isEmpty && store.task(task.id).workerModel == "gpt-6.2-astra")
 }
 
 @Test func anotherAppsModelCannotTakeOverTheChat() throws {
     let store = try modelStore()
-    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.1-sol")
+    let task = try runningTask(store, chat: "shed", provider: .codex, model: "gpt-6.2-sol")
     #expect(throws: StoreError.self) { try store.changeChatModel(taskId: task.id, to: .claudeStandard) }
     let fresh = try store.create(FaciendaTask(title: "Not started yet", state: .inbox))
     #expect(throws: StoreError.self) { try store.changeChatModel(taskId: fresh.id, to: .standard) }
-    #expect(try store.task(task.id).workerModel == "gpt-6.1-sol")
+    #expect(try store.task(task.id).workerModel == "gpt-6.2-sol")
 }
 
 @Test func aClaudeSessionGoesBackToTheRunnerForItsModelOnly() throws {

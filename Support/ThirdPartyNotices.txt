@@ -1917,6 +1917,7 @@ SOFTWARE.
 textual 0.5.0
 https://github.com/gonzalezreal/textual
 Revision: 01b51875a5406eefc95f52a058cb059e7bc94dc4
+Facienda builds a copy with one small change, described in Vendor/Textual/README.md.
 
 
 --- LICENSE ---

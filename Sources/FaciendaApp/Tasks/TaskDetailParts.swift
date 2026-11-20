@@ -111,6 +111,8 @@ struct DecisionCard: View {
     let decision: Decision
     @State private var answer = ""
     @State private var editing = false
+    /// The exact command a Claude session asks to run, which Allow once lets through.
+    @State private var grant: ClaudeCommandGrant?
     private var neutralOptions: [String] {
         var seen = Set<String>()
         return (decision.options + [decision.recommendation]).filter { !$0.isEmpty && seen.insert($0).inserted }
@@ -122,6 +124,13 @@ struct DecisionCard: View {
             }
             Text(decision.question).font(.system(size: 13, weight: .semibold))
             if !decision.context.isEmpty { ResultText(model: model, text: decision.context, task: model.tasks.first { $0.id == decision.taskId }) }
+            if let grant {
+                // What Allow once lets through, shown in full with hidden characters spelled out.
+                Text(CodexApproval.visible(grant.command)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Allow once runs this exact command one time in Claude, within the hour, without Claude asking again.")
+                    .font(.system(size: 12)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            }
             if decision.kind == "permission" {
                 // The agent asks for itself, so its own pick gets no emphasis: every option looks alike, in the order given.
                 WrapLayout(spacing: 6) {
@@ -146,6 +155,7 @@ struct DecisionCard: View {
                 }
             }
         }.calloutCard()
+        .task(id: decision.id) { grant = decision.kind == "permission" ? try? model.store.commandGrant(decisionId: decision.id) : nil }
     }
 }
 

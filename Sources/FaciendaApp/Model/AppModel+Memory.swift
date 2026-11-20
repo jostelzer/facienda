@@ -25,22 +25,6 @@ extension AppModel {
     func moveNote(_ fact: MemoryFact, to workspace: Workspace) {
         perform(undo: "Move Note") { try store.moveMemory(fact.id, toSpace: workspace.memorySpaceId); refresh() }
     }
-    /// A learned memory the user forgets leaves every recall; Undo brings it back.
-    func forgetLearned(_ unit: MemoryUnit, named name: String) {
-        perform(undo: name) { try store.forgetMemoryUnit(unit.id); refresh() }
-    }
-    /// A learned memory the user stands behind becomes a note in the same words, and the observation goes, so the
-    /// memory holds it once.
-    func confirmLearned(_ unit: MemoryUnit) {
-        perform(undo: "Confirm Memory") {
-            let kind = ["preference", "person", "procedure"].contains(unit.memoryKind ?? "") ? unit.memoryKind! : "fact"
-            var fact = MemoryFact(kind: kind, text: unit.text, taskId: unit.taskId, source: "Learned from your task chats, confirmed \(Date().formatted(.dateTime.day().month().year()))")
-            fact.confirmedAt = Date(); fact.spaceId = memorySpace?.id
-            try store.remember(fact, source: .user)
-            try store.forgetMemoryUnit(unit.id)
-            refresh()
-        }
-    }
     /// Seeds the rules from a text file such as an AGENTS.md: every paragraph that is not a heading becomes one rule.
     func importRules() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.canChooseFiles = true; panel.prompt = "Add as rules"

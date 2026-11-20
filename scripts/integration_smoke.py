@@ -71,8 +71,8 @@ try:
     process.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n')
     process.stdin.flush()
     tools = request('tools/list', {})['tools']
-    assert len(tools) == 25
-    assert {"facienda_memory_find", "facienda_memory_open", "facienda_memory_propose", "facienda_memory_reflect"} <= {tool["name"] for tool in tools}
+    assert len(tools) == 20
+    assert {"facienda_memory_find", "facienda_memory_open", "facienda_memory_reflect"} <= {tool["name"] for tool in tools}
     assert next(tool for tool in tools if tool['name'] == 'facienda_current_task')['annotations']['readOnlyHint'] is True
     assert next(tool for tool in tools if tool['name'] == 'facienda_task_update')['annotations']['readOnlyHint'] is False
     task = call('task_create', {'title': 'Isolated smoke task', 'nextAction': 'Check the report', 'returnAt': '2030-01-01T12:00:00Z'})
@@ -92,16 +92,11 @@ try:
     call('task_update', {'taskId': task_handle, 'brief': 'Prepared and awaiting review', 'proposedState': 'needsMe'})
     assert call('save_result', {'taskId': task_handle, 'text': 'Native result reporting smoke test'})['saved'] is True
     call('task_update', {'taskId': task_handle, 'proposedState': 'done'}, error=True)
-    memory = call('memory_remember', {'text': 'Use an isolated test database', 'source': 'Integration smoke 2026-10-04', 'taskId': task_handle})
-    assert not memory.get('confirmedAt') and memory['taskId'] == task_id
-    # Current chats name their task; memory is limited to that task's memory.
-    assert len(call('memory_recall', {'taskId': task_handle, 'query': ''})) == 1
-    proposal = call('memory_propose', {'taskId': task_handle, 'shelf': 'rules', 'text': 'Ask before publishing', 'why': 'Invented user preference'})
-    assert proposal['state'] == 'proposed'
+    # Agents no longer add to memory, under either name an older chat may know.
+    call('memory_remember', {'text': 'Use an isolated test database', 'source': 'Integration smoke 2026-10-04', 'taskId': task_handle}, error=True)
+    call('memory_propose', {'taskId': task_handle, 'shelf': 'rules', 'text': 'Ask before publishing', 'why': 'Invented user preference'}, error=True)
     assert call('memory_find', {'taskId': task_handle, 'text': 'publishing'}) == []
-    assert call('memory_open', {'taskId': task_handle, 'id': proposal['id']})['entry']['state'] == 'proposed'
-    call('memory_propose', {'taskId': task_handle, 'shelf': 'status', 'text': 'Tests passed', 'why': 'A report'}, error=True)
-    assert 'taskId' in next(tool for tool in tools if tool['name'] == 'facienda_memory_recall')['description']
+    assert 'taskId' in next(tool for tool in tools if tool['name'] == 'facienda_memory_find')['inputSchema']['required']
     call('memory_recall', {'workspace': str(directory / 'wrong.sqlite'), 'query': ''}, error=True)
     call('memory_recall', {'query': ''}, error=True)
     call('memory_recall', {'taskId': 'no-such-task', 'query': ''}, error=True)
@@ -122,7 +117,7 @@ try:
         assert hook.returncode == 0
         if event != 'Stop':
             context = json.loads(hook.stdout)['hookSpecificOutput']['additionalContext']
-            assert task_handle in context and f'taskId {task_handle}' in context and 'facienda_memory_find' in context
+            assert f'Facienda task handle: {task_handle}' in context and len(context) < 300
     for bad in ['not json', '{}']:
         hook = subprocess.run([str(args.helpers / 'facienda-hook'), *helper_arguments], input=bad, text=True, capture_output=True, timeout=2)
         assert hook.returncode == 0 and hook.stdout == ''
@@ -200,8 +195,6 @@ try:
         assert len(json.dumps(result)) < 1500 and 'workerPrompt' not in result
         return prepared
 
-    with sqlite3.connect(database) as db:
-        db.execute("UPDATE memoryFacts SET confirmedAt = '2026-10-04 12:00:00' WHERE id = ?", (memory['id'],))
     helper('--runner', 'bind', '--thread-id', 'memory-smoke-runner')
     start(task_id)
     instructions = subprocess.run([str(args.helpers / 'facienda-mcp'), '--database', str(database), '--runner', 'instructions'], capture_output=True, text=True, check=True).stdout
@@ -222,12 +215,11 @@ try:
     assert 'workerPrompt' not in delivery and len(json.dumps(delivery)) < 4000
     _, prepared = prepare(delivery)
     prompt = prepared['workerPrompt']
-    assert str(database) in prompt and 'facienda_memory_recall' in prompt and 'facienda_memory_remember' in prompt and f'TASK HANDLE: {task_handle}' in prompt
-    assert 'MEMORY INDEX:' in prompt and 'MEMORY SNAPSHOT:' not in prompt and 'with a memory of its own' in prompt
-    assert 'Use an isolated test database' not in prompt  # An unconfirmed suggestion cannot become prompt context.
+    assert str(database) in prompt and 'memory_find' in prompt and f'TASK HANDLE: {task_handle}' in prompt
+    assert 'MEMORY INDEX:' in prompt and 'MEMORY SNAPSHOT:' not in prompt
     arguments_file = directory / 'recall.json'
     arguments_file.write_text(json.dumps({'taskId': task_handle, 'query': ''}))
-    assert len(helper('--call', 'facienda_memory_recall', '--arguments-file', str(arguments_file))) == 1
+    assert helper('--call', 'facienda_memory_recall', '--arguments-file', str(arguments_file)) == []
     # New work cannot bypass discovery. Preserve a known owner and attach a
     # background reference without creating another ownership link.
     try:
@@ -259,7 +251,6 @@ try:
     assert 'workerPrompt' not in enriched and len(json.dumps(enriched)) < 4000
     assert pathlib.Path(enriched['discovery']['contextFile']).exists()
     _, prepared = prepare(enriched)
-    assert len(prepared['workerPrompt']) > 12000
     assert 'codex://threads/background-fixture' in prepared['workerPrompt'] and 'The applicant is not established' in prepared['workerPrompt']
     assert enriched['dispatch']['threadId'] == 'smoke-thread'
     with sqlite3.connect(database) as db:
@@ -276,7 +267,7 @@ try:
     due = helper('--runner', 'wait', '--runner-id', 'memory-smoke-runner', '--seconds', '4')
     assert due['dispatch']['kind'] == 'check' and due['dispatch']['threadId'] == 'check-smoke-thread'
     _, prepared = prepare(due)
-    assert 'scheduled dependency check' in prepared['workerPrompt'] and 'facienda_report_check' in prepared['workerPrompt']
+    assert 'This is a scheduled check' in prepared['workerPrompt'] and 'CHECK PLAN' not in prepared['workerPrompt'] and 'facienda_report_check' in prepared['workerPrompt']
     dispatch_id = due['dispatch']['id']
     begin(due)
     helper('--runner', 'ack', '--runner-id', 'memory-smoke-runner', '--dispatch-id', dispatch_id, '--thread-id', 'check-smoke-thread')

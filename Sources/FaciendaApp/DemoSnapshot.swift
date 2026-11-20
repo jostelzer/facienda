@@ -226,12 +226,12 @@ extension AppDelegate {
                 model.select(task.id)
             }
             if CommandLine.arguments.contains("--model-chooser") {
-                model.composerModel = CommandLine.arguments.contains("--codex") ? TaskModelChoice(model: "gpt-6.1-sol", effort: "xhigh", fast: true) : .claudeStandard
+                model.composerModel = CommandLine.arguments.contains("--codex") ? TaskModelChoice(model: "gpt-6.2-sol", effort: "xhigh", fast: true) : .claudeStandard
                 content = AnyView(ModelChoicePanel(model: model).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(Palette.paper))
             }
-            // `--chat-model`: the model chooser of the selected task, whose Codex chat runs on GPT-6.1 Sol.
+            // `--chat-model`: the model chooser of the selected task, whose Codex chat runs on GPT-6.2 Sol.
             if CommandLine.arguments.contains("--chat-model"), let id = model.selection {
-                _ = try model.store.update(id) { $0.workerModel = "gpt-6.1-sol"; $0.workerReasoningEffort = "medium" }
+                _ = try model.store.update(id) { $0.workerModel = "gpt-6.2-sol"; $0.workerReasoningEffort = "medium" }
                 model.refresh()
                 if let task = model.tasksByID[id] {
                     content = AnyView(ChatModelPanel(model: model, task: task).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(Palette.paper))

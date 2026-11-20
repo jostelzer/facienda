@@ -31,6 +31,30 @@ private func conversation(_ thread: String = "owner", text: String = "Exact answ
     #expect(try reopened.conversationSnapshot(taskId: task.id, threadId: "owner") == nil)
 }
 
+@Test func savedChatsKeepMessagesAndDelegationsButNotToolWork() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "slim-\(UUID().uuidString)/tasks.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Paint the shed", state: .running))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    let delegated = JSONValue.object(["type": .string("functionCallOutput"), "namespace": .string("codex_app"), "name": .string("send_message_to_thread"),
+                                      "output": .string("<codex_delegation><input>Pick a green</input></codex_delegation>")])
+    let items: [JSONValue] = [
+        .object(["type": .string("userMessage"), "content": .array([.object(["type": .string("text"), "text": .string("Paint the shed")])])]),
+        .object(["type": .string("commandExecution"), "aggregatedOutput": .string(String(repeating: "x", count: 10_000))]),
+        .object(["type": .string("imageGeneration"), "result": .string(String(repeating: "y", count: 10_000))]),
+        .object(["type": .string("functionCallOutput"), "namespace": .string("codex_app"), "name": .string("list_threads"), "output": .string("[]")]),
+        delegated,
+        .object(["type": .string("agentMessage"), "text": .string("Done in sage green")]),
+    ]
+    let chat = CodexConversation(threadId: "owner", title: "Shed", turns: [
+        CodexConversationTurn(id: "t", status: "completed", startedAt: Date(timeIntervalSince1970: 1), completedAt: Date(timeIntervalSince1970: 2), error: .null, items: items)])
+    try store.saveConversation(taskId: task.id, conversation: chat)
+    let saved = try #require(try store.conversationSnapshot(taskId: task.id, threadId: "owner")?.conversation)
+    #expect(saved.turns[0].items.map { $0["type"].string } == ["userMessage", "functionCallOutput", "agentMessage"])
+    #expect(saved.turns[0].items[1] == delegated)
+    #expect(saved.turns[0].status == "completed" && saved.lastMessageAt == chat.lastMessageAt)
+    #expect(saved.turns[0].messages(originalRequest: task.title, dispatches: []).map(\.text) == chat.turns[0].messages(originalRequest: task.title, dispatches: []).map(\.text))
+}
+
 @Test func lastMessageIsTheNewestTurnEndOrARunningTurnsStartAndSurvivesTheBackfill() throws {
     let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "last-message-\(UUID().uuidString)/tasks.sqlite"))
     let task = try store.create(FaciendaTask(title: "Original request", state: .running))
@@ -297,9 +321,11 @@ private func conversation(_ thread: String = "owner", text: String = "Exact answ
     try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
     try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
     let page = repo.appending(path: "mock.HTML"), notes = repo.appending(path: "notes.md"), far = outside.appending(path: "far.html")
-    for file in [page, notes, far] { try Data("x".utf8).write(to: file) }
+    let shot = repo.appending(path: "screen.png")
+    for file in [page, notes, far, shot] { try Data("x".utf8).write(to: file) }
     try FileManager.default.createSymbolicLink(at: repo.appending(path: "link.html"), withDestinationURL: far)
     #expect(CodexMarkdown.localPage(page, within: [repo]) == page.resolvingSymlinksInPath())
+    #expect(CodexMarkdown.localPage(shot, within: [repo]) == shot.resolvingSymlinksInPath())
     #expect(CodexMarkdown.localPage(notes, within: [repo]) == nil)
     #expect(CodexMarkdown.localPage(far, within: [repo]) == nil)
     #expect(CodexMarkdown.localPage(repo.appending(path: "link.html"), within: [repo]) == nil)
@@ -351,4 +377,33 @@ private func approval(_ method: String, _ extra: [String: JSONValue]) -> CodexAp
     let prompt = NextStepWriter.developerInstructions
     #expect(!prompt.contains("Order the oak desk"))
     for word in ["buying", "paying", "sending", "cannot be undone"] { #expect(prompt.contains(word)) }
+}
+
+@Test func aFinishedTurnsAnswerInTheChatIsTheTasksResult() throws {
+    let store = try FaciendaStore(url: FileManager.default.temporaryDirectory.appending(path: "conversation-\(UUID().uuidString)/tasks.sqlite"))
+    let task = try store.create(FaciendaTask(title: "Find a ferry", state: .running))
+    try store.link(ThreadLink(taskId: task.id, codexThreadId: "owner"))
+    func chat(_ status: String, _ text: String, after: TimeInterval, extra: [JSONValue] = []) -> CodexConversation {
+        CodexConversation(threadId: "owner", title: "Ferry", turns: [
+            CodexConversationTurn(id: "turn-\(after)", status: status, startedAt: Date().addingTimeInterval(after), completedAt: status == "completed" ? Date().addingTimeInterval(after + 1) : nil, error: .null,
+                items: extra + [.object(["type": .string("agentMessage"), "id": .string("answer"), "text": .string(text)])])
+        ])
+    }
+    func results() throws -> [String] { try store.events(taskId: task.id).filter { $0.kind == "codex.result" }.map(\.payload) }
+    // Nothing while the turn runs; once it has ended its answer is kept, and reading the chat again keeps it once.
+    try store.saveConversation(taskId: task.id, conversation: chat("inProgress", "Looking", after: 10))
+    #expect(try results().isEmpty)
+    try store.saveConversation(taskId: task.id, conversation: chat("completed", "The 9:40 boat has room.", after: 10))
+    try store.saveConversation(taskId: task.id, conversation: chat("completed", "The 9:40 boat has room.", after: 10))
+    #expect(try results() == ["The 9:40 boat has room."])
+    // An answer the agent saved itself during a turn stands; the chat's closing line does not replace it.
+    try store.saveResult(taskId: task.id, text: "The full comparison of three boats.")
+    try store.saveConversation(taskId: task.id, conversation: chat("completed", "Compared three boats.", after: -5))
+    #expect(try results().count == 2 && !results().contains("Compared three boats."))
+    // A scheduled check reports through its own tool.
+    let check = NativeDispatch(id: UUID().uuidString, taskId: task.id, state: "started", requestedAt: Date(), kind: "check")
+    try store.write { try check.insert($0) }
+    let delivery: JSONValue = .object(["type": .string("userMessage"), "id": .string("u"), "content": .array([.object(["type": .string("text"), "text": .string("Facienda dispatch: \(check.id)\nA scheduled check is due.")])])])
+    try store.saveConversation(taskId: task.id, conversation: chat("completed", "Nothing changed.", after: 60, extra: [delivery]))
+    #expect(try results().count == 2)
 }

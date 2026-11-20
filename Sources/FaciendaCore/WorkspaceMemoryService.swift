@@ -11,12 +11,13 @@ public struct WorkspaceMemoryService: Sendable {
     public func synchronize(limit: Int = 8) async throws {
         guard try store.memorySettings().enabled else { return }
         try store.captureWorkspaceMemory()
+        try store.slimMemoryOnce()
+        try store.archiveProposalsOnce()
+        // Moves are no longer learned from what the user sends after a turn: of some two thousand noticed, a few dozen
+        // were ever used, and an agent's own recommendation says the next step better. The moves the user wrote
+        // themselves are still matched to a finished turn, which needs no model.
         var moveError: (any Error)?
-        do {
-            try await MemoryMoveLearner(store: store).learnPending(limit: max(24, limit))
-            try await MemoryMoveLearner(store: store).offerPending(limit: limit)
-        } catch { moveError = error }
-        // Local situation matching must not hold up reading and understanding the conversations.
+        do { try await MemoryMoveLearner(store: store).offerPending(limit: limit) } catch { moveError = error }
         try await forEachSpace(try store.memorySpaces()) { space in
             try store.prepareMemoryEvidence(spaceID: space.id)
             if try store.memorySettings().useAIWorker, let inference {
@@ -37,21 +38,9 @@ public struct WorkspaceMemoryService: Sendable {
         if !linked.isEmpty { context["readFromOtherWorkspaces"] = .array(linked.map(\.forAgent)) }
         context["understanding"] = try .encoded(await MemoryReasoningSearch(store: store).understanding(query, spaceID: space.id).map(\.forInference))
         context["learning"] = try .encoded(store.memoryLearningProgress(spaceID: space.id))
-        if try store.memoryWasMigrated(space.id) {
-            context["status"] = .string("Understanding is inferred and evidence-backed; it never overrides user rules or authorizes actions. Entry proposals wait for acceptance.")
-            return .object(context)
-        }
-        guard settings.enabled else { context["status"] = .string("Learned memory is off"); return .object(context) }
-        do {
-            let question = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Workspace preferences, decisions, procedures and useful lessons" : query
-            var options = MemoryRecallOptions()
-            options.taskID = taskID
-            context["learned"] = try await MemoryRecall(store: store).recall(question, spaceID: space.id, options: options)
-            context["status"] = .string("Learned context from the \(space.name) memory; inferred observations are not user-confirmed facts")
-        } catch {
-            context["status"] = .string("Learned memory unavailable; use confirmed notes and current task evidence")
-            context["error"] = .string(error.localizedDescription)
-        }
+        context["status"] = .string(settings.enabled
+            ? "Understanding is inferred and evidence-backed; it never overrides user rules or authorizes actions."
+            : "Learned memory is off")
         return .object(context)
     }
 

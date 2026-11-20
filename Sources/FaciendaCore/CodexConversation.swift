@@ -33,6 +33,16 @@ public struct CodexConversation: Codable, Equatable, Sendable {
     /// When the chat last moved: the newest turn's end, or its start while it runs, from the user or the agent.
     public var lastMessageAt: Date? { turns.compactMap { $0.completedAt ?? $0.startedAt }.max() }
 
+    /// What Facienda keeps of a chat: the messages and the requests other chats delegated, with every turn's status
+    /// and times. Commands, tool calls, file changes and generated pictures stay in the agent's own chat; they are
+    /// never shown here and made up nine tenths of what was saved.
+    public var kept: CodexConversation {
+        CodexConversation(threadId: threadId, title: title, turns: turns.map { turn in
+            CodexConversationTurn(id: turn.id, status: turn.status, startedAt: turn.startedAt, completedAt: turn.completedAt, error: turn.error,
+                items: turn.items.filter { ["agentMessage", "userMessage"].contains($0["type"].string ?? "") || $0.delegatedInput != nil })
+        })
+    }
+
     public func containsDelivery(_ dispatchId: String) -> Bool {
         turns.contains { turn in
             turn.items.contains { item in
@@ -311,12 +321,15 @@ public enum CodexMarkdown {
         return !(honest && (barePlain || !shown.isEmpty))
     }
 
-    /// A web page agent text links to that Facienda may show itself: a local `.html` file inside one of `roots`,
-    /// shown with nothing loaded from the network. Pages elsewhere are only revealed in Finder, like any other file.
+    /// A page agent text links to that Facienda may show itself: a local `.html` file or a picture inside one of
+    /// `roots`, shown with nothing loaded from the network. Files elsewhere are only revealed in Finder, like any other.
     public static func localPage(_ url: URL, within roots: [URL]) -> URL? {
-        guard let file = localFile(url, within: roots), ["html", "htm"].contains(file.pathExtension.lowercased()) else { return nil }
+        guard let file = localFile(url, within: roots), (["html", "htm"] + pictureTypes).contains(file.pathExtension.lowercased()) else { return nil }
         return file
     }
+
+    /// Pictures a web view shows as they are, with nothing in them that runs.
+    static let pictureTypes = ["png", "jpg", "jpeg", "gif", "webp", "heic"]
 
     /// A local picture agent text may show: a regular file, not a link, inside one of `roots`. Nothing on the network ever loads.
     public static func localImage(_ url: URL, within roots: [URL]) -> URL? { localFile(url, within: roots) }
@@ -350,10 +363,32 @@ extension FaciendaStore {
     }
 
     public func saveConversation(taskId: String, conversation: CodexConversation, fetchedAt: Date = Date()) throws {
-        try write { db in
+        let answer: String? = try write { db in
             guard try Self.isLinked(db, taskId: taskId, threadId: conversation.threadId) else { throw StoreError.conflict }
             try Self.insertConversation(db, taskId: taskId, conversation: conversation, fetchedAt: fetchedAt)
+            return try Self.recordAnswer(db, taskId: taskId, conversation: conversation)
         }
+        // The documents the answer links to are offered to the task's workspace, as for an answer the agent saved.
+        if let answer { _ = try? proposeSources(fromAnswer: answer, taskId: taskId) }
+    }
+
+    /// The agent answers in its own chat, so a finished turn's last answer is the task's result: what the row's line,
+    /// the next steps and memory are read from. An answer the agent saved itself during that turn stands instead, a
+    /// scheduled check reports through its own tool, and what a chat said before its task existed is no result of it.
+    /// Returns the answer when it was new.
+    static func recordAnswer(_ db: Database, taskId: String, conversation: CodexConversation) throws -> String? {
+        guard let turn = conversation.turns.last, turn.status == "completed", let ended = turn.completedAt,
+              let task = try FaciendaTask.fetchOne(db, key: taskId), task.state.isOpen, ended > task.createdAt else { return nil }
+        let dispatches = try NativeDispatch.filter(Column("taskId") == taskId).fetchAll(db)
+        let messages = turn.messages(originalRequest: task.title, dispatches: dispatches)
+        guard !messages.contains(where: { $0.role == .automation }),
+              let answer = messages.last(where: { $0.role == .codex && !$0.isCommentary })?.text.trimmingCharacters(in: .whitespacesAndNewlines),
+              !answer.isEmpty else { return nil }
+        let known = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM events WHERE taskId = ? AND kind = 'codex.result' AND at >= ?",
+                                     arguments: [taskId, turn.startedAt ?? ended]) ?? 0
+        guard known == 0 else { return nil }
+        try TaskEvent(taskId: taskId, threadId: conversation.threadId, source: .app, kind: "codex.result", payload: answer, verified: false, at: ended).insert(db)
+        return answer
     }
 
     /// Import is a single transaction; it never queues work or invents a deadline.
@@ -389,7 +424,7 @@ extension FaciendaStore {
     }
 
     private static func insertConversation(_ db: Database, taskId: String, conversation: CodexConversation, fetchedAt: Date) throws {
-        let payload = String(decoding: try JSONEncoder().encode(conversation), as: UTF8.self)
+        let payload = String(decoding: try JSONEncoder().encode(conversation.kept), as: UTF8.self)
         try db.execute(sql: """
             INSERT INTO threadSnapshots(taskId, threadId, payload, fetchedAt, lastMessageAt, chatEnd) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(taskId, threadId) DO UPDATE SET payload = excluded.payload, fetchedAt = excluded.fetchedAt,
@@ -416,6 +451,23 @@ extension FaciendaStore {
         migrator.registerMigration("snapshot_last_message") { db in
             try db.execute(sql: "ALTER TABLE threadSnapshots ADD COLUMN lastMessageAt DATETIME")
             try db.execute(sql: lastMessageBackfill)
+        }
+    }
+
+    /// Chats saved before only messages were kept shrink once. A row that does not read as a chat stays as it is.
+    static func registerSlimSnapshots(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("slim_thread_snapshots") { db in
+            let rows = try Row.fetchCursor(db, sql: "SELECT taskId, threadId, payload FROM threadSnapshots")
+            var slimmed: [(String, String, String)] = []
+            while let row = try rows.next() {
+                let payload: String = row["payload"]
+                guard let conversation = try? JSONDecoder().decode(CodexConversation.self, from: Data(payload.utf8)) else { continue }
+                let kept = String(decoding: try JSONEncoder().encode(conversation.kept), as: UTF8.self)
+                if kept.utf8.count < payload.utf8.count { slimmed.append((row["taskId"], row["threadId"], kept)) }
+            }
+            for (taskId, threadId, payload) in slimmed {
+                try db.execute(sql: "UPDATE threadSnapshots SET payload = ? WHERE taskId = ? AND threadId = ?", arguments: [payload, taskId, threadId])
+            }
         }
     }
 

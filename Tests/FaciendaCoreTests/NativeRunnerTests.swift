@@ -209,7 +209,7 @@ private func deliveringStart(_ store: FaciendaStore, _ task: FaciendaTask) throw
 
 @Test func taskModelChoiceSurvivesStorageAndDefaultsToSolHighStandard() throws {
     let store = try runnerStore()
-    #expect(TaskModelChoice.standard == TaskModelChoice(model: "gpt-6.1-sol", effort: "high", fast: false))
+    #expect(TaskModelChoice.standard == TaskModelChoice(model: "gpt-6.2-sol", effort: "high", fast: false))
     var draft = FaciendaTask(title: "Fast one", state: .needsMe)
     draft.workerModel = "gpt-6-luna"; draft.workerReasoningEffort = "low"; draft.workerServiceTier = TaskModelChoice.fastTier
     let saved = try store.task(try store.create(draft).id)

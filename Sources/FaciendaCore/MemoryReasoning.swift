@@ -74,7 +74,10 @@ public struct MemoryReasoner: Sendable {
     still-supported details. Check its evidence before extending it. Do not overwrite reviewed items or recreate
     dismissed subjects. User-authored rules in evidence take priority; interpretations never grant permission.
     Avoid duplicate concepts under new names. Connections may point only to supplied existing IDs in this workspace.
-    Return at most 10 useful understandings. A process should have concrete steps with reasons and checks, not just a title.
+    This workspace keeps about \(MemoryUnderstanding.kept) subjects in all, and the weakest are dropped. ALSO_KNOWN names the ones
+    it holds besides EXISTING: never add a subject that one of them covers. Revise or widen an existing subject before
+    adding one, and add one only for what will matter again. Returning nothing new is the usual answer.
+    Return at most 4 understandings. A process should have concrete steps with reasons and checks, not just a title.
     """
 
     /// A workspace lease prevents the app and a helper from processing the same sources concurrently.
@@ -131,18 +134,9 @@ public struct MemoryReasoner: Sendable {
                 }
             }
         }
-        let progress = try store.memoryLearningProgress(spaceID: spaceID)
-        let needsReview = try await store.db.read { try Bool.fetchOne($0, sql: "SELECT revision > reviewedRevision FROM memoryReasoningState WHERE spaceId = ?", arguments: [spaceID]) ?? false }
-        if progress.pending == 0, needsReview, progress.understanding >= 2 {
-            // Review every subject in bounded groups, with semantic neighbours to connect distant topics.
-            let revision = try store.understandingRevision(spaceID: spaceID)
-            let all = try store.memoryUnderstanding(spaceID: spaceID).sorted { $0.id < $1.id }
-            for start in stride(from: 0, to: all.count, by: 12) {
-                let result = try await consolidate([], spaceID: spaceID, owner: owner, reviewSubjects: Array(all[start..<min(start + 12, all.count)]))
-                try await save(result, pending: [], spaceID: spaceID, owner: owner)
-            }
-            try await store.db.write { try $0.execute(sql: "UPDATE memoryReasoningState SET reviewedRevision = ? WHERE spaceId = ? AND leaseOwner = ?", arguments: [revision, spaceID, owner]) }
-        }
+        // Only new evidence is read. Going over every subject again after each message rewrote the whole memory
+        // around the clock; what a workspace keeps is now settled by the trim, without a model call.
+        try store.trimMemoryUnderstanding(spaceID: spaceID)
         return try store.memoryLearningProgress(spaceID: spaceID)
     }
 
@@ -178,47 +172,41 @@ public struct MemoryReasoner: Sendable {
                 // Another batch may have created this subject since retrieval. Include it even if semantic search misses it.
                 currentPending = try store.memoryEvidence(pending.map(\.id), spaceID: spaceID).filter { $0.processedAt == nil }
                 if !pending.isEmpty && currentPending.isEmpty { return }
-                result = try await consolidate(currentPending, spaceID: spaceID, owner: owner,
-                                               reviewSubjects: pending.isEmpty ? result.existing : [], reconciling: result.drafts)
+                result = try await consolidate(currentPending, spaceID: spaceID, owner: owner, reconciling: result.drafts)
             }
         }
     }
 
-    private func consolidate(_ pending: [MemoryEvidence], spaceID: String, owner: String, reviewSubjects: [MemoryUnderstanding] = [], reconciling: [Draft] = []) async throws -> Consolidation {
+    private func consolidate(_ pending: [MemoryEvidence], spaceID: String, owner: String, reconciling: [Draft] = []) async throws -> Consolidation {
         try Task.checkCancellation()
         let revision = try store.understandingRevision(spaceID: spaceID)
         let search = MemoryReasoningSearch(store: store, models: models)
         var candidates = try store.memoryUnderstanding(spaceID: spaceID).filter { item in
             reconciling.contains { $0.existingId == item.id || ($0.kind == item.kind && MemoryEntry.key($0.subject) == item.subjectKey) }
         }
-        if !reviewSubjects.isEmpty {
-            // Refresh revisions: an earlier group may have revised a neighbour.
-            let ids = Set(reviewSubjects.map(\.id))
-            candidates += try store.memoryUnderstanding(spaceID: spaceID).filter { ids.contains($0.id) }
-            for item in reviewSubjects { candidates += try await search.understanding(item.searchText, spaceID: spaceID, limit: 3) }
-        }
-        else {
-            for source in pending { candidates += try await search.understanding(source.text, spaceID: spaceID, limit: 3) }
-        }
+        for source in pending { candidates += try await search.understanding(source.text, spaceID: spaceID, limit: 3) }
         var candidateIDs = Set<String>()
         let existing = candidates.filter { candidateIDs.insert($0.id).inserted }
         let supporting = try store.memoryEvidence(existing.flatMap { $0.citations.map(\.evidenceId) }, spaceID: spaceID)
         var seen = Set<String>()
-        var budget = 72_000
+        // Pending evidence comes first, so a long history of support never crowds out what is new.
+        var budget = 36_000
         let evidence = (pending + supporting).filter {
             guard seen.insert($0.id).inserted, $0.text.count <= budget else { return false }
             budget -= $0.text.count; return true
         }
         let excluded = try store.memoryUnderstanding(spaceID: spaceID, includeDismissed: true).filter { $0.state != .inferred }
+        let alsoKnown = try store.memoryUnderstanding(spaceID: spaceID).filter { !candidateIDs.contains($0.id) }
         var input = try JSONValue.object([
             "EVIDENCE": .encoded(evidence.map(\.forInference)), "NEW_EVIDENCE_IDS": .encoded(pending.map(\.id)),
             "EXISTING": .encoded(existing.map(\.forInference)), "DO_NOT_REWRITE": .encoded(excluded.map { ["id": $0.id, "subject": $0.subject, "state": $0.state.rawValue] }),
-            "PURPOSE": .string(!reviewSubjects.isEmpty ? "Review across subjects. Abstract shared principles, explain relationships and dependencies, and improve reusable process models. Do not merely repeat existing summaries or merge unrelated subjects." : "Integrate the new evidence into understanding, revising existing subjects where appropriate.")
+            "ALSO_KNOWN": .encoded(alsoKnown.map { ["subject": $0.subject, "summary": String($0.summary.prefix(160))] }),
+            "PURPOSE": .string("Integrate the new evidence into understanding, revising existing subjects where appropriate.")
         ])
         var accepted: [Draft]?
         for attempt in 0..<4 {
             let response = try await complete(spaceID: spaceID, owner: owner, system: Self.instructions, user: MemoryRedaction.redact(input).json, schema: Self.schema)
-            let drafts = Array(try JSONDecoder().decode(Reply.self, from: Data(response.utf8)).understanding.prefix(10))
+            let drafts = Array(try JSONDecoder().decode(Reply.self, from: Data(response.utf8)).understanding.prefix(4))
             do { try Self.validate(drafts, evidence: evidence, existing: existing) }
             catch {
                 guard attempt < 3 else { throw error }
@@ -311,6 +299,7 @@ public struct MemoryReasoner: Sendable {
                     guard prior.state == .inferred else { continue }
                     guard existing.first(where: { $0.id == prior.id })?.revision == prior.revision else { throw StoreError.conflict }
                     try MemoryUnderstandingVersion(id: UUID().uuidString, understandingId: prior.id, snapshot: prior, at: Date()).insert(db)
+                    try FaciendaStore.pruneUnderstandingHistory(db, id: prior.id)
                 }
                 let citations = draft.citations.map { MemoryUnderstanding.Citation(evidenceId: $0.evidenceId, quote: MemoryRedaction.redact($0.quote)) }
                 let citedSources = citations.compactMap { id in evidence.first { $0.id == id.evidenceId } }

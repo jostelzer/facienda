@@ -69,14 +69,10 @@ public enum NextStepWriter {
         ])
     ])
 
-    /// Memory as plain lines: confirmed notes first, then what the memory engine learned, bounded.
-    public static func memoryExcerpt(notes: [MemoryFact], learned: JSONValue? = nil, limit: Int = 4000) -> String {
-        var lines = notes.filter { $0.supersededBy == nil }.sorted { ($0.confirmedAt != nil) && ($1.confirmedAt == nil) }
+    /// Memory as plain lines, confirmed notes first, bounded.
+    public static func memoryExcerpt(notes: [MemoryFact], limit: Int = 4000) -> String {
+        let lines = notes.filter { $0.supersededBy == nil }.sorted { ($0.confirmedAt != nil) && ($1.confirmedAt == nil) }
             .map { ($0.confirmedAt != nil ? "CONFIRMED (\($0.kind)): " : "NOTE (\($0.kind)): ") + String($0.text.replacingOccurrences(of: "\n", with: " ").prefix(300)) }
-        if let learned, learned != .null {
-            let noteIDs = Set(notes.map(\.id))
-            lines.append("LEARNED:\n" + MemoryPromptFormat.learned(learned, limit: 2_000, skipping: noteIDs))
-        }
         var kept: [String] = [], total = 0
         for line in lines {
             guard total + line.count <= limit else { break }

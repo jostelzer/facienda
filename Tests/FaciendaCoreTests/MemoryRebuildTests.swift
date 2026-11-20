@@ -64,48 +64,6 @@ private func rebuiltMemory() throws -> (FaciendaStore, String, FaciendaTask) {
     #expect(try store.suggestedMoves(taskID: task.id).map(\.text) == ["Take the first option"])
 }
 
-@Test func keeperQuotesSourcesKeepsHistoryAndProposesContradictions() throws {
-    let (store, space, task) = try rebuiltMemory()
-    let keeper = MemoryKeeper(store: store, inference: EmptyKeeper())
-    func utterance(_ id: String, _ text: String, at: TimeInterval) throws -> MemoryUtterance {
-        try store.captureUtterance(id: id, text: text, source: "Invented renovation reply", kind: .userReply, taskID: task.id, spaceID: space, at: Date(timeIntervalSince1970: at))
-        return try store.db.read { try MemoryUtterance.fetchOne($0, key: id)! }
-    }
-    let first = try utterance("one", "Always use oak for the shelves.", at: 100)
-    func choice(_ text: String, action: String, existing: String = "") -> MemoryKeeper.Choice {
-        .init(shelf: .choices, subject: "Shelf material", quote: text, existingId: existing, action: action, reason: "Different material", fields: [])
-    }
-    try keeper.apply([choice(first.text, action: "keep"), choice("Invented by the worker", action: "keep")], utterance: first, candidates: [])
-    let entry = try #require(store.memoryEntries(spaceID: space).first)
-    #expect(entry.text == first.text && entry.state == .live)
-    let second = try utterance("two", "Use birch instead of oak now.", at: 200)
-    try keeper.apply([choice(second.text, action: "update", existing: entry.id)], utterance: second, candidates: [entry])
-    let updated = try store.memoryEntry(entry.id, spaceID: space)
-    #expect(updated.text == second.text && updated.revision == 2)
-    #expect(try store.memoryEntryHistory(entry.id, spaceID: space).first?.snapshot.text == first.text)
-    let third = try utterance("three", "Use walnut for the shelves.", at: 300)
-    try keeper.apply([choice(third.text, action: "conflict", existing: entry.id)], utterance: third, candidates: [updated])
-    let proposal = try #require(store.memoryEntries(spaceID: space).first { $0.state == .proposed })
-    #expect(try store.memoryEntry(entry.id, spaceID: space).text == second.text)
-    let undo = try UndoStep.recording { try store.acceptMemoryEntry(proposal.id, spaceID: space) }
-    #expect(try store.memoryEntry(entry.id, spaceID: space).text == third.text)
-    _ = try store.replay(undo)
-    #expect(try store.memoryEntry(entry.id, spaceID: space).text == second.text)
-}
-
-/// The schema is decoded the first time the keeper reads a pending source, a few seconds after launch, and a typo in it
-/// stops the app there; the other keeper tests apply choices directly and never reach it.
-@Test func keeperSchemaDecodesAndNamesEveryChoiceField() throws {
-    let entry = MemoryKeeper.schema["properties"]["entries"]["items"]
-    #expect(MemoryKeeper.schema["required"] == .array([.string("entries")]))
-    #expect(Set(entry["required"].array?.compactMap(\.string) ?? []) == ["shelf", "subject", "quote", "existingId", "action", "reason", "fields"])
-    #expect(entry["properties"]["fields"]["items"]["required"] == .array([.string("name"), .string("value")]))
-}
-
-private struct EmptyKeeper: MemoryInference {
-    func complete(system: String, user: String, schema: JSONValue) async throws -> String { #"{"entries":[]}"# }
-}
-
 private actor MigrationWorker: MemoryInference {
     var sawSecret = false
     func complete(system: String, user: String, schema: JSONValue) async throws -> String {

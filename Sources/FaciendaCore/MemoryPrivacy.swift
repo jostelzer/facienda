@@ -4,15 +4,6 @@ import GRDB
 /// Source identity is recorded by the capture boundary, never inferred from what a message says.
 public enum MemorySourceKind: String, Codable, Sendable {
     case userRequest, userReply, userDecision, codexUser, claudeUser, curatedNotes, legacy
-
-    var level: MemoryLevel {
-        switch self {
-        case .userRequest, .userReply, .codexUser, .claudeUser: .user
-        case .userDecision: .decision
-        case .curatedNotes: .note
-        case .legacy: .assistant
-        }
-    }
 }
 
 /// Applied at memory's storage and model boundaries, including structured values containing quoted messages.

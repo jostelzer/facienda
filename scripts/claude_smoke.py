@@ -105,14 +105,14 @@ run('--claude', 'configured', '--thread-id', WORKER, '--applied', 'true', '--not
 waited = run('--claude', 'await', '--dispatch-id', start['id'], '--seconds', '5', session=WORKER).stdout
 assert 'settings are applied' in waited and '--claude prompt' in waited
 prompt = run('--claude', 'prompt', '--dispatch-id', start['id'], session=WORKER).stdout
-assert prompt.startswith(f"Facienda dispatch: {start['id']}\n") and 'Claude session' in prompt and '--tools' in prompt
+assert prompt.startswith(f"Facienda dispatch: {start['id']}\n") and 'mcp__facienda__' in prompt and '--tools' in prompt
 assert 'native Codex chat' not in prompt and 'app-server' not in prompt
 assert f'TASK HANDLE: {task_handle}' in prompt
 assert run('--claude', 'prompt', '--dispatch-id', start['id'], session=OTHER, check=False).returncode != 0
 # A session cannot claim another's identity on the command line.
 assert run('--claude', 'prompt', '--dispatch-id', start['id'], '--session-id', WORKER, session=OTHER, check=False).returncode != 0
 tools = as_json(run('--tools'))
-assert any(tool['name'] == 'facienda_save_result' for tool in tools)
+assert any(tool['name'] == 'facienda_task_update' for tool in tools) and not any(tool['name'] == 'facienda_save_result' for tool in tools)
 
 # A reply from Facienda reaches the owning session through the runner.
 reply_id = str(uuid.uuid4()).upper()

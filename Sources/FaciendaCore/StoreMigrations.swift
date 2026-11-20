@@ -218,6 +218,8 @@ extension FaciendaStore {
         registerOvertakenQuestions(&migrator)
         registerChatEnds(&migrator)
         registerChatModelChanges(&migrator)
+        registerSlimSnapshots(&migrator)
+        registerClaudeCommandGrants(&migrator)
         return migrator
     }
 

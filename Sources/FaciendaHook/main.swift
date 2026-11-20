@@ -18,10 +18,11 @@ do {
     }
     let store = try FaciendaStore(existing: url, busyTimeout: 0.01, migrate: false)
     if args.contains("--claude") {
-        // Claude reads a hook's output as its answer, so this prints nothing: the user decides the prompt in Claude.
+        // Claude reads a hook's output as its answer. Only a command the user allowed once in Facienda is answered;
+        // every other prompt the user decides in Claude.
         let event = try JSONDecoder().decode(ClaudeHookEvent.self, from: data)
         if event.hook_event_name == "PreToolUse" {
-            if let response = try event.memoryContext(in: store) { print(response.json) }
+            if let response = event.preToolUse(in: store) { print(response.json) }
             exit(0)
         }
         guard event.status != nil else { exit(0) }

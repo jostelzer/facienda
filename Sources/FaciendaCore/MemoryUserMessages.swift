@@ -82,7 +82,8 @@ public enum MemoryUserMessages {
                 return block["text"].string
             }.joined(separator: "\n")
             let said = answers(in: text) ?? typed(text)
-            guard !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isEnvelope(said) else { continue }
+            guard !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isEnvelope(said),
+                  !machineOpenings.contains(where: { said.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix($0) }) else { continue }
             messages.append(.init(id: id, turnID: turnID, text: said,
                                   at: Date(timeIntervalSince1970: metadata["create_time"].number ?? 0), precedingReply: precedingReply))
         }
@@ -104,8 +105,10 @@ public enum MemoryUserMessages {
                   record["origin"]["kind"].string.map({ $0 == "human" }) ?? true,
                   !blocks.contains(where: { $0["type"].string == "tool_result" }) else { continue }
             let text = message["content"].string ?? blocks.filter { $0["type"].string == "text" }.compactMap { $0["text"].string }.joined(separator: "\n")
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isEnvelope(text) else { continue }
-            messages.append(.init(id: id, turnID: id, text: text, at: MemoryText.parseDate(record["timestamp"].string) ?? .distantPast,
+            // A session carried on from a summary, and the reminders an app puts around a message, are not the
+            // person's words. Memory learned from two hundred such summaries as if they had said them.
+            guard record["isCompactSummary"].bool != true, let said = words(in: text) else { continue }
+            messages.append(.init(id: id, turnID: id, text: said, at: MemoryText.parseDate(record["timestamp"].string) ?? .distantPast,
                                   precedingReply: precedingReply))
         }
         return messages

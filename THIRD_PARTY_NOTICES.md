@@ -3,8 +3,7 @@
 ## Built-in memory
 
 - **Hindsight** 0.10.2 — https://github.com/vectorize-io/hindsight — MIT License, Copyright (c) Vectorize AI, Inc.
-  Facienda's built-in memory follows Hindsight's retain, consolidation and recall method, and its extraction,
-  consolidation and merge prompts (`Sources/FaciendaCore/MemoryPrompts.swift`) are adapted from Hindsight's.
+  `MemoryChunker` in `Sources/FaciendaCore/MemoryRetain.swift` ports Hindsight's recursive text splitter.
 - **BAAI/bge-small-en-v1.5** — https://huggingface.co/BAAI/bge-small-en-v1.5 — MIT License.
   Converted to Core ML with 8-bit weights as `Sources/FaciendaCore/Resources/Memory/MemoryEmbedder.mlpackage`.
 - **cross-encoder/ms-marco-MiniLM-L-6-v2** — https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-6-v2 — Apache License 2.0.

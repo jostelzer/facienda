@@ -64,6 +64,41 @@ public struct MemoryUnderstanding: Codable, FetchableRecord, PersistableRecord, 
     var forInference: Self { var copy = self; copy.embedding = Data(); return copy }
 }
 
+extension MemoryUnderstanding {
+    /// About how many interpretations a workspace keeps. A memory nobody can read through helps no one: one workspace
+    /// had grown to over nine hundred, most of them one remark turned into a subject.
+    public static let kept = 20
+    /// Earlier versions kept for each one. Every rewrite used to leave a full copy behind, without end.
+    static let keptVersions = 3
+
+    private var strength: Int { ["tentative": 1, "supported": 2, "strong": 3][confidence] ?? 0 }
+
+    /// The interpretations beyond the ones worth keeping. What the user reviewed always stays. The rest stand by how
+    /// well they are supported, then by how many sources they cite, then by how recent they are, and a near copy of
+    /// one already kept gives up its place. No kind has a share: a workspace may be all about one person.
+    static func surplus(_ all: [MemoryUnderstanding], keep: Int = kept) -> [MemoryUnderstanding] {
+        var staying = all.filter { $0.state != .inferred }
+        var dropped: [MemoryUnderstanding] = []
+        let ranked = all.filter { $0.state == .inferred }.sorted { a, b in
+            let x = Set(a.citations.map(\.evidenceId)).count, y = Set(b.citations.map(\.evidenceId)).count
+            return a.strength != b.strength ? a.strength > b.strength : x != y ? x > y : a.updatedAt != b.updatedAt ? a.updatedAt > b.updatedAt : a.id < b.id
+        }
+        for item in ranked {
+            let vector = MemoryVector.decode(item.embedding)
+            let copy = staying.contains { other in
+                guard other.state != .dismissed else { return false }
+                if other.subjectKey == item.subjectKey { return true }
+                let near = MemoryVector.decode(other.embedding)
+                guard !vector.isEmpty, vector.count == near.count else { return false }
+                let length = (MemoryVector.dot(vector, vector) * MemoryVector.dot(near, near)).squareRoot()
+                return length > 0 && MemoryVector.dot(vector, near) / length > 0.92
+            }
+            if copy || staying.filter({ $0.state != .dismissed }).count >= keep { dropped.append(item) } else { staying.append(item) }
+        }
+        return dropped
+    }
+}
+
 public struct MemoryUnderstandingVersion: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "memoryUnderstandingHistory"
     public var id: String
@@ -218,6 +253,7 @@ extension FaciendaStore {
         try write { db in
             guard var item = try MemoryUnderstanding.fetchOne(db, sql: "SELECT * FROM memoryUnderstanding WHERE id = ? AND spaceId = ?", arguments: [id, spaceID]) else { throw StoreError.notFound }
             try MemoryUnderstandingVersion(id: UUID().uuidString, understandingId: id, snapshot: item, at: Date()).insert(db)
+            try Self.pruneUnderstandingHistory(db, id: id)
             if let summary {
                 guard !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.invalid("Write the corrected understanding.") }
                 item.summary = MemoryRedaction.redact(summary); item.embedding = Data()
@@ -225,6 +261,33 @@ extension FaciendaStore {
             item.state = dismiss ? .dismissed : .reviewed; item.revision += 1; item.updatedAt = Date()
             try item.update(db)
         }
+    }
+
+    /// Lets go of what a workspace holds beyond `keep`. The evidence stays, so a subject that comes up again can
+    /// earn its place back. Returns what was dropped.
+    @discardableResult public func trimMemoryUnderstanding(spaceID: String, keep: Int = MemoryUnderstanding.kept) throws -> [MemoryUnderstanding] {
+        try db.write { try Self.trimMemoryUnderstanding($0, spaceID: spaceID, keep: keep) }
+    }
+
+    @discardableResult static func trimMemoryUnderstanding(_ db: Database, spaceID: String, keep: Int) throws -> [MemoryUnderstanding] {
+        let all = try MemoryUnderstanding.fetchAll(db, sql: "SELECT * FROM memoryUnderstanding WHERE spaceId = ? ORDER BY updatedAt DESC, id", arguments: [spaceID])
+        let surplus = MemoryUnderstanding.surplus(all, keep: keep)
+        guard !surplus.isEmpty else { return [] }
+        let gone = Set(surplus.map(\.id))
+        for id in gone {
+            try db.execute(sql: "DELETE FROM memoryUnderstandingHistory WHERE understandingId = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM memoryUnderstanding WHERE id = ?", arguments: [id])
+        }
+        for var item in all where !gone.contains(item.id) && item.connections.contains(where: { gone.contains($0.targetId) }) {
+            item.connections.removeAll { gone.contains($0.targetId) }
+            try item.update(db)
+        }
+        return surplus
+    }
+
+    static func pruneUnderstandingHistory(_ db: Database, id: String) throws {
+        try db.execute(sql: "DELETE FROM memoryUnderstandingHistory WHERE understandingId = ? AND id NOT IN (SELECT id FROM memoryUnderstandingHistory WHERE understandingId = ? ORDER BY at DESC, id LIMIT ?)",
+                       arguments: [id, id, MemoryUnderstanding.keptVersions])
     }
 
     public func memoryLearningProgress(spaceID: String) throws -> MemoryLearningProgress {

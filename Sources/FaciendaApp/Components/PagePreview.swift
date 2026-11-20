@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 import FaciendaCore
 
-/// A web page an agent made in the task's folder, such as a mock, shown in a window of its own. The page is the
+/// A web page or picture an agent made in the task's folder, such as a mock or a screenshot, shown in a window of its own. The page is the
 /// agent's and untrusted: nothing loads from the network, it reads only the files in its own folder, it cannot open
 /// windows, and its links go nowhere but within that folder. `CodexMarkdown.localPage` decides which pages come here.
 struct PagePreview: View {

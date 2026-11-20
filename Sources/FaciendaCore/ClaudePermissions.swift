@@ -1,7 +1,8 @@
 import Foundation
 
 /// The one approval Facienda asks for in Claude, in the user's Claude settings: a hook that tells Facienda when a task's
-/// session waits for the user's permission. The hook only reports; it never answers a prompt. Facienda's allow rules
+/// session waits for the user's permission. The hook only reports, with one exception: a Bash command the user allowed
+/// once on a Facienda card, which it lets through once (see `ClaudeCommandGrant`). Facienda's allow rules
 /// live only in its own folders (see `prepareClaudeFolder`), never in these settings for every session; rules that
 /// earlier builds put here are taken out whenever Facienda changes the file.
 /// Everything else in the file keeps its content; the original is backed up first.

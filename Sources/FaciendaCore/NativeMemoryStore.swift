@@ -1,68 +1,6 @@
 import Foundation
 import GRDB
 
-/// One remembered unit: a fact extracted from a source (`world` or `experience`) or an `observation` consolidated from facts.
-public struct MemoryUnit: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "memoryUnits"
-    public enum Kind: String, Codable, Sendable, CaseIterable { case world, experience, observation }
-
-    public var id: String
-    public var spaceId: String
-    /// The local `memoryDocuments` source; nil for observations.
-    public var documentId: String?
-    public var chunkIndex: Int?
-    public var kind: Kind
-    public var text: String
-    public var context: String?
-    public var occurredStart: Date?
-    public var occurredEnd: Date?
-    public var mentionedAt: Date?
-    /// `occurredStart ?? mentionedAt`, used for temporal links and recency.
-    public var eventDate: Date
-    public var embedding: Data
-    public var proofCount: Int
-    /// Observations only: the facts behind it, as a JSON array of unit IDs.
-    public var sourceIds: String?
-    public var consolidatedAt: Date?
-    public var consolidationFailedAt: Date?
-    public var createdAt: Date
-    public var updatedAt: Date
-    /// Who it comes from (`MemoryLevel`): the user's words and notes rank above agent reports.
-    public var level: String? = nil
-    /// What kind of knowledge it is (`MemoryKind`), which decides how fast it fades.
-    public var memoryKind: String? = nil
-    /// The Facienda task it was learned from, when there is exactly one.
-    public var taskId: String? = nil
-    /// Set when the user forgot it: kept for Undo, shown nowhere, recalled never.
-    public var forgottenAt: Date? = nil
-
-    public var vector: [Float] { MemoryVector.decode(embedding) }
-    func with(kind: String?) -> MemoryUnit { var copy = self; copy.memoryKind = kind; return copy }
-    public var sources: [String] {
-        guard let sourceIds, let ids = try? JSONDecoder().decode([String].self, from: Data(sourceIds.utf8)) else { return [] }
-        return ids
-    }
-}
-
-public struct MemoryEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "memoryEntities"
-    public var id: String
-    public var spaceId: String
-    public var name: String
-    public var mentionCount: Int
-    public var firstSeen: Date
-    public var lastSeen: Date
-}
-
-public struct MemoryLink: Codable, FetchableRecord, PersistableRecord, Equatable, Sendable {
-    public static let databaseTableName = "memoryLinks"
-    public enum Kind: String, Codable, Sendable { case temporal, semantic, causedBy = "caused_by" }
-    public var fromId: String
-    public var toId: String
-    public var kind: Kind
-    public var weight: Double
-}
-
 /// Little-endian Float32 storage for 384-dimensional unit vectors.
 public enum MemoryVector {
     public static func encode(_ vector: [Float]) -> Data { vector.withUnsafeBufferPointer { Data(buffer: $0) } }
@@ -173,80 +111,6 @@ extension FaciendaStore {
         }
     }
 
-    // MARK: Units
-
-    public func memoryUnits(spaceID: String, kinds: [MemoryUnit.Kind] = MemoryUnit.Kind.allCases) throws -> [MemoryUnit] {
-        try db.read { db in
-            try MemoryUnit.fetchAll(db, sql: "SELECT * FROM memoryUnits WHERE spaceId = ? AND forgottenAt IS NULL AND kind IN (\(kinds.map { _ in "?" }.joined(separator: ",")))",
-                                    arguments: StatementArguments([spaceID] + kinds.map(\.rawValue)))
-        }
-    }
-
-    /// What a memory learned, for reading through: its observations, newest first, those of one kind when asked.
-    /// Notes are left out, since they are shown as notes.
-    public func learnedObservations(spaceID: String, kind: MemoryKind? = nil, limit: Int = 300) throws -> [MemoryUnit] {
-        try db.read { db in
-            try MemoryUnit.fetchAll(db, sql: """
-                SELECT * FROM memoryUnits WHERE spaceId = ? AND kind = 'observation' AND forgottenAt IS NULL AND id NOT LIKE 'note-%'
-                \(kind == nil ? "" : "AND memoryKind = ?") ORDER BY eventDate DESC, updatedAt DESC LIMIT ?
-                """, arguments: StatementArguments([spaceID] + (kind.map { [$0.rawValue] } ?? []) + [limit]))
-        }
-    }
-
-    /// The user forgets a learned memory: it leaves every recall and list, but stays for Undo.
-    public func forgetMemoryUnit(_ id: String) throws {
-        try write { db in
-            try db.execute(sql: "UPDATE memoryUnits SET forgottenAt = ?, updatedAt = ? WHERE id = ? AND forgottenAt IS NULL", arguments: [Date(), Date(), id])
-            guard db.changesCount == 1 else { throw StoreError.notFound }
-        }
-    }
-
-    public func restoreMemoryUnit(_ id: String) throws {
-        try write { db in try db.execute(sql: "UPDATE memoryUnits SET forgottenAt = NULL, updatedAt = ? WHERE id = ?", arguments: [Date(), id]) }
-    }
-
-    public func memoryUnits(ids: [String]) throws -> [MemoryUnit] {
-        guard !ids.isEmpty else { return [] }
-        return try db.read { db in try MemoryUnit.fetchAll(db, keys: ids) }
-    }
-
-    /// A cheap fingerprint of a memory's contents, used to invalidate in-process caches.
-    public func memoryRevision(spaceID: String) throws -> String {
-        try db.read { db in
-            let row = try Row.fetchOne(db, sql: "SELECT COUNT(*) AS n, MAX(updatedAt) AS at FROM memoryUnits WHERE spaceId = ?", arguments: [spaceID])
-            return "\(row?["n"] as Int? ?? 0)-\(row?["at"] as String? ?? "")"
-        }
-    }
-
-    static func indexUnit(_ db: Database, _ unit: MemoryUnit, entities: [String]) throws {
-        try db.execute(sql: "DELETE FROM memoryUnitSearch WHERE unitId = ?", arguments: [unit.id])
-        let dates = [unit.occurredStart, unit.occurredEnd].compactMap { $0 }.map(MemoryText.spokenDate)
-        let body = MemoryRedaction.redact(([unit.text, unit.context ?? ""] + entities + dates).joined(separator: " "))
-        try db.execute(sql: "INSERT INTO memoryUnitSearch (unitId, body) VALUES (?, ?)", arguments: [unit.id, body])
-    }
-
-    static func deleteUnits(_ db: Database, ids: [String]) throws {
-        for id in ids {
-            try db.execute(sql: "DELETE FROM memoryUnitSearch WHERE unitId = ?", arguments: [id])
-            try db.execute(sql: "DELETE FROM memoryUnits WHERE id = ?", arguments: [id])
-        }
-    }
-
-    public func memoryEntityNames(unitIDs: [String]) throws -> [String: [String]] {
-        guard !unitIDs.isEmpty else { return [:] }
-        return try db.read { db in
-            var names: [String: [String]] = [:]
-            for chunk in stride(from: 0, to: unitIDs.count, by: 500).map({ Array(unitIDs[$0..<min($0 + 500, unitIDs.count)]) }) {
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT ue.unitId, e.name FROM memoryUnitEntities ue JOIN memoryEntities e ON e.id = ue.entityId
-                    WHERE ue.unitId IN (\(chunk.map { _ in "?" }.joined(separator: ","))) ORDER BY e.name
-                    """, arguments: StatementArguments(chunk))
-                for row in rows { names[row["unitId"], default: []].append(row["name"]) }
-            }
-            return names
-        }
-    }
-
     /// Native memory progress for one memory: sources waiting, done, failing, and how much was learned.
     public func nativeMemoryStatus(spaceID: String) throws -> NativeMemoryStatus {
         try db.read { db in
@@ -274,42 +138,16 @@ public struct NativeMemoryStatus: Codable, Equatable, Sendable {
     public var error: String?
 }
 
-/// Shared text forms, matching Hindsight's so imported memories embed and search identically.
+/// Reads the dates found in chat records.
 public enum MemoryText {
     static let posix = Locale(identifier: "en_US_POSIX")
     static let utc = TimeZone(identifier: "UTC")!
-
-    static func format(_ date: Date, _ pattern: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = posix; formatter.timeZone = utc; formatter.dateFormat = pattern
-        return formatter.string(from: date)
-    }
-
-    /// "October 12 2026", used for keyword search.
-    public static func spokenDate(_ date: Date) -> String { format(date, "MMMM d yyyy") }
-
-    /// The text that is embedded: the fact, when it happened (month precision) and the entities it names.
-    public static func embeddingText(_ text: String, start: Date?, end: Date?, mentioned: Date?, entities: [String]) -> String {
-        var result = text
-        if let first = start ?? mentioned {
-            let a = format(first, "MMMM yyyy")
-            if let end, let start, end != start, format(end, "MMMM yyyy") != a {
-                result += " (happened from \(a) to \(format(end, "MMMM yyyy")))"
-            } else {
-                result += " (happened in \(a))"
-            }
-        }
-        if !entities.isEmpty { result += " [" + entities.joined(separator: ", ") + "]" }
-        return result
-    }
 
     nonisolated(unsafe) static let iso: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-
-    public static func isoString(_ date: Date?) -> JSONValue { date.map { .string(iso.string(from: $0)) } ?? .null }
 
     /// Accepts full ISO timestamps or plain `yyyy-MM-dd` dates.
     public static func parseDate(_ value: String?) -> Date? {

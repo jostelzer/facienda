@@ -53,22 +53,19 @@ private func threeMemories() throws -> (store: FaciendaStore, studio: String, ho
     try store.setMemoryRead(reader: studio, source: home)
     #expect(try open(server.id)["from"].string == "Home")
     #expect(throws: StoreError.self) { try open(rule.id) }
-    // A proposal from a Studio task lands in Studio, never in the memory it reads.
-    _ = try tools.call("memory_propose", arguments: .object(["shelf": .string("places"), "text": .string("The server moved to a new box"), "why": .string("Said today"), "taskId": .string(handle)]))
+    // A task cannot write into the memory it reads, or into its own.
+    #expect(throws: StoreError.self) { try tools.call("memory_propose", arguments: .object(["shelf": .string("places"), "text": .string("The server moved to a new box"), "why": .string("Said today"), "taskId": .string(handle)])) }
     #expect(try store.memoryEntries(spaceID: home).allSatisfy { $0.state == .live })
-    #expect(try store.memoryEntries(spaceID: studio).contains { $0.state == .proposed })
+    #expect(try !store.memoryEntries(spaceID: studio).contains { $0.state == .proposed })
 }
 
 @Test func theAgentIsToldWhichMemoriesItReads() throws {
     let (store, studio, home, _, task) = try threeMemories()
-    let tools = ToolService(store: store)
-    #expect(try tools.memoryInstructions(for: task).contains("reaches only this workspace"))
     #expect(try !store.memoryAgentContext(taskID: task.id, query: "server").index.contains("Also reads"))
 
     try store.setMemoryRead(reader: studio, source: home, understanding: true)
-    #expect(try tools.memoryInstructions(for: task).contains("read-only, the memories of: Home (3 entries, with understanding)"))
     let index = try store.memoryAgentContext(taskID: task.id, query: "server")
-    #expect(index.index.contains("Also reads, read-only: Home") && index.index.contains("(from Home)"))
+    #expect(index.index.contains("Also reads, read-only: Home (3 entries, with understanding)") && index.index.contains("(from Home)"))
     #expect(!index.rules.contains("Never pay"))
     #expect(try store.memoriesReading(home).map(\.id) == [studio])
 }

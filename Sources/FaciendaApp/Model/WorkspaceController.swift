@@ -409,10 +409,12 @@ enum WorkspaceSheet: Identifiable {
         if let next = ordered.first(where: { $0.coverPaintedAt == nil && !coverFailures.contains($0.id) }) { paintCover(next, requested: false) }
     }
 
-    /// The groups say what the workspace is about; open tasks fill in the detail.
+    /// A workspace is painted from its groups, as a group is from its tasks: one coherent list. Every open task of the
+    /// whole workspace on top of them pulled the picture in a dozen directions. A workspace without groups yet gives its open tasks.
     private func coverContents(_ workspace: Workspace, in library: FaciendaStore) -> [String] {
         let scoped = library.scoped(to: workspace.id)
-        return ((try? scoped.groups()) ?? []).map(\.name) + ((try? scoped.tasks()) ?? []).filter(\.state.isOpen).map(\.displayName)
+        let groups = ((try? scoped.groups()) ?? []).map(\.name)
+        return groups.isEmpty ? ((try? scoped.tasks()) ?? []).filter(\.state.isOpen).map(\.displayName) : groups
     }
 
     /// Repainting keeps the workspace's style and notes unless a new style is asked for.

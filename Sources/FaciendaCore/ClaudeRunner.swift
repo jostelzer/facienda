@@ -480,7 +480,7 @@ extension FaciendaStore {
     }
 
     /// Another connection held the library past the busy timeout. Trying again later is safe.
-    static func isBusy(_ error: any Error) -> Bool {
+    public static func isBusy(_ error: any Error) -> Bool {
         guard let error = error as? DatabaseError else { return false }
         return error.resultCode == .SQLITE_BUSY || error.resultCode == .SQLITE_LOCKED
     }

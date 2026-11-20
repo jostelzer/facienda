@@ -219,6 +219,12 @@ private struct FakePicturePainter: CoverPainting {
     controller.undoCover(adjusted)
     let restored = try #require(controller.workspaces.first { $0.id == garden.id })
     #expect(restored.coverStyle == "Fauvism" && restored.coverNotes == nil && !controller.canUndoCover(restored))
+    // Once it has groups, a workspace is painted from them, as a group is from its tasks, and a plain repaint keeps its style.
+    try #require(controller.model).store.createGroup(name: "Bulbs")
+    controller.paintCover(restored)
+    for _ in 0..<300 where await log.calls.count < 4 { try await Task.sleep(for: .milliseconds(10)) }
+    calls = await log.calls
+    #expect(calls.last?.tasks == ["Bulbs"] && calls.last?.style == "Fauvism" && calls.last?.instruction == nil)
 }
 
 @MainActor @Test func workspacesKeepTheirSpacesOnTheIslandAndADropSwapsTwo() throws {

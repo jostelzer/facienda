@@ -56,15 +56,7 @@ private func spaceID(_ store: FaciendaStore) throws -> String { try store.resolv
     #expect(context["learned"] == .null)
 }
 
-@Test func memoryCredentialsRejectSharedPermissionsAndModelDefaultsAreExplicit() throws {
-    let folder = FileManager.default.temporaryDirectory.appending(path: "memory-credentials-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let file = folder.appending(path: "token")
-    try String(repeating: "x", count: 48).write(to: file, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
-    #expect(throws: StoreError.self) { try MemoryServiceCredentials.readToken(at: file) }
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-    #expect(try MemoryServiceCredentials.readToken(at: file).count == 48)
+@Test func memoryModelDefaultsAreExplicit() throws {
     let store = try memoryStore()
     #expect(try store.memorySettings().workerModel == "gpt-6-luna")
     #expect(try store.memorySettings().workerReasoningEffort == "high")
@@ -73,15 +65,9 @@ private func spaceID(_ store: FaciendaStore) throws -> String { try store.resolv
     #expect(throws: StoreError.self) { try store.saveMemorySettings(enabled: true, workerModel: "gpt-6-luna", workerReasoningEffort: "typo") }
 }
 
-@Test func credentialsRejectSymlinksAndDatabaseFilesStayPrivate() throws {
+@Test func databaseFilesStayPrivate() throws {
     let folder = FileManager.default.temporaryDirectory.appending(path: "memory-file-security-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let token = folder.appending(path: "token")
-    try String(repeating: "a", count: 48).write(to: token, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: token.path)
-    let link = folder.appending(path: "link")
-    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: token)
-    #expect(throws: StoreError.self) { try MemoryServiceCredentials.readToken(at: link) }
     let store = try FaciendaStore(url: folder.appending(path: "facienda.sqlite"))
     _ = try store.create(FaciendaTask(title: "Synthetic storage-permission test"))
     for suffix in ["", "-wal", "-shm"] {

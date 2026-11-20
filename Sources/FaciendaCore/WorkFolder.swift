@@ -75,9 +75,6 @@ extension FaciendaStore {
 
     // MARK: Artifacts
 
-    /// Told to every task chat. A task once copied a 30 GB project into its folder twice and filled the disk.
-    public static let artifactRules = "Keep implementation files in the working folder and private task material in the designated private folder. Keep them lean: never copy a whole project, repository or large asset folder there. Work in the original folder, or use git worktree for a separate checkout. Before finishing, delete large intermediate output you no longer need, such as builds, frame renders and downloads."
-
     /// Days after a task is done before its folder is cleared. nil keeps folders until the user clears them.
     public func artifactRetentionDays() throws -> Int? {
         try db.read { try Int.fetchOne($0, sql: "SELECT artifactRetentionDays FROM libraryState WHERE id = 1") }

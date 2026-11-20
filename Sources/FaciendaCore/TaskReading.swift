@@ -153,12 +153,16 @@ extension FaciendaStore {
     }
 
     /// Tasks in progress in each workspace, as the board's In progress files them: running, or open with a delivery
-    /// underway. A parked task's check that has not gone out yet leaves it parked.
+    /// underway. A parked task's check that has not gone out yet leaves it parked. A Codex delivery put off mid-send
+    /// waits for the user under Needs recovery, so it is left out too, or the tile would spin over an empty column.
     public func runningCounts() throws -> [String: Int] {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT workspaceId, count(*) AS count FROM tasks
                 WHERE state NOT IN ('done', 'dropped') AND workspaceId IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM dispatches WHERE dispatches.taskId = tasks.id AND dispatches.state = 'dispatching'
+                      AND dispatches.availableAt IS NOT NULL AND COALESCE(dispatches.provider, 'codex') != 'claude')
                   AND (state = 'running' OR EXISTS (
                     SELECT 1 FROM dispatches WHERE dispatches.taskId = tasks.id
                       AND (dispatches.state = 'dispatching' OR (dispatches.state IN ('queued', 'claimed')

@@ -178,8 +178,9 @@ private func message(_ type: String, _ text: String) -> JSONValue {
         try CheckPlan(taskId: task.id, threadId: "finder", revision: 1, nextCheck: Date().addingTimeInterval(3600), purpose: "Look for a reply", reason: "They answer in the morning",
                       paused: false, pinned: false, minimumInterval: 3600, deadline: Date().addingTimeInterval(86400 * 7), failures: 0, checks: 0).insert(db)
     }
+    // The answer was saved during this turn, so it stands beside the chat's own closing line.
     try store.saveConversation(taskId: task.id, conversation: CodexConversation(threadId: "finder", title: "Venue", turns: [
-        CodexConversationTurn(id: "t1", status: "completed", startedAt: Date(), completedAt: Date(), error: .null,
+        CodexConversationTurn(id: "t1", status: "completed", startedAt: Date().addingTimeInterval(-60), completedAt: Date(), error: .null,
                               items: [message("userMessage", "Which mail had the venue?"), message("agentMessage", "The one from Ada, 3 March.")])
     ]))
 

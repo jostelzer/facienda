@@ -59,10 +59,6 @@ enum RunnerCommand {
             guard arguments.value("--engine") == nil, arguments.value("--endpoint") == nil else { throw StoreError.invalid("Memory services are no longer supported.") }
             try store.saveMemorySettings(enabled: arguments.value("--enabled").map { $0 == "true" } ?? store.memorySettings().enabled, workerModel: arguments.value("--worker-model") ?? store.memorySettings().workerModel, workerReasoningEffort: arguments.value("--worker-reasoning") ?? store.memorySettings().workerReasoningEffort)
             return try JSONValue.encoded(store.memorySettings()).json
-        case "memory-import":
-            let space = try store.memorySpace(arguments.required("--space"))
-            let export = try HelperPolicy.folder(arguments.required("--export"), from: HelperPolicy.readableFolders(store))
-            return try JSONValue.encoded(store.importHindsightMemory(spaceID: space.id, from: export)).json
         case "memory-redact":
             let space = try store.memorySpace(arguments.required("--space"))
             return try JSONValue.encoded(store.redactStoredMemory(spaceID: space.id, apply: arguments.value("--apply") == "true")).json
@@ -76,34 +72,6 @@ enum RunnerCommand {
             guard arguments.value("--apply") == "true" else { throw StoreError.invalid("Undo needs an explicit --apply true.") }
             try store.undoMemoryMigration(spaceID: space.id)
             return JSONValue.object(["restored": .bool(true)]).json
-        case "memory-recall":
-            let space = try store.memorySpace(arguments.required("--space"))
-            return try await MemoryRecall(store: store).recall(arguments.required("--query"), spaceID: space.id).json
-        case "memory-learn", "memory-classify":
-            throw StoreError.invalid("The legacy memory learner is paused. Existing memory is still readable.")
-        case "memory-recall-batch":
-            // Evaluation: one line per query with the ranked unit IDs, cited sources and the time taken.
-            let space = try store.memorySpace(arguments.required("--space"))
-            let recall = MemoryRecall(store: store)
-            var lines: [String] = []
-            for line in String(decoding: try read(arguments.required("--queries"), store: store, limit: 16 << 20), as: UTF8.self).split(separator: "\n") {
-                let item = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
-                let started = Date()
-                var options = MemoryRecallOptions()
-                options.taskID = item["taskId"].string
-                let off = Set((arguments.value("--ablate") ?? "").split(separator: ",").map(String.init))
-                let on = Set((arguments.value("--enable") ?? "").split(separator: ",").map(String.init))
-                options.kindRecency = off.contains("kinds") ? false : on.contains("kinds"); options.trustBoost = off.contains("trust") ? false : on.contains("trust"); options.taskBoost = !off.contains("task")
-                if off.contains("notes") { options.excludeNotes = true }
-                let response = try await recall.recall(item["query"].string ?? "", spaceID: space.id, options: options)
-                let results = response["results"].array ?? []
-                lines.append(JSONValue.object([
-                    "id": item["id"], "ms": .number(Date().timeIntervalSince(started) * 1000),
-                    "results": .array(results.map { $0["id"] }),
-                    "sources": .array(results.map { .array($0["source_fact_ids"].array ?? []) }),
-                ]).json)
-            }
-            return lines.joined(separator: "\n")
         case "memory-status":
             return try JSONValue.object(["settings": .encoded(store.memorySettings()), "memories": .encoded(store.memorySpaces()), "sources": .encoded(store.workspaceMemoryStatus())]).json
         case "status":

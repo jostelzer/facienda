@@ -79,7 +79,7 @@ extension AppModel {
             }
             guard !read.isEmpty else { return }
             try await Task.detached(priority: .utility) { [read] in try library.markReadInChat(read) }.value
-        } catch { self.error = error.localizedDescription }
+        } catch { backgroundFailed(error) }
     }
     private static var chatsCheckedAt = Date.distantPast
     /// Chats saved before their ends were kept are read once, a few at a time off the main thread, so their rows show
@@ -190,7 +190,7 @@ extension AppModel {
             if let task = selectedTask, destination != .inbox {
                 await loadConversation(for: task)
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { backgroundFailed(error) }
     }
     /// A chat continued in the Codex app is only `notLoaded` here, and hooks may not run, so its turns never reach
     /// the task. A running task is checked once its chat stops changing for a poll; any other open task as soon as

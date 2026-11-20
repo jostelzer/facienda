@@ -72,8 +72,12 @@ struct TaskOpenView: View {
     @State private var tail: ChatTail?
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var viewport: CGFloat = 0
-    /// The pointer is on the side left of the column, which goes back to the board.
+    /// The pointer is on the side left of the column, which goes back to the board, or on its round button. Kept
+    /// apart because leaving one for the other can report the two in either order.
     @State private var onSide = false
+    @State private var onBack = false
+    /// The panel's width, which sets the side and so where the bar's name starts.
+    @State private var width: CGFloat = 0
     /// Words were just sent: they land in the chat, and the task folds home a moment later.
     @State private var landing = false
     /// Settings › General: off keeps the task open once the words have landed.
@@ -128,6 +132,7 @@ struct TaskOpenView: View {
             .overlay { backWash }
         }
         .background(ground(0.05))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // What was here to read has been read once the task is left, whichever way.
         .onDisappear { model.markReviewed(task.id) }
         // Leaving another way in the meantime ends the wait with the view.
@@ -175,22 +180,10 @@ struct TaskOpenView: View {
         } else { bar }
     }
 
+    /// The way back is the side alone, so the bar holds only the task: its name starts where the chat's text does.
     private var bar: some View {
         let dot = TaskDot.Kind(model: model, task: task)
         return HStack(spacing: 10) {
-            Button(action: close) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
-                    Text(model.groupMembers[task.id].flatMap { id in model.groups.first { $0.id == id }?.name } ?? "Board")
-                        .font(.system(size: 12)).lineLimit(1)
-                }
-                .foregroundStyle(onSide ? Palette.ink : Palette.muted).frame(height: 28)
-                // Lit with the side, so the two read as the same way back.
-                .padding(.leading, 6).padding(.trailing, 8)
-                .background(Capsule().fill(Palette.ink.opacity(onSide ? 0.07 : 0)))
-                .contentShape(Capsule()).padding(.leading, -6)
-            }
-            .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("Back to the board (Esc)").layoutPriority(1)
             name.layoutPriority(2)
             HStack(spacing: 5) {
                 TaskDot(kind: dot)
@@ -199,12 +192,8 @@ struct TaskOpenView: View {
             .help(dot.label)
             Spacer(minLength: 8)
             TaskMenu(model: model, task: task).foregroundStyle(Palette.muted)
-            Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).foregroundStyle(Palette.muted).help("Close").accessibilityLabel("Close task")
         }
-        .padding(.leading, 18).padding(.trailing, 14).frame(height: 50)
+        .padding(.leading, max(18, Self.side(in: width))).padding(.trailing, 14).frame(height: 50)
     }
 
     /// The name the user recognises, then where the thread went, greyed: the same line as on the task's row.
@@ -348,8 +337,8 @@ struct TaskOpenView: View {
 
     // MARK: The way back
 
-    /// The empty margin left of the column goes back to the board, from under the bar to the foot. It takes no room
-    /// of its own: the column keeps its width, and a narrow window leaves only the column's padding.
+    /// The empty margin left of the column is the one way back to the board, from under the bar to the foot. It takes
+    /// no room of its own: the column keeps its width, and a narrow window leaves only the column's padding.
     private var backSide: some View {
         GeometryReader { proxy in
             Color.clear.frame(width: Self.side(in: proxy.size.width))
@@ -360,17 +349,34 @@ struct TaskOpenView: View {
         .accessibilityHidden(true)
     }
 
-    /// Nothing shows until the pointer is on the side; then a soft rounded wash fills it, with a chevron at its middle.
+    /// A soft round chevron rests at the side's middle, so the way back is found without hovering; on the side a
+    /// rounded wash fills it and the chevron comes up. The chevron is a real button, which carries Esc and the label.
     private var backWash: some View {
         GeometryReader { proxy in
             let width = Self.side(in: proxy.size.width)
-            RoundedRectangle(cornerRadius: 16).fill(Palette.ink.opacity(0.05))
-                .overlay { Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.ink) }
-                .padding(.horizontal, width < 60 ? 5 : 8).padding(.vertical, 10)
-                .frame(width: width)
-                .opacity(onSide ? 1 : 0)
+            let narrow = width < 60
+            let lit = onSide || onBack
+            ZStack {
+                RoundedRectangle(cornerRadius: 16).fill(Palette.ink.opacity(0.05))
+                    .padding(.horizontal, narrow ? 3 : 8).padding(.vertical, 10)
+                    .opacity(lit ? 1 : 0).allowsHitTesting(false)
+                Button(action: close) {
+                    Image(systemName: "chevron.left").font(.system(size: narrow ? 10 : 12, weight: .semibold))
+                        .foregroundStyle(lit ? Palette.ink : Palette.muted)
+                        .frame(width: narrow ? 22 : 30, height: narrow ? 22 : 30)
+                        .background {
+                            Circle().fill(lit ? Palette.card : Palette.ink.opacity(0.05))
+                                .overlay { Circle().strokeBorder(Palette.line.opacity(lit ? 1 : 0), lineWidth: 1) }
+                                .shadow(color: .black.opacity(lit ? 0.08 : 0), radius: 3, y: 1)
+                        }
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain).keyboardShortcut(.cancelAction)
+                .help("Back to the board (Esc)").accessibilityLabel("Back to the board")
+                .onHover { inside in withAnimation(Motion.fade) { onBack = inside } }
+            }
+            .frame(width: width, height: proxy.size.height)
         }
-        .allowsHitTesting(false)
     }
 }
 
